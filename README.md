@@ -37,7 +37,9 @@ Without it, nothing on the host can resolve `.dadi`. Include `nas.dadi` now even
 ## Bring-up
 
 ```sh
-cp .env.example .env      # optional for bring-up; fill keys when you need providers
+cp ../dwar/.env.example ../dwar/.env       # may stay empty if you do not need model calls
+cp ../yaad/.env.example ../yaad/.env
+cp ../dimaag/.env.example ../dimaag/.env
 docker compose up --build
 docker compose run --rm yaad npm run db:migrate
 docker compose run --rm dimaag npm run db:migrate
@@ -45,7 +47,7 @@ docker compose run --rm dimaag npm run db:migrate
 
 Migrations are an explicit step — do not bake them into container startup. Dimaag's migrate also seeds root Dadi and syncs the tool registry.
 
-Provider keys live in `.env` (gitignored). They are not required to start the stack — Dwar boots without them, logs which are missing, and returns `503 misconfigured` on routes that need a key. Database URLs, service addresses, and ports are topology and live in the compose file.
+Each module owns its `.env` (gitignored). Nas points `env_file` at those files. Dwar's keys may be left empty for a stack that does not need model calls — Dwar boots and returns `503 provider_unconfigured` on routes that need a key. Database passwords and URLs live in each module's `.env`; `POSTGRES_USER` / `POSTGRES_DB` stay inline in compose as topology.
 
 ## Working on one module
 

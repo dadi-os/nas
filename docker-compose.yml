@@ -21,15 +21,15 @@ services:
 
   dwar:
     build: ../dwar
-    env_file: .env
+    env_file: ../dwar/.env
     expose: ["8080"]
     networks: [dadi]
 
   yaad-postgres:
     image: pgvector/pgvector:pg18
+    env_file: ../yaad/.env
     environment:
       POSTGRES_USER: yaad
-      POSTGRES_PASSWORD: yaad
       POSTGRES_DB: yaad
     volumes:
       - yaad_pg:/var/lib/postgresql
@@ -44,9 +44,7 @@ services:
     build:
       context: ../yaad
       target: dev
-    environment:
-      DATABASE_URL: postgres://yaad:yaad@yaad-postgres:5432/yaad
-      LOG_LEVEL: info
+    env_file: ../yaad/.env
     volumes:
       - ../yaad:/app
       - /app/node_modules
@@ -58,9 +56,9 @@ services:
 
   dimaag-postgres:
     image: postgres:18
+    env_file: ../dimaag/.env
     environment:
       POSTGRES_USER: dimaag
-      POSTGRES_PASSWORD: dimaag
       POSTGRES_DB: dimaag
     volumes:
       - dimaag_pg:/var/lib/postgresql
@@ -75,9 +73,7 @@ services:
     build:
       context: ../dimaag
       target: dev
-    environment:
-      DATABASE_URL: postgres://dimaag:dimaag@dimaag-postgres:5432/dimaag
-      LOG_LEVEL: info
+    env_file: ../dimaag/.env
     volumes:
       - ../dimaag:/app
       - /app/node_modules
