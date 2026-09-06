@@ -1,0 +1,95 @@
+name: dadi
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      dadi:
+        # Containers resolve *.dadi here (port 80) the same way the Mac
+        # resolves them via /etc/hosts → localhost:80. Without these aliases,
+        # Docker DNS only knows bare service names (dwar, yaad, …).
+        aliases:
+          - dwar.dadi
+          - yaad.dadi
+          - dimaag.dadi
+          - nas.dadi
+    depends_on: [dwar, yaad, dimaag]
+
+  dwar:
+    build: ../dwar
+    env_file: .env
+    expose: ["8080"]
+    networks: [dadi]
+
+  yaad-postgres:
+    image: pgvector/pgvector:pg18
+    environment:
+      POSTGRES_USER: yaad
+      POSTGRES_PASSWORD: yaad
+      POSTGRES_DB: yaad
+    volumes:
+      - yaad_pg:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yaad -d yaad"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    networks: [dadi]
+
+  yaad:
+    build:
+      context: ../yaad
+      target: dev
+    environment:
+      DATABASE_URL: postgres://yaad:yaad@yaad-postgres:5432/yaad
+      LOG_LEVEL: info
+    volumes:
+      - ../yaad:/app
+      - /app/node_modules
+    expose: ["8080"]
+    depends_on:
+      yaad-postgres:
+        condition: service_healthy
+    networks: [dadi]
+
+  dimaag-postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: dimaag
+      POSTGRES_PASSWORD: dimaag
+      POSTGRES_DB: dimaag
+    volumes:
+      - dimaag_pg:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dimaag -d dimaag"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    networks: [dadi]
+
+  dimaag:
+    build:
+      context: ../dimaag
+      target: dev
+    environment:
+      DATABASE_URL: postgres://dimaag:dimaag@dimaag-postgres:5432/dimaag
+      LOG_LEVEL: info
+    volumes:
+      - ../dimaag:/app
+      - /app/node_modules
+    expose: ["8080"]
+    depends_on:
+      dimaag-postgres:
+        condition: service_healthy
+    networks: [dadi]
+
+networks:
+  dadi:
+
+volumes:
+  yaad_pg:
+  dimaag_pg:
