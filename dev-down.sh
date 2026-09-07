@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+wipe=false
+if [ "${1:-}" = "--wipe" ]; then
+  wipe=true
+elif [ $# -gt 0 ]; then
+  echo "usage: $0 [--wipe]" >&2
+  exit 1
+fi
+
+identifier=$(jq -r '.identifier' ../hath/src-tauri/tauri.conf.json)
+if [ -z "$identifier" ] || [ "$identifier" = "null" ]; then
+  echo "dev-down: could not read identifier from ../hath/src-tauri/tauri.conf.json" >&2
+  exit 1
+fi
+
+case "$(uname -s)" in
+  Darwin)
+    hath_dir="${HOME}/Library/Application Support/${identifier}"
+    ;;
+  Linux)
+    hath_dir="${HOME}/.local/share/${identifier}"
+    ;;
+  *)
+    echo "dev-down: unsupported platform $(uname -s) for Hath app data" >&2
+    exit 1
+    ;;
+esac
+
+creds_path="${hath_dir}/credentials.json"
+
+if [ "$wipe" = true ]; then
+  echo "dev-down: wiping Docker volumes (Headscale DB, Postgres, Tailscale state, bootstrap) and deleting ${creds_path}"
+  docker compose down -v
+  rm -f "$creds_path"
+else
+  docker compose down
+fi

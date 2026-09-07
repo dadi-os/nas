@@ -150,7 +150,7 @@ services:
       - headscale_data:/var/lib/headscale
       - headscale_run:/var/run/headscale
     expose: ["8080"]
-    # Host publish for manual Mac provisioning only; everything else via Caddy.
+    # Host publish so ./dev.sh can provision Hath before the mesh is up.
     ports:
       - "8092:8080"
     depends_on:
