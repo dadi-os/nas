@@ -13,7 +13,7 @@ fi
 
 identifier=$(jq -r '.identifier' ../hath/src-tauri/tauri.conf.json)
 if [ -z "$identifier" ] || [ "$identifier" = "null" ]; then
-  echo "dev-down: could not read identifier from ../hath/src-tauri/tauri.conf.json" >&2
+  echo "down: could not read identifier from ../hath/src-tauri/tauri.conf.json" >&2
   exit 1
 fi
 
@@ -25,7 +25,7 @@ case "$(uname -s)" in
     hath_dir="${HOME}/.local/share/${identifier}"
     ;;
   *)
-    echo "dev-down: unsupported platform $(uname -s) for Hath app data" >&2
+    echo "down: unsupported platform $(uname -s) for Hath app data" >&2
     exit 1
     ;;
 esac
@@ -33,9 +33,10 @@ esac
 creds_path="${hath_dir}/credentials.json"
 
 if [ "$wipe" = true ]; then
-  echo "dev-down: wiping Docker volumes (Headscale DB, Postgres, Tailscale state, bootstrap) and deleting ${creds_path}"
+  echo "down: wiping Docker volumes and deleting ${creds_path}"
   docker compose down -v
   rm -f "$creds_path"
+  rm -f .run/hath.log
 else
   docker compose down
 fi

@@ -17,12 +17,35 @@ services:
           - yaad.dadi
           - dimaag.dadi
           - nas.dadi
-    depends_on: [dwar, yaad, dimaag, nas-service]
+    depends_on:
+      dwar:
+        condition: service_healthy
+      yaad:
+        condition: service_healthy
+      dimaag:
+        condition: service_healthy
+      nas-service:
+        condition: service_healthy
 
   dwar:
-    build: ../dwar
+    build:
+      context: ../dwar
+      target: dev
     env_file: ../dwar/.env
+    volumes:
+      - ../dwar:/app
     expose: ["8080"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
     networks: [dadi]
 
   yaad-postgres:
@@ -40,6 +63,21 @@ services:
       retries: 20
     networks: [dadi]
 
+  yaad-migrate:
+    build:
+      context: ../yaad
+      target: dev
+    env_file: ../yaad/.env
+    volumes:
+      - ../yaad:/app
+      - /app/node_modules
+    command: ["npm", "run", "db:migrate"]
+    depends_on:
+      yaad-postgres:
+        condition: service_healthy
+    networks: [dadi]
+    restart: "no"
+
   yaad:
     build:
       context: ../yaad
@@ -49,9 +87,22 @@ services:
       - ../yaad:/app
       - /app/node_modules
     expose: ["8080"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
     depends_on:
       yaad-postgres:
         condition: service_healthy
+      yaad-migrate:
+        condition: service_completed_successfully
     networks: [dadi]
 
   dimaag-postgres:
@@ -69,6 +120,21 @@ services:
       retries: 20
     networks: [dadi]
 
+  dimaag-migrate:
+    build:
+      context: ../dimaag
+      target: dev
+    env_file: ../dimaag/.env
+    volumes:
+      - ../dimaag:/app
+      - /app/node_modules
+    command: ["npm", "run", "db:migrate"]
+    depends_on:
+      dimaag-postgres:
+        condition: service_healthy
+    networks: [dadi]
+    restart: "no"
+
   dimaag:
     build:
       context: ../dimaag
@@ -78,9 +144,22 @@ services:
       - ../dimaag:/app
       - /app/node_modules
     expose: ["8080"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
     depends_on:
       dimaag-postgres:
         condition: service_healthy
+      dimaag-migrate:
+        condition: service_completed_successfully
     networks: [dadi]
 
   # Control plane. Published on the host so a device that has not yet joined
@@ -99,7 +178,9 @@ services:
 
   # Creates the Headscale user and sidecar auth key. Idempotent on every up.
   bootstrap:
-    build: ./service
+    build:
+      context: ./service
+      target: production
     entrypoint: ["/bin/sh", "/bootstrap.sh"]
     volumes:
       - ./bootstrap.sh:/bootstrap.sh:ro
@@ -140,22 +221,58 @@ services:
     networks: [dadi]
 
   nas-service:
-    build: ./service
+    build:
+      context: ./service
+      target: dev
     environment:
       CONTROL_URL: http://localhost:8080
       HEADSCALE_USER: ankur
       LISTEN_ADDR: ":8080"
+      LOKI_URL: http://loki:3100
     volumes:
+      - ./service:/src
       - ./headscale/config.yaml:/etc/headscale/config.yaml:ro
       - headscale_data:/var/lib/headscale
       - headscale_run:/var/run/headscale
     expose: ["8080"]
-    # Host publish so ./dev.sh can provision Hath before the mesh is up.
+    # Host publish so hath-dev can provision before the mesh is up.
     ports:
       - "8092:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
     depends_on:
       bootstrap:
         condition: service_completed_successfully
+      loki:
+        condition: service_started
+    networks: [dadi]
+
+  loki:
+    image: grafana/loki:3.4.2
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./logging/loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    expose: ["3100"]
+    networks: [dadi]
+
+  alloy:
+    image: grafana/alloy:v1.7.1
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./logging/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./.run:/var/log/hath
+      - alloy_data:/var/lib/alloy/data
+    depends_on:
+      - loki
     networks: [dadi]
 
 networks:
@@ -168,3 +285,5 @@ volumes:
   headscale_run:
   tailscale_state:
   bootstrap:
+  loki_data:
+  alloy_data:

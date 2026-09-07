@@ -1,0 +1,60 @@
+discovery.docker "dadi" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+}
+
+discovery.relabel "dadi" {
+  targets = discovery.docker.dadi.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["service"]
+    regex         = "nas-service"
+    target_label  = "service"
+    replacement   = "nas"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "dadi" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.relabel.dadi.output
+  relabel_rules = discovery.relabel.dadi.rules
+  forward_to    = [loki.process.normalize.receiver]
+}
+
+local.file_match "hath" {
+  path_targets = [{
+    __path__ = "/var/log/hath/hath.log",
+    service  = "hath",
+  }]
+}
+
+loki.source.file "hath" {
+  targets    = local.file_match.hath.targets
+  forward_to = [loki.process.normalize.receiver]
+}
+
+loki.process "normalize" {
+  forward_to = [loki.write.local.receiver]
+
+  stage.drop {
+    source     = "service"
+    expression = "^(alloy|loki)$"
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

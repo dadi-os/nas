@@ -1,12 +1,14 @@
-// Nas HTTP service: device provisioning and box status for Hath.
+// Nas HTTP service: device provisioning, box status, and log query for Hath.
 package main
 
 import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
+	"io"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -16,17 +18,45 @@ import (
 )
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.MessageKey {
+				a.Key = "msg"
+			}
+			if a.Key == slog.TimeKey {
+				a.Key = "time"
+			}
+			if a.Key == slog.LevelKey {
+				if level, ok := a.Value.Any().(slog.Level); ok {
+					return slog.String("level", strings.ToLower(level.String()))
+				}
+			}
+			return a
+		},
+	}))
+	logger = logger.With("service", "nas")
+	slog.SetDefault(logger)
+
 	controlURL := os.Getenv("CONTROL_URL")
 	if controlURL == "" {
-		log.Fatal("CONTROL_URL is required")
+		slog.Error("CONTROL_URL is required")
+		os.Exit(1)
 	}
 	userName := os.Getenv("HEADSCALE_USER")
 	if userName == "" {
-		log.Fatal("HEADSCALE_USER is required")
+		slog.Error("HEADSCALE_USER is required")
+		os.Exit(1)
+	}
+	lokiURL := os.Getenv("LOKI_URL")
+	if lokiURL == "" {
+		slog.Error("LOKI_URL is required")
+		os.Exit(1)
 	}
 	listen := os.Getenv("LISTEN_ADDR")
 	if listen == "" {
-		listen = ":8080"
+		slog.Error("LISTEN_ADDR is required")
+		os.Exit(1)
 	}
 
 	started := time.Now()
@@ -37,12 +67,18 @@ func main() {
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		handleStatus(w, r, started)
 	})
+	mux.HandleFunc("GET /logs", func(w http.ResponseWriter, r *http.Request) {
+		handleLogs(w, r, lokiURL)
+	})
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	log.Printf("nas-service listening on %s", listen)
-	log.Fatal(http.ListenAndServe(listen, mux))
+	slog.Info("nas-service listening", "addr", listen)
+	if err := http.ListenAndServe(listen, mux); err != nil {
+		slog.Error("listen failed", "err", err)
+		os.Exit(1)
+	}
 }
 
 type provisionRequest struct {
@@ -191,13 +227,203 @@ func handleStatus(w http.ResponseWriter, _ *http.Request, started time.Time) {
 		disk.FreeBytes = st.Bavail * uint64(st.Bsize)
 	}
 
-	// errors stays empty in dev — journald does not exist under Docker.
+	// errors stays empty in the status payload — searchable logs live at GET /logs.
 	writeJSON(w, http.StatusOK, statusResponse{
 		UptimeSeconds: int64(time.Since(started).Seconds()),
 		Services:      services,
 		Disk:          disk,
 		Errors:        []string{},
 	})
+}
+
+type logEntry struct {
+	Time    string `json:"time"`
+	Service string `json:"service"`
+	Level   string `json:"level"`
+	Msg     string `json:"msg"`
+	Raw     string `json:"raw,omitempty"`
+}
+
+type logsResponse struct {
+	Entries []logEntry `json:"entries"`
+}
+
+func handleLogs(w http.ResponseWriter, r *http.Request, lokiURL string) {
+	q := r.URL.Query()
+	services := strings.TrimSpace(q.Get("services"))
+	level := strings.ToLower(strings.TrimSpace(q.Get("level")))
+	text := strings.TrimSpace(q.Get("q"))
+	limit := 100
+	if raw := strings.TrimSpace(q.Get("limit")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 1000 {
+			http.Error(w, "limit must be an integer from 1 to 1000", http.StatusBadRequest)
+			return
+		}
+		limit = n
+	}
+
+	now := time.Now().UTC()
+	end := now
+	start := now.Add(-1 * time.Hour)
+	if raw := strings.TrimSpace(q.Get("from")); raw != "" {
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			http.Error(w, "from must be RFC3339", http.StatusBadRequest)
+			return
+		}
+		start = t
+	}
+	if raw := strings.TrimSpace(q.Get("to")); raw != "" {
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			http.Error(w, "to must be RFC3339", http.StatusBadRequest)
+			return
+		}
+		end = t
+	}
+	if !end.After(start) {
+		http.Error(w, "to must be after from", http.StatusBadRequest)
+		return
+	}
+
+	selector := `{service=~".+"}`
+	if services != "" {
+		parts := strings.Split(services, ",")
+		escaped := make([]string, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			if strings.ContainsAny(p, `.|+*?[](){}\`) {
+				http.Error(w, "services must be plain names", http.StatusBadRequest)
+				return
+			}
+			escaped = append(escaped, p)
+		}
+		if len(escaped) == 0 {
+			http.Error(w, "services must list at least one name", http.StatusBadRequest)
+			return
+		}
+		selector = fmt.Sprintf(`{service=~"%s"}`, strings.Join(escaped, "|"))
+	}
+
+	logql := selector
+	if text != "" {
+		logql += fmt.Sprintf(` |= %q`, text)
+	}
+	logql += ` | json`
+	if level != "" {
+		switch level {
+		case "debug", "info", "warn", "error":
+			logql += fmt.Sprintf(` | level="%s"`, level)
+		default:
+			http.Error(w, "level must be debug, info, warn, or error", http.StatusBadRequest)
+			return
+		}
+	}
+
+	endpoint, err := url.Parse(strings.TrimRight(lokiURL, "/") + "/loki/api/v1/query_range")
+	if err != nil {
+		http.Error(w, "invalid LOKI_URL", http.StatusInternalServerError)
+		return
+	}
+	params := endpoint.Query()
+	params.Set("query", logql)
+	params.Set("start", strconv.FormatInt(start.UnixNano(), 10))
+	params.Set("end", strconv.FormatInt(end.UnixNano(), 10))
+	params.Set("limit", strconv.Itoa(limit))
+	params.Set("direction", "backward")
+	endpoint.RawQuery = params.Encode()
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(endpoint.String())
+	if err != nil {
+		slog.Error("loki query failed", "err", err)
+		http.Error(w, "loki query failed", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, "read loki response", http.StatusBadGateway)
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		slog.Error("loki returned error", "status", resp.StatusCode, "body", string(body))
+		http.Error(w, "loki query failed", http.StatusBadGateway)
+		return
+	}
+
+	entries, err := parseLokiRange(body, limit)
+	if err != nil {
+		slog.Error("parse loki response", "err", err)
+		http.Error(w, "parse loki response", http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, logsResponse{Entries: entries})
+}
+
+type lokiRangeResponse struct {
+	Data struct {
+		Result []struct {
+			Stream map[string]string `json:"stream"`
+			Values [][]string        `json:"values"`
+		} `json:"result"`
+	} `json:"data"`
+}
+
+func parseLokiRange(body []byte, limit int) ([]logEntry, error) {
+	var parsed lokiRangeResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, err
+	}
+	out := make([]logEntry, 0, limit)
+	for _, series := range parsed.Data.Result {
+		service := series.Stream["service"]
+		for _, pair := range series.Values {
+			if len(pair) < 2 {
+				continue
+			}
+			ns, err := strconv.ParseInt(pair[0], 10, 64)
+			if err != nil {
+				continue
+			}
+			raw := pair[1]
+			entry := logEntry{
+				Time:    time.Unix(0, ns).UTC().Format(time.RFC3339Nano),
+				Service: service,
+				Level:   "info",
+				Msg:     raw,
+				Raw:     raw,
+			}
+			var fields map[string]any
+			if err := json.Unmarshal([]byte(raw), &fields); err == nil {
+				if msg, ok := fields["msg"].(string); ok {
+					entry.Msg = msg
+				} else if message, ok := fields["message"].(string); ok {
+					entry.Msg = message
+				}
+				if lvl, ok := fields["level"].(string); ok {
+					entry.Level = strings.ToLower(lvl)
+				}
+				if svc, ok := fields["service"].(string); ok && svc != "" {
+					entry.Service = svc
+				}
+			if t, ok := fields["time"].(string); ok && t != "" {
+					entry.Time = t
+				} else if n, ok := fields["time"].(float64); ok {
+					entry.Time = time.UnixMilli(int64(n)).UTC().Format(time.RFC3339Nano)
+				}
+			}
+			out = append(out, entry)
+			if len(out) >= limit {
+				return out, nil
+			}
+		}
+	}
+	return out, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

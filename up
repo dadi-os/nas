@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Preflight, then Overmind brings up Compose + Hath as one process group.
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+HOSTS_LINE="127.0.0.1  dwar.dadi yaad.dadi dimaag.dadi nas.dadi"
+
+ensure_env() {
+  local module="$1"
+  local env_path="../${module}/.env"
+  local example_path="../${module}/.env.example"
+  if [ ! -f "$env_path" ]; then
+    if [ ! -f "$example_path" ]; then
+      echo "up: missing ${env_path} and no .env.example to copy from" >&2
+      exit 1
+    fi
+    cp "$example_path" "$env_path"
+    echo "up: created ${env_path} from .env.example"
+  fi
+}
+
+ensure_env dwar
+ensure_env yaad
+ensure_env dimaag
+
+if ! grep -q '\.dadi' /etc/hosts; then
+  echo "up: /etc/hosts is missing .dadi entries. Add this line and re-run:" >&2
+  echo "  ${HOSTS_LINE}" >&2
+  exit 1
+fi
+
+if ! docker info >/dev/null 2>&1; then
+  echo "up: docker is not running" >&2
+  exit 1
+fi
+
+if [ ! -d ../hath ]; then
+  echo "up: ../hath does not exist" >&2
+  exit 1
+fi
+
+if ! command -v overmind >/dev/null 2>&1; then
+  echo "up: overmind is required (brew install overmind / tmux)" >&2
+  exit 1
+fi
+
+mkdir -p .run
+: >> .run/hath.log
+
+exec overmind start "$@"
