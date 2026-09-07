@@ -382,6 +382,17 @@ type lokiRangeResponse struct {
 	} `json:"data"`
 }
 
+// jsonLogServices are modules that emit JSON lines on stdout. Non-JSON fragments
+// (npm banners, Node warnings, postgres-js NOTICE dumps) are noise — skip them
+// even if they were already ingested before Alloy started dropping them.
+var jsonLogServices = map[string]struct{}{
+	"dimaag": {},
+	"yaad":   {},
+	"dwar":   {},
+	"nas":    {},
+	"hath":   {},
+}
+
 func parseLokiRange(body []byte, limit int) ([]logEntry, error) {
 	var parsed lokiRangeResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
@@ -390,6 +401,7 @@ func parseLokiRange(body []byte, limit int) ([]logEntry, error) {
 	out := make([]logEntry, 0, limit)
 	for _, series := range parsed.Data.Result {
 		service := series.Stream["service"]
+		_, requireJSON := jsonLogServices[service]
 		for _, pair := range series.Values {
 			if len(pair) < 2 {
 				continue
@@ -398,7 +410,10 @@ func parseLokiRange(body []byte, limit int) ([]logEntry, error) {
 			if err != nil {
 				continue
 			}
-			raw := pair[1]
+			raw := strings.TrimSpace(pair[1])
+			if raw == "" {
+				continue
+			}
 			entry := logEntry{
 				Time:    time.Unix(0, ns).UTC().Format(time.RFC3339Nano),
 				Service: service,
@@ -407,11 +422,17 @@ func parseLokiRange(body []byte, limit int) ([]logEntry, error) {
 				Raw:     raw,
 			}
 			var fields map[string]any
-			if err := json.Unmarshal([]byte(raw), &fields); err == nil {
+			if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+				if requireJSON {
+					continue
+				}
+			} else {
 				if msg, ok := fields["msg"].(string); ok {
 					entry.Msg = msg
 				} else if message, ok := fields["message"].(string); ok {
 					entry.Msg = message
+				} else if requireJSON {
+					continue
 				}
 				if lvl, ok := fields["level"].(string); ok {
 					entry.Level = strings.ToLower(lvl)
@@ -419,7 +440,7 @@ func parseLokiRange(body []byte, limit int) ([]logEntry, error) {
 				if svc, ok := fields["service"].(string); ok && svc != "" {
 					entry.Service = svc
 				}
-			if t, ok := fields["time"].(string); ok && t != "" {
+				if t, ok := fields["time"].(string); ok && t != "" {
 					entry.Time = t
 				} else if n, ok := fields["time"].(float64); ok {
 					entry.Time = time.UnixMilli(int64(n)).UTC().Format(time.RFC3339Nano)

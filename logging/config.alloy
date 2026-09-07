@@ -47,9 +47,26 @@ loki.source.file "hath" {
 loki.process "normalize" {
   forward_to = [loki.write.local.receiver]
 
+  // Log store + collector themselves, plus infra that is not in the Hath
+  // explorer (postgres, mesh control plane, oneshots).
   stage.drop {
     source     = "service"
-    expression = "^(alloy|loki)$"
+    expression = "^(alloy|loki|.*-postgres|headscale|tailscale|bootstrap)$"
+  }
+
+  // App modules emit JSON lines (time/level/service/msg). Drop npm/tsx banners,
+  // Node deprecation dumps, and postgres-js NOTICE objects that arrive as
+  // pretty-printed multi-line fragments.
+  stage.match {
+    selector = `{service=~"dimaag|yaad|dwar|nas|hath"}`
+
+    stage.json {
+      expressions = {
+        level = "level",
+        msg   = "msg",
+      }
+      drop_malformed = true
+    }
   }
 }
 
