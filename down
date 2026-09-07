@@ -40,3 +40,9 @@ if [ "$wipe" = true ]; then
 else
   docker compose down
 fi
+
+# Stale Overmind socket blocks the next ./up after a hard stop or ./down.
+if command -v overmind >/dev/null 2>&1; then
+  overmind quit 2>/dev/null || true
+fi
+rm -f .overmind.sock

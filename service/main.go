@@ -60,6 +60,7 @@ func main() {
 	}
 
 	started := time.Now()
+	startMetricsSampler()
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /provision", func(w http.ResponseWriter, r *http.Request) {
 		handleProvision(w, r, controlURL, userName)
@@ -185,6 +186,9 @@ type statusResponse struct {
 	UptimeSeconds int64           `json:"uptime_seconds"`
 	Services      []serviceStatus `json:"services"`
 	Disk          diskStatus      `json:"disk"`
+	CPU           *cpuStatus      `json:"cpu,omitempty"`
+	Memory        *memoryStatus   `json:"memory,omitempty"`
+	GPU           []gpuStatus     `json:"gpu,omitempty"`
 	Errors        []string        `json:"errors"`
 }
 
@@ -227,11 +231,15 @@ func handleStatus(w http.ResponseWriter, _ *http.Request, started time.Time) {
 		disk.FreeBytes = st.Bavail * uint64(st.Bsize)
 	}
 
+	m := currentMetrics()
 	// errors stays empty in the status payload — searchable logs live at GET /logs.
 	writeJSON(w, http.StatusOK, statusResponse{
 		UptimeSeconds: int64(time.Since(started).Seconds()),
 		Services:      services,
 		Disk:          disk,
+		CPU:           m.CPU,
+		Memory:        m.Memory,
+		GPU:           m.GPU,
 		Errors:        []string{},
 	})
 }
