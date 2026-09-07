@@ -1,0 +1,30 @@
+FROM quay.io/fedora/fedora-bootc:42
+
+RUN dnf -y install \
+    podman \
+    openssh-server \
+    curl \
+    jq \
+    vim-minimal \
+    git \
+  && dnf clean all
+
+# /home is machine state — create the account without writing a home directory.
+RUN useradd \
+    --uid 1000 \
+    --groups wheel \
+    --home-dir /home/ankur \
+    --no-create-home \
+    --shell /bin/bash \
+    ankur
+
+RUN mkdir -p /usr/ssh
+
+COPY etc/ /etc/
+COPY authorized_keys /usr/ssh/ankur-authorized-keys
+
+RUN chmod 0440 /etc/sudoers.d/ankur \
+  && chmod 0644 /usr/ssh/ankur-authorized-keys \
+  && systemctl enable sshd.service
+
+RUN bootc container lint

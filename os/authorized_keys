@@ -1,0 +1,2 @@
+# Replace the line below with your real SSH public key (one key per line).
+ssh-ed25519 REPLACE_ME_WITH_YOUR_PUBLIC_KEY comment-replace-me

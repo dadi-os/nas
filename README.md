@@ -26,11 +26,31 @@ One Docker network, `dadi`. Caddy publishes host port 80. Headscale publishes ho
 | Environment | Runtime | Definition |
 | --- | --- | --- |
 | Development | Docker Compose + Overmind on a Mac | `docker-compose.yml` + `Procfile` (this repo) |
-| Production | podman + systemd on the box | quadlets in `/etc/containers/systemd/` (not yet); Watchtower for image updates |
+| Production | podman + systemd on the box | quadlets in `/etc/containers/systemd/` (not yet); podman-auto-update for image updates |
 
 Same services, same names, same routing. Only the runtime differs. Dev is what exists so far.
 
-**Prod logging (later):** Alloy reads journald from podman/systemd units into the same Loki shape; `GET /logs` stays the client API. Watchtower restarts updated units; log identity is the module/unit name.
+**Prod logging (later):** Alloy reads journald from podman/systemd units into the same Loki shape; `GET /logs` stays the client API. `podman-auto-update` restarts updated units; log identity is the module/unit name.
+
+## Production
+
+**Two layers, two update mechanisms.** The OS layer is a bootc image (`ghcr.io/dadi-os/nas-os`). Update it with `bootc upgrade` and a reboot; revert with `bootc rollback`. The module layer is ordinary container images (e.g. `nas-service`). Those update via `podman-auto-update` with no reboot — `AutoUpdate=registry` on each quadlet plus `podman-auto-update.timer`, which has a built-in `--rollback`. Module images are never baked into the OS image.
+
+### First install
+
+1. Install Fedora Server 42 from the ISO. Check the disk-encryption box and set a LUKS passphrase. This is the only opportunity — retrofitting LUKS later means a reinstall.
+2. Set a password for `ankur` so `sudo` works from the console.
+3. `sudo bootc switch ghcr.io/dadi-os/nas-os:latest`
+4. `sudo reboot`
+5. Verify with `bootc status` and an SSH login from the MacBook.
+
+### Rollback
+
+`sudo bootc rollback && sudo reboot`. The previous deployment is retained, so a bad image is always one reboot from reverted.
+
+### Registry visibility
+
+`nas-os` is public so the box needs no pull credentials for the OS layer. Private module images will require `/etc/ostree/auth.json` when quadlets arrive.
 
 ## Mesh
 
@@ -132,4 +152,4 @@ docker compose up yaad yaad-postgres
 
 ## Not here yet
 
-Bootc image, quadlets, LUKS, remote (off-LAN) mesh join, Watchtower, journald→Alloy on the box, Hath logs widget UI.
+quadlets, LUKS-on-image, remote (off-LAN) mesh join, journald→Alloy on the box, Hath logs widget UI.
