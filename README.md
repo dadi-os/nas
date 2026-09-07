@@ -71,7 +71,7 @@ curl -sG 'http://nas.dadi/logs' \
   --data-urlencode 'q=timeout'
 ```
 
-`LOKI_URL` is required on nas-service (compose sets `http://loki:3100`). Hath sets `HATH_LOG_FILE` to `nas/.run/hath.log` when launched via `./up`.
+`LOKI_URL` is required on nas-service (compose sets `http://loki:3100`). Hath sets `HATH_LOG_FILE` to `nas/.run/hath.log` when launched via `./up`. Each `./up` truncates that file and wipes the Loki volume so the explorer is a fresh session.
 
 ## One-time host setup
 

@@ -39,6 +39,7 @@ if [ "$wipe" = true ]; then
   rm -f .run/hath.log
 else
   docker compose down
+  rm -f .run/hath.log
 fi
 
 # Stale Overmind socket blocks the next ./up after a hard stop or ./down.

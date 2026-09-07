@@ -46,6 +46,11 @@ if ! command -v overmind >/dev/null 2>&1; then
 fi
 
 mkdir -p .run
-: >> .run/hath.log
+# Fresh session: Hath file + Loki store. Alloy positions stay so it does not
+# replay historical Docker stdout into the empty store.
+: > .run/hath.log
+docker compose stop loki alloy >/dev/null 2>&1 || true
+docker compose rm -f loki >/dev/null 2>&1 || true
+docker volume rm dadi_loki_data >/dev/null 2>&1 || true
 
 exec overmind start "$@"
