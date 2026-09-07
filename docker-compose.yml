@@ -17,7 +17,7 @@ services:
           - yaad.dadi
           - dimaag.dadi
           - nas.dadi
-    depends_on: [dwar, yaad, dimaag]
+    depends_on: [dwar, yaad, dimaag, nas-service]
 
   dwar:
     build: ../dwar
@@ -83,9 +83,88 @@ services:
         condition: service_healthy
     networks: [dadi]
 
+  # Control plane. Published on the host so a device that has not yet joined
+  # the mesh can still reach it (it cannot resolve *.dadi yet). Same reason
+  # control_url lives in the provisioning bundle.
+  headscale:
+    image: headscale/headscale:0.26
+    command: serve
+    volumes:
+      - ./headscale/config.yaml:/etc/headscale/config.yaml:ro
+      - headscale_data:/var/lib/headscale
+      - headscale_run:/var/run/headscale
+    ports:
+      - "8080:8080"
+    networks: [dadi]
+
+  # Creates the Headscale user and sidecar auth key. Idempotent on every up.
+  bootstrap:
+    build: ./service
+    entrypoint: ["/bin/sh", "/bootstrap.sh"]
+    volumes:
+      - ./bootstrap.sh:/bootstrap.sh:ro
+      - ./headscale/config.yaml:/etc/headscale/config.yaml:ro
+      - headscale_data:/var/lib/headscale
+      - headscale_run:/var/run/headscale
+      - bootstrap:/run/bootstrap
+    depends_on: [headscale]
+    networks: [dadi]
+    restart: "no"
+
+  # Mesh node that receives *.dadi traffic and L3-forwards it to Caddy.
+  # Current Tailscale rejects TS_DEST_IP with userspace mode, so this uses
+  # kernel networking (NET_ADMIN + TUN) — the L3 forward still matches the
+  # intended sidecar shape.
+  tailscale:
+    image: tailscale/tailscale:latest
+    hostname: os
+    environment:
+      TS_AUTHKEY: file:/run/bootstrap/authkey
+      TS_EXTRA_ARGS: --login-server=http://headscale:8080
+      TS_USERSPACE: "false"
+      TS_EXPERIMENTAL_DEST_DNS_NAME: caddy
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_HOSTNAME: os
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+      - bootstrap:/run/bootstrap:ro
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      caddy:
+        condition: service_started
+    networks: [dadi]
+
+  nas-service:
+    build: ./service
+    environment:
+      CONTROL_URL: http://localhost:8080
+      HEADSCALE_USER: ankur
+      LISTEN_ADDR: ":8080"
+    volumes:
+      - ./headscale/config.yaml:/etc/headscale/config.yaml:ro
+      - headscale_data:/var/lib/headscale
+      - headscale_run:/var/run/headscale
+    expose: ["8080"]
+    # Host publish for manual Mac provisioning only; everything else via Caddy.
+    ports:
+      - "8092:8080"
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    networks: [dadi]
+
 networks:
   dadi:
 
 volumes:
   yaad_pg:
   dimaag_pg:
+  headscale_data:
+  headscale_run:
+  tailscale_state:
+  bootstrap:

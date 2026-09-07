@@ -14,3 +14,7 @@ http://yaad.dadi {
 http://dimaag.dadi {
 	reverse_proxy dimaag:8080
 }
+
+http://nas.dadi {
+	reverse_proxy nas-service:8080
+}
