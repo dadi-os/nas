@@ -1,0 +1,15 @@
+# Rendered at CD time with DADOS_LUKS_PASSPHRASE. Do not put a real passphrase here.
+# Placeholder __LUKS_PASSPHRASE__ is substituted in .github/workflows/cd.yml.
+
+[customizations.installer.kickstart]
+contents = """
+text --non-interactive
+lang en_US.UTF-8
+keyboard us
+timezone UTC --utc
+network --bootproto=dhcp --device=link --activate --onboot=on
+zerombr
+clearpart --all --initlabel --disklabel=gpt
+autopart --noswap --type=lvm --encrypted --passphrase=__LUKS_PASSPHRASE__
+reboot
+"""

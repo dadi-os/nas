@@ -38,11 +38,18 @@ Same services, same names, same routing. Only the runtime differs. Dev is what e
 
 ### First install
 
-1. Install Fedora Server 42 from the ISO. Check the disk-encryption box and set a LUKS passphrase. This is the only opportunity — retrofitting LUKS later means a reinstall.
-2. Set a password for `ankur` so `sudo` works from the console.
-3. `sudo bootc switch ghcr.io/dadi-os/nas-os:latest`
-4. `sudo reboot`
-5. Verify with `bootc status` and an SSH login from the MacBook.
+CD builds an unattended Anaconda ISO whenever `os/**` changes and publishes it on the `dados-latest` GitHub Release (also `dados-<sha>`).
+
+1. Set repo secret `DADOS_LUKS_PASSPHRASE` (required for ISO CD; no quotes, `#`, or backslashes).
+2. Download `dadiOS-amd64.iso` from the `dados-latest` release.
+3. Flash it to a USB (Rufus, balenaEtcher, `dd`).
+4. Boot the target machine from that USB. **The first disk is wiped with no confirmation** — unplug extra drives. Install is unattended: LUKS uses the CD secret, then reboots.
+5. Remove the USB. At the LUKS prompt, enter the same passphrase. Console autologins as `ankur` (no password). SSH from a Mac that holds a private key matching [`os/authorized_keys`](os/authorized_keys): `ssh ankur@<box-ip>`.
+6. Verify with `bootc status`.
+
+Day-2 OS updates: `sudo bootc upgrade && sudo reboot`. Modules stay separate images — changing `nas-service` does not rebuild the OS or ISO.
+
+**Auth model:** LUKS unlocks the disk; SSH is key-only (`PasswordAuthentication no`); Hath has no login screen (mesh membership is the lock). Console is an appliance autologin, not a password prompt.
 
 ### Rollback
 
@@ -152,4 +159,4 @@ docker compose up yaad yaad-postgres
 
 ## Not here yet
 
-quadlets, LUKS-on-image, remote (off-LAN) mesh join, journald→Alloy on the box, Hath logs widget UI.
+quadlets, pause-other-modules-while-one-updates (prod + dev), TPM LUKS unlock, remote (off-LAN) mesh join, journald→Alloy on the box, Hath logs widget UI / Plymouth kiosk.

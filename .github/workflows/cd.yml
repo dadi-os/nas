@@ -10,12 +10,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
   os-image:
     runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.changes.outputs.run }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,6 +64,114 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/nas-os:latest
             ghcr.io/${{ github.repository_owner }}/nas-os:${{ github.sha }}
+
+  os-iso:
+    needs: os-image
+    if: needs.os-image.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require LUKS passphrase secret
+        env:
+          DADOS_LUKS_PASSPHRASE: ${{ secrets.DADOS_LUKS_PASSPHRASE }}
+        run: |
+          if [ -z "${DADOS_LUKS_PASSPHRASE}" ]; then
+            echo "Set repo secret DADOS_LUKS_PASSPHRASE before building the installer ISO." >&2
+            exit 1
+          fi
+          # Kickstart --passphrase=... breaks on these characters.
+          python3 - <<'PY'
+          import os, sys
+          secret = os.environ["DADOS_LUKS_PASSPHRASE"]
+          bad = set('"\\\n\r#')
+          if any(c in secret for c in bad):
+              sys.exit("DADOS_LUKS_PASSPHRASE must not contain quotes, backslash, #, or newlines")
+          PY
+
+      - name: Render installer config
+        env:
+          DADOS_LUKS_PASSPHRASE: ${{ secrets.DADOS_LUKS_PASSPHRASE }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          src = Path("os/installer/config.toml").read_text()
+          secret = os.environ["DADOS_LUKS_PASSPHRASE"]
+          Path("os/installer/config.rendered.toml").write_text(
+              src.replace("__LUKS_PASSPHRASE__", secret)
+          )
+          PY
+
+      - name: Install podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull nas-os
+        run: sudo podman pull "ghcr.io/${{ github.repository_owner }}/nas-os:${{ github.sha }}"
+
+      - name: Tag latest for installer payload
+        run: |
+          sudo podman tag \
+            "ghcr.io/${{ github.repository_owner }}/nas-os:${{ github.sha }}" \
+            "ghcr.io/${{ github.repository_owner }}/nas-os:latest"
+
+      - name: Build anaconda ISO
+        run: |
+          mkdir -p os/installer/output
+          sudo podman run --rm --privileged \
+            --security-opt label=type:unconfined_t \
+            -v "$PWD/os/installer/config.rendered.toml:/config.toml:ro" \
+            -v "$PWD/os/installer/output:/output" \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            --type anaconda-iso \
+            --rootfs xfs \
+            --use-librepo=True \
+            --progress verbose \
+            "ghcr.io/${{ github.repository_owner }}/nas-os:latest"
+
+      - name: Stage ISO artifact
+        run: |
+          iso="$(find os/installer/output -name '*.iso' -type f | head -n 1)"
+          if [ -z "$iso" ]; then
+            echo "No ISO produced under os/installer/output" >&2
+            find os/installer/output -type f >&2 || true
+            exit 1
+          fi
+          cp "$iso" os/installer/output/dadiOS-amd64.iso
+          ls -lh os/installer/output/dadiOS-amd64.iso
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dados-${{ github.sha }}
+          name: dadiOS ${{ github.sha }}
+          body: |
+            Unattended installer ISO for dadiOS (`nas-os`).
+
+            Flashing this USB and booting it **wipes the first disk** with LUKS (passphrase from `DADOS_LUKS_PASSPHRASE`).
+            OS image: `ghcr.io/${{ github.repository_owner }}/nas-os:${{ github.sha }}`
+          files: os/installer/output/dadiOS-amd64.iso
+          fail_on_unmatched_files: true
+
+      - name: Update dados-latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dados-latest
+          name: dadiOS latest
+          body: |
+            Latest unattended dadiOS installer ISO (from `${{ github.sha }}`).
+
+            Flashing this USB and booting it **wipes the first disk**.
+          files: os/installer/output/dadiOS-amd64.iso
+          fail_on_unmatched_files: true
 
   nas-service:
     runs-on: ubuntu-latest

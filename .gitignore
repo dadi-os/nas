@@ -1,2 +1,4 @@
 .env
 .run/
+os/installer/output/
+os/installer/config.rendered.toml
