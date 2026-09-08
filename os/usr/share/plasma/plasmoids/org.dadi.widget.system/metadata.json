@@ -1,0 +1,14 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "KPlugin": {
+        "Authors": [{"Name": "dadi"}],
+        "Category": "System Information",
+        "Description": "Mesh health, uptime, services",
+        "Icon": "dadi",
+        "Id": "org.dadi.widget.system",
+        "License": "MIT",
+        "Name": "System",
+        "Version": "1.0"
+    }
+}

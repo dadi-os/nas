@@ -1,0 +1,14 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "KPlugin": {
+        "Authors": [{"Name": "dadi"}],
+        "Category": "System Information",
+        "Description": "Upcoming plans from Yaad",
+        "Icon": "dadi",
+        "Id": "org.dadi.widget.timeline",
+        "License": "MIT",
+        "Name": "Timeline",
+        "Version": "1.0"
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "KPlugin": {
+        "Authors": [{"Name": "dadi"}],
+        "Category": "System Information",
+        "Description": "Host memory from Nas",
+        "Icon": "dadi",
+        "Id": "org.dadi.widget.memory",
+        "License": "MIT",
+        "Name": "Memory",
+        "Version": "1.0"
+    }
+}

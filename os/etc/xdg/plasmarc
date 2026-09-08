@@ -1,2 +1,8 @@
-[KDE]
-LookAndFeelPackage=org.dadi.desktop
+[Theme]
+name=default
+
+[PlasmaViews][Panel 0]
+thickness=32
+
+[PlasmaViews][Panel 1]
+thickness=56

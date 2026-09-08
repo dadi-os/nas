@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "KPlugin": {
+        "Authors": [{"Name": "dadi"}],
+        "Category": "Settings",
+        "Description": "dadi module and desktop preferences",
+        "Icon": "dadi",
+        "Id": "org.dadi.preferences",
+        "License": "MIT",
+        "Name": "Preferences",
+        "Version": "1.0",
+        "Website": ""
+    },
+    "X-Plasma-StandAloneApp": true
+}

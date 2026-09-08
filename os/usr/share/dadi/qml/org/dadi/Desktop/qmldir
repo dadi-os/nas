@@ -1,0 +1,5 @@
+module org.dadi.Desktop
+
+CrestFrame 1.0 CrestFrame.qml
+Http 1.0 Http.qml
+Tokens 1.0 Tokens.qml

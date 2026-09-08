@@ -1,9 +1,9 @@
 {
     "KPlugin": {
         "Authors": [{"Name": "dadi"}],
-        "Id": "Dadi",
+        "Id": "DadiVein",
         "License": "MIT",
-        "Name": "dadi Bloom",
+        "Name": "dadi Vein",
         "Version": "1.0"
     }
 }

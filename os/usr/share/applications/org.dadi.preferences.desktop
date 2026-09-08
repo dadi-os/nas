@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Preferences
+Name[gu]=પસંદગીઓ
+GenericName=dadi module settings
+Comment=Configure dwar, yaad, dimaag, and tunnel
+Exec=dadi-preferences
+Icon=dadi
+Categories=Settings;System;
+StartupNotify=true
+Terminal=false

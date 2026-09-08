@@ -9,6 +9,19 @@ Rectangle {
     property int sessionIndex: sessionModel.lastIndex
 
     Image {
+        anchors.fill: parent
+        source: Qt.resolvedUrl("background.png")
+        fillMode: Image.PreserveAspectCrop
+        opacity: 1
+    }
+
+    // Soft veil over bloom field
+    Rectangle {
+        anchors.fill: parent
+        color: Qt.rgba(250 / 255, 250 / 255, 247 / 255, 0.35)
+    }
+
+    Image {
         id: wordmark
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
@@ -26,7 +39,7 @@ Rectangle {
         width: 280
         height: 36
         radius: 9
-        color: "#f7f9f4"
+        color: Qt.rgba(250 / 255, 250 / 255, 247 / 255, 0.78)
         border.color: password.activeFocus ? "#8fa382" : "#b9c9ab"
         border.width: 1
 

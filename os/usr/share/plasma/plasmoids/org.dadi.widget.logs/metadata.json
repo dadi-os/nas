@@ -1,0 +1,14 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "KPlugin": {
+        "Authors": [{"Name": "dadi"}],
+        "Category": "System Information",
+        "Description": "Latest error log line",
+        "Icon": "dadi",
+        "Id": "org.dadi.widget.logs",
+        "License": "MIT",
+        "Name": "Logs",
+        "Version": "1.0"
+    }
+}

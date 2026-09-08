@@ -1,0 +1,14 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "KPlugin": {
+        "Authors": [{"Name": "dadi"}],
+        "Category": "System Information",
+        "Description": "Agent count from Dimaag",
+        "Icon": "dadi",
+        "Id": "org.dadi.widget.agents",
+        "License": "MIT",
+        "Name": "Agents",
+        "Version": "1.0"
+    }
+}

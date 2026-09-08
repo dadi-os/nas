@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Launch dadi Preferences as a Plasma standalone window.
+set -euo pipefail
+if command -v plasmawindowed >/dev/null 2>&1; then
+  exec plasmawindowed org.dadi.preferences
+fi
+# Fallback: qml scene (no Plasma DataSource — wallpaper buttons need plasmawindowed)
+export QML2_IMPORT_PATH="${QML2_IMPORT_PATH:+$QML2_IMPORT_PATH:}/usr/share/dadi/qml"
+exec /usr/bin/qml6 /usr/share/dadi/preferences/main.qml "$@"

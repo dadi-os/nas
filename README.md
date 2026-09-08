@@ -2,7 +2,7 @@
 
 Nas is the OS and infrastructure layer for dadi. It owns topology — which services exist, how they are networked and named, how they start, and how logs are collected and queried. It is the composition layer: the only place the full system is written down.
 
-**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box UI is a Plasma desktop (dadi look-and-feel — bone/sage, દાદી brand); Hath is for other devices only. App modules (`dwar`, `yaad`, `dimaag`) stay as containers and update via `podman-auto-update` with no reboot.
+**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box UI is Plasma **bone glass** (Bloom field, translucent panels, દાદી brand, crest widgets, Preferences). Hath is for other devices only. App modules (`dwar`, `yaad`, `dimaag`) stay as containers and update via `podman-auto-update` with no reboot.
 
 ## Dependencies
 
@@ -19,11 +19,13 @@ Nas does not call other app modules as a client for its own control plane. It de
 nas/
   service/          Go control API (provision, status, logs, module config)
   logging/          Dev Alloy + Loki configs
-  os/               bootc image, host units, prod Alloy, installer
+  os/               bootc image, host units, Plasma desktop, prod Alloy, installer
   headscale/        Headscale config templates
   docker-compose.yml
   up / down         Dev bring-up
 ```
+
+Desktop assets live under `os/usr/share/` (look-and-feel, plasmoids, wallpapers, Preferences) and `os/etc/xdg/` (colors, kwin blur). Brand SVGs: `os/usr/share/dadi/brand/`.
 
 ## Config vs env
 
@@ -117,7 +119,7 @@ curl -sG 'http://nas.dadi/logs' \
 | `nas` | host systemd | control API on `127.0.0.1:8092` |
 | `loki` / `alloy` | host systemd | logs |
 | `cloudflared` | host systemd | tunnel to Headscale |
-| `sddm` + Plasma | host graphical | autologin `ankur`; bone/sage dadi look-and-feel |
+| `sddm` + Plasma | host graphical | bone glass desktop; દાદી brand; Preferences + crest widgets |
 | `dwar` / `yaad` / `dimaag` (+ postgres / migrate) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8083` |
 
 ### Development (Mac Compose)
@@ -150,6 +152,37 @@ CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes an
 7. Provision Hath clients against `https://dadi.ardusa.dev` (phones / other machines — Hath is not on the box).
 
 Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`.
+
+## Desktop (dadiOS)
+
+Plasma on the box only — Hath is for other devices. Visual system is **bone glass** (aligned with Hath `src/styles/tokens.css`): light field, frosted veil panels, sage accent, brand mark **દાદી** only (no Latin “DADI” / “OS” in chrome).
+
+| Layer | Spec |
+| --- | --- |
+| Field | Wallpapers `DadiBloom` (default), `DadiMist`, `DadiVein` |
+| Veil | Menu bar / dock / widgets — ~62% bone + blur 32px + specular rim |
+| Sheet | Popovers — ~78% bone + blur 24px |
+| Solid | Editors / Preferences content — `#fafaf7` |
+| Ink | Type and icons always opaque |
+
+| Token | Value |
+| --- | --- |
+| Bone / raised | `#fafaf7` / `#f7f9f4` |
+| Sage / text / deep / line | `#8fa382` / `#7e9270` / `#5c6b52` / `#b9c9ab` |
+| Ink / muted | `#2c302a` / `#6e7568` |
+| Radii | window 12 · control 9 · dock 24 |
+
+| Surface | Where |
+| --- | --- |
+| Look-and-feel | `org.dadi.desktop` — translucent top bar (32px), autohide float dock, crest widgets |
+| Brand menu | plasmoid `org.dadi.brand` |
+| Widgets | `org.dadi.widget.{system,memory,agents,timeline,logs}` |
+| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (module `.env` / dwar config / tunnel → `DADI_STATE_DIR`) |
+| Wallpaper | `dadi-wallpaper Bloom\|Mist\|Vein` |
+| Blur / lid | `os/etc/xdg/kwinrc`, `os/etc/systemd/logind.conf.d/dadi-lid.conf` |
+| Plymouth / SDDM | theme `dadi` |
+
+Glass rules: blur before tint; never translucent text; two opacities only (veil / sheet); no dark glass.
 
 ## Mesh
 

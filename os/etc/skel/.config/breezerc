@@ -1,0 +1,15 @@
+[Common]
+OutlineCloseButton=false
+ShadowSize=Large
+ShadowStrength=40
+
+[Style]
+MenuOpacity=85
+TabBarDrawCenteredTabs=false
+ToolBarDrawItemSeparator=false
+WindowDragEnabled=true
+
+[Windeco]
+ButtonSize=Small
+TitleAlignment=Center
+TitleBarDoubleClickAction=Maximize

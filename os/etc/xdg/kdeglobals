@@ -8,6 +8,7 @@ smallestReadableFont=Noto Sans,8,-1,5,50,0,0,0,0,0
 toolBarFont=Noto Sans,10,-1,5,50,0,0,0,0,0
 
 [KDE]
+AnimationDurationFactor=0.85
 LookAndFeelPackage=org.dadi.desktop
 widgetStyle=Breeze
 
@@ -21,3 +22,5 @@ activeForeground=44,48,42
 inactiveBackground=247,249,244
 inactiveBlend=247,249,244
 inactiveForeground=110,117,104
+frame=185,201,171
+inactiveFrame=228,235,220
