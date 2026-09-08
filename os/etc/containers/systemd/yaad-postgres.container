@@ -6,9 +6,9 @@ Requires=dadi-seed.service
 Image=pgvector/pgvector:pg18
 ContainerName=yaad-postgres
 Network=dadi.network
-EnvironmentFile=/var/lib/dadi/modules/yaad/.env
 Environment=POSTGRES_USER=yaad
 Environment=POSTGRES_DB=yaad
+Environment=POSTGRES_PASSWORD=yaad
 Volume=yaad_pg.volume:/var/lib/postgresql
 HealthCmd=pg_isready -U yaad -d yaad
 HealthInterval=2s

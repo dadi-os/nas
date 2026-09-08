@@ -18,8 +18,6 @@ ApplicationWindow {
 
     readonly property var sections: [
         { id: "dwar", label: "Dwar" },
-        { id: "yaad", label: "Yaad" },
-        { id: "dimaag", label: "Dimaag" },
         { id: "tunnel", label: "Tunnel" },
         { id: "desktop", label: "Desktop" },
         { id: "power", label: "Power" }
@@ -135,16 +133,6 @@ ApplicationWindow {
                 ModulePane {
                     moduleName: "dwar"
                     showConfig: true
-                    onSaved: msg => win.showToast(msg)
-                }
-                ModulePane {
-                    moduleName: "yaad"
-                    showConfig: false
-                    onSaved: msg => win.showToast(msg)
-                }
-                ModulePane {
-                    moduleName: "dimaag"
-                    showConfig: false
                     onSaved: msg => win.showToast(msg)
                 }
                 TunnelPane {

@@ -11,10 +11,10 @@ import (
 	"strings"
 )
 
+// Only Dwar has user-editable secrets (provider keys). Yaad/Dimaag Postgres
+// credentials are baked into compose/quadlets — not Preferences/.env.
 var moduleEnvNames = map[string]struct{}{
-	"dwar":   {},
-	"yaad":   {},
-	"dimaag": {},
+	"dwar": {},
 }
 
 // ModuleUnit maps API name → systemd unit (prod / DADI_RUNTIME=podman).

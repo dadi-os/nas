@@ -6,9 +6,9 @@ Requires=dadi-seed.service
 Image=postgres:18
 ContainerName=dimaag-postgres
 Network=dadi.network
-EnvironmentFile=/var/lib/dadi/modules/dimaag/.env
 Environment=POSTGRES_USER=dimaag
 Environment=POSTGRES_DB=dimaag
+Environment=POSTGRES_PASSWORD=dimaag
 Volume=dimaag_pg.volume:/var/lib/postgresql
 HealthCmd=pg_isready -U dimaag -d dimaag
 HealthInterval=2s

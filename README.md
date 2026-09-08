@@ -40,13 +40,13 @@ Required on the control service (fail at startup if missing):
 | `DADI_RUNTIME` | `podman` or `compose` |
 | `DADI_COMPOSE_DIR` | Required when `DADI_RUNTIME=compose` |
 
-Module secrets live in sibling repo `.env` files in compose (`../dwar/.env`, …) and under `DADI_STATE_DIR/modules/` on the appliance. Nas does not invent defaults for missing values.
+Module secrets live in sibling `../dwar/.env` in compose and under `DADI_STATE_DIR/modules/dwar/` on the appliance. Yaad/Dimaag Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar values.
 
 ## Local run
 
 Dev is **headless Compose** on a Mac — no Plasma, no Tauri, no Overmind. The module stack plus browser Hath come up together; open `http://hath.dadi`.
 
-One-time: `/etc/hosts` must resolve `*.dadi` (including `hath.dadi`) to localhost; Docker running; each sibling module has a `.env` (copy from `.env.example` if missing). Then:
+One-time: `/etc/hosts` must resolve `*.dadi` (including `hath.dadi`) to localhost; Docker running; `../dwar/.env` present (copy from `.env.example` if missing). Then:
 
 ```sh
 docker compose up --build
@@ -183,7 +183,7 @@ Plasma on the box only — Hath is for other devices. Visual system is **bone gl
 | Look-and-feel | `org.dadi.desktop` — translucent top bar (32px), autohide float dock, crest widgets |
 | Brand menu | plasmoid `org.dadi.brand` |
 | Widgets | `org.dadi.widget.{system,memory,agents,timeline,logs}` |
-| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (module `.env` / dwar config / tunnel / devices → `DADI_STATE_DIR`) |
+| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (dwar `.env` / config / tunnel / devices → `DADI_STATE_DIR`) |
 | Add Device | `dadi-add-device` → `plasmawindowed org.dadi.adddevice` (mint Nas `POST /provision` QR for Hath) |
 | Wallpaper | `dadi-wallpaper Bloom\|Mist\|Vein` |
 | Blur / lid | `os/etc/xdg/kwinrc`, `os/etc/systemd/logind.conf.d/dadi-lid.conf` |
@@ -205,13 +205,13 @@ Add to `/etc/hosts`:
 127.0.0.1  dwar.dadi yaad.dadi dimaag.dadi nas.dadi hath.dadi
 ```
 
-Copy module env files if missing:
+Copy Dwar env if missing:
 
 ```sh
 cp ../dwar/.env.example ../dwar/.env
-cp ../yaad/.env.example ../yaad/.env
-cp ../dimaag/.env.example ../dimaag/.env
 ```
+
+Yaad and Dimaag need no `.env` — Nas injects fixed local Postgres credentials.
 
 Docker Desktop (or equivalent) must be running. No Overmind / tmux.
 

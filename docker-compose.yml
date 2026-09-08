@@ -54,10 +54,10 @@ services:
 
   yaad-postgres:
     image: pgvector/pgvector:pg18
-    env_file: ../yaad/.env
     environment:
       POSTGRES_USER: yaad
       POSTGRES_DB: yaad
+      POSTGRES_PASSWORD: yaad
     volumes:
       - yaad_pg:/var/lib/postgresql
     healthcheck:
@@ -71,7 +71,8 @@ services:
     build:
       context: ../yaad
       target: dev
-    env_file: ../yaad/.env
+    environment:
+      DATABASE_URL: postgres://yaad:yaad@yaad-postgres:5432/yaad
     volumes:
       - ../yaad:/app
       - /app/node_modules
@@ -86,7 +87,8 @@ services:
     build:
       context: ../yaad
       target: dev
-    env_file: ../yaad/.env
+    environment:
+      DATABASE_URL: postgres://yaad:yaad@yaad-postgres:5432/yaad
     volumes:
       - ../yaad:/app
       - /app/node_modules
@@ -111,10 +113,10 @@ services:
 
   dimaag-postgres:
     image: postgres:18
-    env_file: ../dimaag/.env
     environment:
       POSTGRES_USER: dimaag
       POSTGRES_DB: dimaag
+      POSTGRES_PASSWORD: dimaag
     volumes:
       - dimaag_pg:/var/lib/postgresql
     healthcheck:
@@ -128,7 +130,8 @@ services:
     build:
       context: ../dimaag
       target: dev
-    env_file: ../dimaag/.env
+    environment:
+      DATABASE_URL: postgres://dimaag:dimaag@dimaag-postgres:5432/dimaag
     volumes:
       - ../dimaag:/app
       - /app/node_modules
@@ -143,7 +146,8 @@ services:
     build:
       context: ../dimaag
       target: dev
-    env_file: ../dimaag/.env
+    environment:
+      DATABASE_URL: postgres://dimaag:dimaag@dimaag-postgres:5432/dimaag
     volumes:
       - ../dimaag:/app
       - /app/node_modules
@@ -241,10 +245,8 @@ services:
       - ./headscale/config.yaml:/etc/headscale/config.yaml:ro
       - headscale_data:/var/lib/headscale
       - headscale_run:/var/run/headscale
-      # Sibling module files are the compose source of truth (same paths Preferences edits).
+      # Dwar secrets/config only — Yaad/Dimaag Postgres is baked into this compose file.
       - ../dwar/.env:/var/lib/dadi/modules/dwar/.env
-      - ../yaad/.env:/var/lib/dadi/modules/yaad/.env
-      - ../dimaag/.env:/var/lib/dadi/modules/dimaag/.env
       - ../dwar/config.toml:/var/lib/dadi/modules/dwar/config.toml
       - cloudflared_data:/var/lib/dadi/cloudflared
       - .:/nas:ro

@@ -12,7 +12,7 @@ AddHost=dwar.dadi:host-gateway
 AddHost=yaad.dadi:host-gateway
 AddHost=dimaag.dadi:host-gateway
 AddHost=nas.dadi:host-gateway
-EnvironmentFile=/var/lib/dadi/modules/dimaag/.env
+Environment=DATABASE_URL=postgres://dimaag:dimaag@dimaag-postgres:5432/dimaag
 AutoUpdate=registry
 HealthCmd=node -e "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 HealthInterval=2s

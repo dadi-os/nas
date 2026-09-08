@@ -36,7 +36,7 @@ while IFS= read -r -d '' src; do
   fi
 done < <(find "$SEED" -print0)
 
-mkdir -p "$STATE/cloudflared" "$STATE/modules/dwar" "$STATE/modules/yaad" "$STATE/modules/dimaag"
+mkdir -p "$STATE/cloudflared" "$STATE/modules/dwar"
 
 # Ensure cloudflared token file exists (may be empty until set via Nas).
 if [ ! -f "$STATE/cloudflared/token" ]; then

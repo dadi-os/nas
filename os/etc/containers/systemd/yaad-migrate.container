@@ -6,7 +6,7 @@ Requires=dadi-seed.service yaad-postgres.service
 Image=ghcr.io/dadi-os/yaad:latest
 ContainerName=yaad-migrate
 Network=dadi.network
-EnvironmentFile=/var/lib/dadi/modules/yaad/.env
+Environment=DATABASE_URL=postgres://yaad:yaad@yaad-postgres:5432/yaad
 Exec=npm run db:migrate
 AutoUpdate=registry
 
