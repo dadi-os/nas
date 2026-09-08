@@ -199,7 +199,6 @@ func readCPUTimes() (idle, total uint64, ok bool) {
 		return 0, 0, false
 	}
 	fields := strings.Fields(sc.Text())
-	// cpu user nice system idle iowait irq softirq steal guest guest_nice
 	if len(fields) < 5 || fields[0] != "cpu" {
 		return 0, 0, false
 	}
@@ -261,7 +260,6 @@ func sampleMemory() *memoryStatus {
 }
 
 func sampleGPUs() []gpuStatus {
-	// nvidia-smi is the practical signal for discrete GPUs in the box.
 	cmd := exec.Command(
 		"nvidia-smi",
 		"--query-gpu=name,utilization.gpu",

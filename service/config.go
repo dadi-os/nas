@@ -17,7 +17,7 @@ var moduleEnvNames = map[string]struct{}{
 	"dimaag": {},
 }
 
-// moduleUnit maps API name → systemd unit (prod / DADI_RUNTIME=podman).
+// ModuleUnit maps API name → systemd unit (prod / DADI_RUNTIME=podman).
 var moduleUnit = map[string]string{
 	"dwar":        "dwar",
 	"yaad":        "yaad",
@@ -31,7 +31,7 @@ var moduleUnit = map[string]string{
 	"tailscale":   "dadi-tailscale.service",
 }
 
-// composeService maps API name → docker compose service (dev). Empty = no-op.
+// ComposeService maps API name → docker compose service (dev). Empty = no-op.
 var composeService = map[string]string{
 	"dwar":        "dwar",
 	"yaad":        "yaad",
