@@ -26,15 +26,15 @@ One Docker network, `dadi`. Caddy publishes host port 80. Headscale publishes ho
 | Environment | Runtime | Definition |
 | --- | --- | --- |
 | Development | Docker Compose + Overmind on a Mac | `docker-compose.yml` + `Procfile` (this repo) |
-| Production | podman + systemd on the box | quadlets in `/etc/containers/systemd/` (not yet); podman-auto-update for image updates |
+| Production | podman + systemd on the box | quadlets in `/etc/containers/systemd/`; `podman-auto-update` for module images |
 
-Same services, same names, same routing. Only the runtime differs. Dev is what exists so far.
+Same services, same names, same routing. Only the runtime differs.
 
-**Prod logging (later):** Alloy reads journald from podman/systemd units into the same Loki shape; `GET /logs` stays the client API. `podman-auto-update` restarts updated units; log identity is the module/unit name.
+**Prod logging:** Alloy reads journald (podman/systemd) into the same Loki shape; `GET /logs` stays the client API. `podman-auto-update` restarts updated units; log identity is the module/unit name.
 
 ## Production
 
-**Two layers, two update mechanisms.** The OS layer is a bootc image (`ghcr.io/dadi-os/nas-os`). Update it with `bootc upgrade` and a reboot; revert with `bootc rollback`. The module layer is ordinary container images (e.g. `nas-service`). Those update via `podman-auto-update` with no reboot — `AutoUpdate=registry` on each quadlet plus `podman-auto-update.timer`, which has a built-in `--rollback`. Module images are never baked into the OS image.
+**Two layers, two update mechanisms.** The OS layer is a bootc image (`ghcr.io/dadi-os/nas-os`). Update it with `bootc upgrade` and a reboot; revert with `bootc rollback`. The module layer is ordinary container images (`ghcr.io/dadi-os/{dwar,yaad,dimaag,nas-service}`). Those update via `podman-auto-update` with no reboot — `AutoUpdate=registry` on each quadlet plus `podman-auto-update.timer`. Module images are never baked into the OS image. Hath is a third path (AppImage under cage), updated outside bootc/podman.
 
 ### First install
 
@@ -44,10 +44,14 @@ CD builds an unattended Anaconda ISO whenever `os/**` changes and publishes it o
 2. Download `dadiOS-amd64.iso` from the `dadiOS-latest` release.
 3. Flash it to a USB (Rufus, balenaEtcher, `dd`).
 4. Boot the target machine from that USB. **The first disk is wiped with no confirmation** — unplug extra drives. Install is unattended: LUKS uses the CD secret, then reboots.
-5. Remove the USB. At the LUKS prompt, enter the same passphrase. Console autologins as `ankur` (no password). SSH from a Mac that holds a private key matching [`os/authorized_keys`](os/authorized_keys): `ssh ankur@<box-ip>`.
-6. Verify with `bootc status`.
+5. Remove the USB. At the LUKS prompt, enter the same passphrase. Console autologins as `ankur`. Hath starts under cage when the graphical target is up (downloads `hath-linux-x86_64.AppImage` on first start if missing).
+6. SSH from a Mac that holds a private key matching [`os/authorized_keys`](os/authorized_keys): `ssh ankur@<box-ip>`.
+7. Point a Cloudflare tunnel at this box’s Headscale (`localhost:8080`) for hostname `headscale.dadi.ardusa.dev`. Paste the tunnel token in Hath **System → MODULES → tunnel** (or `PUT /cloudflared/token` on nas-service).
+8. Provision Hath clients against `https://headscale.dadi.ardusa.dev`. Verify `bootc status` and module health on System.
 
-Day-2 OS updates: `sudo bootc upgrade && sudo reboot`. Modules stay separate images — changing `nas-service` does not rebuild the OS or ISO.
+Machine config lives under `/var/lib/dadi/` (seeded on first boot from `/usr/share/dadi/seed`). Nas owns env/config files and stack lifecycle; Hath is only the UI.
+
+Day-2 OS updates: `sudo bootc upgrade && sudo reboot`. Module image updates: automatic via `podman-auto-update` (selective — only changed images). Hath: replace the AppImage under `/var/lib/dadi/hath/` (or delete it and restart `hath-kiosk` to re-fetch latest).
 
 **Auth model:** LUKS unlocks the disk; SSH is key-only (`PasswordAuthentication no`); Hath has no login screen (mesh membership is the lock). Console is an appliance autologin, not a password prompt.
 
@@ -57,16 +61,15 @@ Day-2 OS updates: `sudo bootc upgrade && sudo reboot`. Modules stay separate ima
 
 ### Registry visibility
 
-`nas-os` is public so the box needs no pull credentials for the OS layer. Private module images will require `/etc/ostree/auth.json` when quadlets arrive.
-
+`nas-os` and module images are expected public so the box needs no pull credentials for those layers. Private module images would require `/etc/ostree/auth.json` / registry auth.
 ## Mesh
 
 Two naming layers exist at once and must not be confused:
 
 - **Docker DNS** — how containers reach each other. Caddy's `*.dadi` network aliases are this layer. `curl http://yaad.dadi/health` from the Mac via `/etc/hosts` → localhost:80 is still this path.
-- **Headscale MagicDNS** — how tsnet clients (Hath) resolve `*.dadi`. Extra records in `headscale/config.yaml` point service names at the sidecar's mesh address. Separate namespace, separate mechanism. Neither replaces the other.
+- **Headscale MagicDNS** — how tsnet clients (Hath) resolve `*.dadi`. Extra records in `headscale/config.yaml` (dev) / `/etc/headscale/config.yaml` (prod) point service names at the sidecar's mesh address. Separate namespace, separate mechanism. Neither replaces the other.
 
-Headscale is the one exception to "only Caddy publishes a host port." A device that has not joined the mesh cannot resolve `.dadi` names, so the control server must be reachable by ordinary means (`localhost:8080` in dev). That is also why `control_url` lives in the provisioning bundle rather than as a constant — production swaps the address without a code change.
+Headscale must be reachable before a device joins the mesh. In **dev** that is `localhost:8080`. In **prod** clients use `https://headscale.dadi.ardusa.dev` (Cloudflare tunnel → Headscale on the box). `control_url` in the provisioning bundle carries that value.
 
 The Tailscale sidecar joins as hostname `os` (MagicDNS: `os.dadi`) and L3-forwards inbound mesh traffic to Caddy, which routes by Host header. Current Tailscale rejects `TS_DEST_IP` together with userspace mode, so the sidecar runs with kernel networking (`NET_ADMIN` + `/dev/net/tun`) and `TS_EXPERIMENTAL_DEST_DNS_NAME=caddy`.
 
@@ -159,4 +162,4 @@ docker compose up yaad yaad-postgres
 
 ## Not here yet
 
-quadlets, pause-other-modules-while-one-updates (prod + dev), TPM LUKS unlock, remote (off-LAN) mesh join, journald→Alloy on the box, Hath logs widget UI / Plymouth kiosk.
+pause-other-modules-while-one-updates (prod + dev), TPM LUKS unlock, Hath logs widget polish / Plymouth splash branding.

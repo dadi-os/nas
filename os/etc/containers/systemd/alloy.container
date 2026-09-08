@@ -1,0 +1,21 @@
+[Unit]
+After=loki.service
+Wants=loki.service
+
+[Container]
+Image=grafana/alloy:v1.7.1
+ContainerName=alloy
+Network=dadi.network
+Exec=run --server.http.listen-addr=0.0.0.0:12345 --storage.path=/var/lib/alloy/data /etc/alloy/config.alloy
+Volume=/etc/dadi/config.alloy:/etc/alloy/config.alloy:ro
+Volume=/var/log/journal:/var/log/journal:ro
+Volume=/run/log/journal:/run/log/journal:ro
+Volume=/etc/machine-id:/etc/machine-id:ro
+Volume=alloy_data.volume:/var/lib/alloy/data
+Volume=/var/lib/dadi/hath:/var/log/hath:ro
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

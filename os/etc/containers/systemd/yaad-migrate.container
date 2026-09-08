@@ -1,0 +1,18 @@
+[Unit]
+After=dadi-seed.service yaad-postgres.service
+Requires=dadi-seed.service yaad-postgres.service
+
+[Container]
+Image=ghcr.io/dadi-os/yaad:latest
+ContainerName=yaad-migrate
+Network=dadi.network
+EnvironmentFile=/var/lib/dadi/modules/yaad/.env
+Exec=npm run db:migrate
+AutoUpdate=registry
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

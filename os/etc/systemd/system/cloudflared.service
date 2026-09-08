@@ -1,0 +1,13 @@
+[Unit]
+Description=Cloudflare tunnel to Headscale
+After=network-online.target headscale.service dadi-seed.service
+Wants=network-online.target headscale.service
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/dadi/cloudflared-run.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

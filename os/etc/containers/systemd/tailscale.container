@@ -1,0 +1,26 @@
+[Unit]
+After=bootstrap.service caddy.service
+Requires=bootstrap.service
+Wants=caddy.service
+
+[Container]
+Image=tailscale/tailscale:latest
+ContainerName=tailscale
+HostName=os
+Network=dadi.network
+Environment=TS_AUTHKEY=file:/run/bootstrap/authkey
+Environment=TS_EXTRA_ARGS=--login-server=http://headscale:8080
+Environment=TS_USERSPACE=false
+Environment=TS_EXPERIMENTAL_DEST_DNS_NAME=caddy
+Environment=TS_STATE_DIR=/var/lib/tailscale
+Environment=TS_HOSTNAME=os
+Volume=tailscale_state.volume:/var/lib/tailscale
+Volume=bootstrap.volume:/run/bootstrap:ro
+AddDevice=/dev/net/tun:/dev/net/tun
+AddCapability=NET_ADMIN
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -58,6 +58,11 @@ func main() {
 		slog.Error("LISTEN_ADDR is required")
 		os.Exit(1)
 	}
+	state, err := loadStateConfig()
+	if err != nil {
+		slog.Error(err.Error())
+		os.Exit(1)
+	}
 
 	started := time.Now()
 	startMetricsSampler()
@@ -74,8 +79,9 @@ func main() {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	registerConfigRoutes(mux, state)
 
-	slog.Info("nas-service listening", "addr", listen)
+	slog.Info("nas-service listening", "addr", listen, "state_dir", state.dir, "runtime", state.runtime)
 	if err := http.ListenAndServe(listen, mux); err != nil {
 		slog.Error("listen failed", "err", err)
 		os.Exit(1)

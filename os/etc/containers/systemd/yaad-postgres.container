@@ -1,0 +1,22 @@
+[Unit]
+After=dadi-seed.service
+Requires=dadi-seed.service
+
+[Container]
+Image=pgvector/pgvector:pg18
+ContainerName=yaad-postgres
+Network=dadi.network
+EnvironmentFile=/var/lib/dadi/modules/yaad/.env
+Environment=POSTGRES_USER=yaad
+Environment=POSTGRES_DB=yaad
+Volume=yaad_pg.volume:/var/lib/postgresql
+HealthCmd=pg_isready -U yaad -d yaad
+HealthInterval=2s
+HealthTimeout=5s
+HealthRetries=20
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

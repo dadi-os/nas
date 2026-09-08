@@ -1,0 +1,18 @@
+[Unit]
+After=dadi-seed.service dimaag-postgres.service
+Requires=dadi-seed.service dimaag-postgres.service
+
+[Container]
+Image=ghcr.io/dadi-os/dimaag:latest
+ContainerName=dimaag-migrate
+Network=dadi.network
+EnvironmentFile=/var/lib/dadi/modules/dimaag/.env
+Exec=npm run db:migrate
+AutoUpdate=registry
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

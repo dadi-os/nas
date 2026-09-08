@@ -7,12 +7,24 @@ RUN dnf -y install \
     jq \
     vim-minimal \
     git \
+    cage \
+    seatd \
+    mesa-dri-drivers \
+    mesa-vulkan-drivers \
+    libglvnd-egl \
+    fuse \
+    fuse-libs \
   && dnf clean all
+
+# Cloudflare tunnel binary (not in Fedora repos).
+RUN curl -fsSL -o /usr/local/bin/cloudflared \
+      https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+  && chmod 0755 /usr/local/bin/cloudflared
 
 # /home is machine state — create the account without writing a home directory.
 RUN useradd \
     --uid 1000 \
-    --groups wheel \
+    --groups wheel,video,render,input \
     --home-dir /home/ankur \
     --no-create-home \
     --shell /bin/bash \
@@ -21,11 +33,18 @@ RUN useradd \
 RUN mkdir -p /usr/ssh
 
 COPY etc/ /etc/
+COPY usr/ /usr/
 COPY authorized_keys /usr/ssh/ankur-authorized-keys
 
 RUN chmod 0440 /etc/sudoers.d/ankur \
   && chmod 0644 /usr/ssh/ankur-authorized-keys \
-  && systemctl enable sshd.service
+  && chmod 0755 /usr/libexec/dadi/*.sh \
+  && systemctl enable sshd.service \
+  && systemctl enable dadi-seed.service \
+  && systemctl enable seatd.service \
+  && systemctl enable hath-kiosk.service \
+  && systemctl enable cloudflared.service \
+  && systemctl enable podman-auto-update.timer
 
 # Last occurrence wins in os-release parsers — brand as dadiOS without
 # changing ID (bootc-image-builder keys off ID=fedora for distro defs).

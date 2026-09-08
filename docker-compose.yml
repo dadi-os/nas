@@ -31,9 +31,10 @@ services:
     build:
       context: ../dwar
       target: dev
-    env_file: ../dwar/.env
+    env_file: ./.run/dadi/modules/dwar/.env
     volumes:
       - ../dwar:/app
+      - ./.run/dadi/modules/dwar/config.toml:/app/config.toml:ro
     expose: ["8080"]
     healthcheck:
       test:
@@ -50,7 +51,7 @@ services:
 
   yaad-postgres:
     image: pgvector/pgvector:pg18
-    env_file: ../yaad/.env
+    env_file: ./.run/dadi/modules/yaad/.env
     environment:
       POSTGRES_USER: yaad
       POSTGRES_DB: yaad
@@ -67,7 +68,7 @@ services:
     build:
       context: ../yaad
       target: dev
-    env_file: ../yaad/.env
+    env_file: ./.run/dadi/modules/yaad/.env
     volumes:
       - ../yaad:/app
       - /app/node_modules
@@ -82,7 +83,7 @@ services:
     build:
       context: ../yaad
       target: dev
-    env_file: ../yaad/.env
+    env_file: ./.run/dadi/modules/yaad/.env
     volumes:
       - ../yaad:/app
       - /app/node_modules
@@ -107,7 +108,7 @@ services:
 
   dimaag-postgres:
     image: postgres:18
-    env_file: ../dimaag/.env
+    env_file: ./.run/dadi/modules/dimaag/.env
     environment:
       POSTGRES_USER: dimaag
       POSTGRES_DB: dimaag
@@ -124,7 +125,7 @@ services:
     build:
       context: ../dimaag
       target: dev
-    env_file: ../dimaag/.env
+    env_file: ./.run/dadi/modules/dimaag/.env
     volumes:
       - ../dimaag:/app
       - /app/node_modules
@@ -139,7 +140,7 @@ services:
     build:
       context: ../dimaag
       target: dev
-    env_file: ../dimaag/.env
+    env_file: ./.run/dadi/modules/dimaag/.env
     volumes:
       - ../dimaag:/app
       - /app/node_modules
@@ -229,11 +230,17 @@ services:
       HEADSCALE_USER: ankur
       LISTEN_ADDR: ":8080"
       LOKI_URL: http://loki:3100
+      DADI_STATE_DIR: /var/lib/dadi
+      DADI_RUNTIME: compose
+      DADI_COMPOSE_DIR: /nas
     volumes:
       - ./service:/src
       - ./headscale/config.yaml:/etc/headscale/config.yaml:ro
       - headscale_data:/var/lib/headscale
       - headscale_run:/var/run/headscale
+      - ./.run/dadi:/var/lib/dadi
+      - .:/nas:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     expose: ["8080"]
     # Host publish so hath-dev can provision before the mesh is up.
     ports:

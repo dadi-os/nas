@@ -1,0 +1,77 @@
+// Production Alloy: journald (podman/systemd) + Hath log file → Loki.
+// Compose still uses logging/config.alloy (docker.sock).
+
+discovery.relabel "journal" {
+  targets = []
+
+  rule {
+    source_labels = ["__journal_container_name"]
+    regex         = "(.+)"
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    regex         = "(.+)\\.service"
+    target_label  = "unit"
+  }
+
+  rule {
+    source_labels = ["service"]
+    regex         = ""
+    replacement   = ""
+    target_label  = "_empty_service"
+  }
+
+  rule {
+    source_labels = ["service"]
+    regex         = "nas-service"
+    target_label  = "service"
+    replacement   = "nas"
+  }
+}
+
+loki.source.journal "dadi" {
+  max_age       = "12h"
+  relabel_rules = discovery.relabel.journal.rules
+  forward_to    = [loki.process.normalize.receiver]
+}
+
+local.file_match "hath" {
+  path_targets = [{
+    __path__ = "/var/log/hath/hath.log",
+    service  = "hath",
+  }]
+}
+
+loki.source.file "hath" {
+  targets    = local.file_match.hath.targets
+  forward_to = [loki.process.normalize.receiver]
+}
+
+loki.process "normalize" {
+  forward_to = [loki.write.local.receiver]
+
+  stage.drop {
+    source     = "service"
+    expression = "^(alloy|loki|.*-postgres|headscale|tailscale|bootstrap|cloudflared|yaad-migrate|dimaag-migrate)$"
+  }
+
+  stage.match {
+    selector = `{service=~"dimaag|yaad|dwar|nas|hath"}`
+
+    stage.json {
+      expressions = {
+        level = "level",
+        msg   = "msg",
+      }
+      drop_malformed = true
+    }
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

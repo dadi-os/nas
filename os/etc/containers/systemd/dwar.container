@@ -1,0 +1,21 @@
+[Unit]
+After=dadi-seed.service
+Requires=dadi-seed.service
+
+[Container]
+Image=ghcr.io/dadi-os/dwar:latest
+ContainerName=dwar
+Network=dadi.network
+EnvironmentFile=/var/lib/dadi/modules/dwar/.env
+Volume=/var/lib/dadi/modules/dwar/config.toml:/app/config.toml:ro
+AutoUpdate=registry
+HealthCmd=python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"
+HealthInterval=2s
+HealthTimeout=5s
+HealthRetries=30
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+[Unit]
+Description=Seed /var/lib/dadi module config on first boot
+DefaultDependencies=no
+After=local-fs.target
+Before=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/dadi/seed-state.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+[Unit]
+After=dadi-seed.service yaad-postgres.service yaad-migrate.service
+Requires=dadi-seed.service yaad-postgres.service
+Wants=yaad-migrate.service
+
+[Container]
+Image=ghcr.io/dadi-os/yaad:latest
+ContainerName=yaad
+Network=dadi.network
+EnvironmentFile=/var/lib/dadi/modules/yaad/.env
+AutoUpdate=registry
+HealthCmd=node -e "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+HealthInterval=2s
+HealthTimeout=5s
+HealthRetries=30
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
