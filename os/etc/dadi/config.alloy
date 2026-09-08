@@ -1,5 +1,3 @@
-// Production Alloy: journald (podman/systemd) + Hath log file → Loki.
-
 discovery.relabel "journal" {
   targets = []
 
@@ -15,7 +13,6 @@ discovery.relabel "journal" {
     target_label  = "unit"
   }
 
-  // Host nas unit has no container_name — label it as service=nas.
   rule {
     source_labels = ["__journal__systemd_unit"]
     regex         = "nas\\.service"
@@ -55,8 +52,10 @@ loki.process "normalize" {
 
     stage.json {
       expressions = {
-        level = "level",
-        msg   = "msg",
+        level      = "level",
+        msg        = "msg",
+        code       = "code",
+        request_id = "request_id",
       }
       drop_malformed = true
     }

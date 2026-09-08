@@ -1,4 +1,3 @@
-// Nas HTTP service: device provisioning, box status, and log query for Hath.
 package main
 
 import (
@@ -18,49 +17,31 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
-			if a.Key == slog.MessageKey {
-				a.Key = "msg"
-			}
-			if a.Key == slog.TimeKey {
-				a.Key = "time"
-			}
-			if a.Key == slog.LevelKey {
-				if level, ok := a.Value.Any().(slog.Level); ok {
-					return slog.String("level", strings.ToLower(level.String()))
-				}
-			}
-			return a
-		},
-	}))
-	logger = logger.With("service", "nas")
-	slog.SetDefault(logger)
+	slog.SetDefault(newLogger())
 
-	controlURL := os.Getenv("CONTROL_URL")
-	if controlURL == "" {
-		slog.Error("CONTROL_URL is required")
+	controlURL, err := requireEnv("CONTROL_URL")
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
 	}
-	userName := os.Getenv("HEADSCALE_USER")
-	if userName == "" {
-		slog.Error("HEADSCALE_USER is required")
+	userName, err := requireEnv("HEADSCALE_USER")
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
 	}
-	lokiURL := os.Getenv("LOKI_URL")
-	if lokiURL == "" {
-		slog.Error("LOKI_URL is required")
+	lokiURL, err := requireEnv("LOKI_URL")
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
 	}
-	listen := os.Getenv("LISTEN_ADDR")
-	if listen == "" {
-		slog.Error("LISTEN_ADDR is required")
+	listen, err := requireEnv("LISTEN_ADDR")
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
 	}
 	state, err := loadStateConfig()
 	if err != nil {
-		slog.Error(err.Error())
+		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
 	}
 
@@ -82,8 +63,8 @@ func main() {
 	registerConfigRoutes(mux, state)
 
 	slog.Info("nas listening", "addr", listen, "state_dir", state.dir, "runtime", state.runtime)
-	if err := http.ListenAndServe(listen, mux); err != nil {
-		slog.Error("listen failed", "err", err)
+	if err := http.ListenAndServe(listen, withRequestLog(mux)); err != nil {
+		slog.Error("listen failed", "code", CodeInternal, "err", err)
 		os.Exit(1)
 	}
 }
@@ -105,24 +86,24 @@ type credentialsBundle struct {
 func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userName string) {
 	var req provisionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json body", http.StatusBadRequest)
+		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "invalid json body")
 		return
 	}
 	nodeName := strings.TrimSpace(req.NodeName)
 	if nodeName == "" {
-		http.Error(w, "node_name is required", http.StatusBadRequest)
+		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "node_name is required")
 		return
 	}
 
 	userID, err := resolveUserID(userName)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, r, http.StatusInternalServerError, CodeProvisionFailed, err.Error())
 		return
 	}
 
 	authKey, err := mintDeviceKey(userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, r, http.StatusInternalServerError, CodeProvisionFailed, err.Error())
 		return
 	}
 
@@ -132,7 +113,7 @@ func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userNam
 		NodeName:   nodeName,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, r, http.StatusInternalServerError, CodeProvisionFailed, err.Error())
 		return
 	}
 
@@ -168,7 +149,6 @@ func resolveUserID(name string) (uint64, error) {
 }
 
 func mintDeviceKey(userID uint64) (string, error) {
-	// Single-use, short-lived. Do not pass --reusable.
 	out, err := exec.Command(
 		"headscale", "preauthkeys", "create",
 		"--user", strconv.FormatUint(userID, 10),
@@ -212,8 +192,6 @@ func healthTargets(runtime string) []struct {
 	name string
 	url  string
 } {
-	// Prod: host Caddy publishes app containers on localhost.
-	// Dev compose: container DNS on the dadi network.
 	if runtime == "podman" {
 		return []struct {
 			name string
@@ -256,7 +234,6 @@ func handleStatus(w http.ResponseWriter, _ *http.Request, started time.Time, run
 	}
 
 	m := currentMetrics()
-	// errors stays empty in the status payload — searchable logs live at GET /logs.
 	writeJSON(w, http.StatusOK, statusResponse{
 		UptimeSeconds: int64(time.Since(started).Seconds()),
 		Services:      services,
@@ -273,6 +250,7 @@ type logEntry struct {
 	Service string `json:"service"`
 	Level   string `json:"level"`
 	Msg     string `json:"msg"`
+	Code    string `json:"code,omitempty"`
 	Raw     string `json:"raw,omitempty"`
 }
 
@@ -289,7 +267,7 @@ func handleLogs(w http.ResponseWriter, r *http.Request, lokiURL string) {
 	if raw := strings.TrimSpace(q.Get("limit")); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 || n > 1000 {
-			http.Error(w, "limit must be an integer from 1 to 1000", http.StatusBadRequest)
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "limit must be an integer from 1 to 1000")
 			return
 		}
 		limit = n
@@ -301,7 +279,7 @@ func handleLogs(w http.ResponseWriter, r *http.Request, lokiURL string) {
 	if raw := strings.TrimSpace(q.Get("from")); raw != "" {
 		t, err := time.Parse(time.RFC3339, raw)
 		if err != nil {
-			http.Error(w, "from must be RFC3339", http.StatusBadRequest)
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "from must be RFC3339")
 			return
 		}
 		start = t
@@ -309,13 +287,13 @@ func handleLogs(w http.ResponseWriter, r *http.Request, lokiURL string) {
 	if raw := strings.TrimSpace(q.Get("to")); raw != "" {
 		t, err := time.Parse(time.RFC3339, raw)
 		if err != nil {
-			http.Error(w, "to must be RFC3339", http.StatusBadRequest)
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "to must be RFC3339")
 			return
 		}
 		end = t
 	}
 	if !end.After(start) {
-		http.Error(w, "to must be after from", http.StatusBadRequest)
+		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "to must be after from")
 		return
 	}
 
@@ -329,13 +307,13 @@ func handleLogs(w http.ResponseWriter, r *http.Request, lokiURL string) {
 				continue
 			}
 			if strings.ContainsAny(p, `.|+*?[](){}\`) {
-				http.Error(w, "services must be plain names", http.StatusBadRequest)
+				writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "services must be plain names")
 				return
 			}
 			escaped = append(escaped, p)
 		}
 		if len(escaped) == 0 {
-			http.Error(w, "services must list at least one name", http.StatusBadRequest)
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "services must list at least one name")
 			return
 		}
 		selector = fmt.Sprintf(`{service=~"%s"}`, strings.Join(escaped, "|"))
@@ -351,14 +329,14 @@ func handleLogs(w http.ResponseWriter, r *http.Request, lokiURL string) {
 		case "debug", "info", "warn", "error":
 			logql += fmt.Sprintf(` | level="%s"`, level)
 		default:
-			http.Error(w, "level must be debug, info, warn, or error", http.StatusBadRequest)
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "level must be debug, info, warn, or error")
 			return
 		}
 	}
 
 	endpoint, err := url.Parse(strings.TrimRight(lokiURL, "/") + "/loki/api/v1/query_range")
 	if err != nil {
-		http.Error(w, "invalid LOKI_URL", http.StatusInternalServerError)
+		writeError(w, r, http.StatusInternalServerError, CodeLogQueryFailed, "invalid LOKI_URL")
 		return
 	}
 	params := endpoint.Query()
@@ -372,26 +350,26 @@ func handleLogs(w http.ResponseWriter, r *http.Request, lokiURL string) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(endpoint.String())
 	if err != nil {
-		slog.Error("loki query failed", "err", err)
-		http.Error(w, "loki query failed", http.StatusBadGateway)
+		slog.Error("loki query failed", "code", CodeLogQueryFailed, "err", err)
+		writeError(w, r, http.StatusBadGateway, CodeLogQueryFailed, "loki query failed")
 		return
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		http.Error(w, "read loki response", http.StatusBadGateway)
+		writeError(w, r, http.StatusBadGateway, CodeLogQueryFailed, "read loki response")
 		return
 	}
 	if resp.StatusCode != http.StatusOK {
-		slog.Error("loki returned error", "status", resp.StatusCode, "body", string(body))
-		http.Error(w, "loki query failed", http.StatusBadGateway)
+		slog.Error("loki returned error", "code", CodeLogQueryFailed, "status", resp.StatusCode, "body", string(body))
+		writeError(w, r, http.StatusBadGateway, CodeLogQueryFailed, "loki query failed")
 		return
 	}
 
 	entries, err := parseLokiRange(body, limit)
 	if err != nil {
-		slog.Error("parse loki response", "err", err)
-		http.Error(w, "parse loki response", http.StatusBadGateway)
+		slog.Error("parse loki response", "code", CodeLogQueryFailed, "err", err)
+		writeError(w, r, http.StatusBadGateway, CodeLogQueryFailed, "parse loki response")
 		return
 	}
 	writeJSON(w, http.StatusOK, logsResponse{Entries: entries})
@@ -406,9 +384,6 @@ type lokiRangeResponse struct {
 	} `json:"data"`
 }
 
-// jsonLogServices are modules that emit JSON lines on stdout. Non-JSON fragments
-// (npm banners, Node warnings, postgres-js NOTICE dumps) are noise — skip them
-// even if they were already ingested before Alloy started dropping them.
 var jsonLogServices = map[string]struct{}{
 	"dimaag": {},
 	"yaad":   {},
@@ -464,6 +439,9 @@ func parseLokiRange(body []byte, limit int) ([]logEntry, error) {
 				if svc, ok := fields["service"].(string); ok && svc != "" {
 					entry.Service = svc
 				}
+				if code, ok := fields["code"].(string); ok && code != "" {
+					entry.Code = code
+				}
 				if t, ok := fields["time"].(string); ok && t != "" {
 					entry.Time = t
 				} else if n, ok := fields["time"].(float64); ok {
@@ -477,10 +455,4 @@ func parseLokiRange(body []byte, limit int) ([]logEntry, error) {
 		}
 	}
 	return out, nil
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
 }

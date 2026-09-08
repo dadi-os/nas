@@ -90,12 +90,12 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 	mux.HandleFunc("GET /modules/{name}/env", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if _, ok := moduleEnvNames[name]; !ok {
-			http.Error(w, "unknown module", http.StatusNotFound)
+			writeError(w, r, http.StatusNotFound, CodeNotFound, "unknown module")
 			return
 		}
 		body, err := os.ReadFile(s.moduleEnvPath(name))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -105,26 +105,26 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 	mux.HandleFunc("PUT /modules/{name}/env", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if _, ok := moduleEnvNames[name]; !ok {
-			http.Error(w, "unknown module", http.StatusNotFound)
+			writeError(w, r, http.StatusNotFound, CodeNotFound, "unknown module")
 			return
 		}
 		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		if err != nil {
-			http.Error(w, "read body", http.StatusBadRequest)
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "read body")
 			return
 		}
 		path := s.moduleEnvPath(name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
 		if err := os.WriteFile(path, body, 0o600); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
 		if err := s.restartModule(name); err != nil {
-			slog.Error("restart after env write", "module", name, "err", err)
-			http.Error(w, "wrote env but restart failed: "+err.Error(), http.StatusInternalServerError)
+			slog.Error("restart after env write", "code", CodeInternal, "module", name, "err", err)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, "wrote env but restart failed: "+err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -133,7 +133,7 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 	mux.HandleFunc("GET /modules/dwar/config", func(w http.ResponseWriter, r *http.Request) {
 		body, err := os.ReadFile(s.dwarConfigPath())
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -143,21 +143,21 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 	mux.HandleFunc("PUT /modules/dwar/config", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		if err != nil {
-			http.Error(w, "read body", http.StatusBadRequest)
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "read body")
 			return
 		}
 		path := s.dwarConfigPath()
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
 		if err := os.WriteFile(path, body, 0o644); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
 		if err := s.restartModule("dwar"); err != nil {
-			slog.Error("restart after config write", "err", err)
-			http.Error(w, "wrote config but restart failed: "+err.Error(), http.StatusInternalServerError)
+			slog.Error("restart after config write", "code", CodeInternal, "err", err)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, "wrote config but restart failed: "+err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -166,11 +166,11 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 	mux.HandleFunc("POST /modules/{name}/restart", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if _, ok := moduleUnit[name]; !ok {
-			http.Error(w, "unknown module", http.StatusNotFound)
+			writeError(w, r, http.StatusNotFound, CodeNotFound, "unknown module")
 			return
 		}
 		if err := s.restartModule(name); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -178,7 +178,7 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 
 	mux.HandleFunc("POST /stack/up", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.stackUp(); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -186,7 +186,7 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 
 	mux.HandleFunc("POST /stack/down", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.stackDown(); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -199,7 +199,7 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 				return
 			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -209,22 +209,22 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 	mux.HandleFunc("PUT /cloudflared/token", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 		if err != nil {
-			http.Error(w, "read body", http.StatusBadRequest)
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "read body")
 			return
 		}
 		path := s.cloudflaredTokenPath()
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
 		token := strings.TrimSpace(string(body))
 		if err := os.WriteFile(path, []byte(token+"\n"), 0o600); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
 		if err := s.restartModule("cloudflared"); err != nil {
-			slog.Error("restart cloudflared after token write", "err", err)
-			http.Error(w, "wrote token but restart failed: "+err.Error(), http.StatusInternalServerError)
+			slog.Error("restart cloudflared after token write", "code", CodeInternal, "err", err)
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, "wrote token but restart failed: "+err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
