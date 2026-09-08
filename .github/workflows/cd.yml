@@ -74,30 +74,30 @@ jobs:
 
       - name: Require LUKS passphrase secret
         env:
-          DADOS_LUKS_PASSPHRASE: ${{ secrets.DADOS_LUKS_PASSPHRASE }}
+          DADIOS_LUKS_PASSPHRASE: ${{ secrets.DADIOS_LUKS_PASSPHRASE }}
         run: |
-          if [ -z "${DADOS_LUKS_PASSPHRASE}" ]; then
-            echo "Set repo secret DADOS_LUKS_PASSPHRASE before building the installer ISO." >&2
+          if [ -z "${DADIOS_LUKS_PASSPHRASE}" ]; then
+            echo "Set repo secret DADIOS_LUKS_PASSPHRASE before building the installer ISO." >&2
             exit 1
           fi
           # Kickstart --passphrase=... breaks on these characters.
           python3 - <<'PY'
           import os, sys
-          secret = os.environ["DADOS_LUKS_PASSPHRASE"]
+          secret = os.environ["DADIOS_LUKS_PASSPHRASE"]
           bad = set('"\\\n\r#')
           if any(c in secret for c in bad):
-              sys.exit("DADOS_LUKS_PASSPHRASE must not contain quotes, backslash, #, or newlines")
+              sys.exit("DADIOS_LUKS_PASSPHRASE must not contain quotes, backslash, #, or newlines")
           PY
 
       - name: Render installer config
         env:
-          DADOS_LUKS_PASSPHRASE: ${{ secrets.DADOS_LUKS_PASSPHRASE }}
+          DADIOS_LUKS_PASSPHRASE: ${{ secrets.DADIOS_LUKS_PASSPHRASE }}
         run: |
           python3 - <<'PY'
           import os
           from pathlib import Path
           src = Path("os/installer/config.toml").read_text()
-          secret = os.environ["DADOS_LUKS_PASSPHRASE"]
+          secret = os.environ["DADIOS_LUKS_PASSPHRASE"]
           Path("os/installer/config.rendered.toml").write_text(
               src.replace("__LUKS_PASSPHRASE__", secret)
           )
@@ -151,20 +151,20 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: dados-${{ github.sha }}
+          tag_name: dadiOS-${{ github.sha }}
           name: dadiOS ${{ github.sha }}
           body: |
             Unattended installer ISO for dadiOS (`nas-os`).
 
-            Flashing this USB and booting it **wipes the first disk** with LUKS (passphrase from `DADOS_LUKS_PASSPHRASE`).
+            Flashing this USB and booting it **wipes the first disk** with LUKS (passphrase from `DADIOS_LUKS_PASSPHRASE`).
             OS image: `ghcr.io/${{ github.repository_owner }}/nas-os:${{ github.sha }}`
           files: os/installer/output/dadiOS-amd64.iso
           fail_on_unmatched_files: true
 
-      - name: Update dados-latest release
+      - name: Update dadiOS-latest release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: dados-latest
+          tag_name: dadiOS-latest
           name: dadiOS latest
           body: |
             Latest unattended dadiOS installer ISO (from `${{ github.sha }}`).

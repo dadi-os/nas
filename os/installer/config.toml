@@ -1,4 +1,4 @@
-# Rendered at CD time with DADOS_LUKS_PASSPHRASE. Do not put a real passphrase here.
+# Rendered at CD time with DADIOS_LUKS_PASSPHRASE. Do not put a real passphrase here.
 # Placeholder __LUKS_PASSPHRASE__ is substituted in .github/workflows/cd.yml.
 
 [customizations.installer.kickstart]

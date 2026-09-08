@@ -38,10 +38,10 @@ Same services, same names, same routing. Only the runtime differs. Dev is what e
 
 ### First install
 
-CD builds an unattended Anaconda ISO whenever `os/**` changes and publishes it on the `dados-latest` GitHub Release (also `dados-<sha>`).
+CD builds an unattended Anaconda ISO whenever `os/**` changes and publishes it on the `dadiOS-latest` GitHub Release (also `dadiOS-<sha>`).
 
-1. Set repo secret `DADOS_LUKS_PASSPHRASE` (required for ISO CD; no quotes, `#`, or backslashes).
-2. Download `dadiOS-amd64.iso` from the `dados-latest` release.
+1. Set repo secret `DADIOS_LUKS_PASSPHRASE` (required for ISO CD; no quotes, `#`, or backslashes).
+2. Download `dadiOS-amd64.iso` from the `dadiOS-latest` release.
 3. Flash it to a USB (Rufus, balenaEtcher, `dd`).
 4. Boot the target machine from that USB. **The first disk is wiped with no confirmation** — unplug extra drives. Install is unattended: LUKS uses the CD secret, then reboots.
 5. Remove the USB. At the LUKS prompt, enter the same passphrase. Console autologins as `ankur` (no password). SSH from a Mac that holds a private key matching [`os/authorized_keys`](os/authorized_keys): `ssh ankur@<box-ip>`.
