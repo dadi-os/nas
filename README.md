@@ -22,7 +22,6 @@ nas/
   os/               bootc image, host units, Plasma desktop, prod Alloy, installer
   headscale/        Headscale config templates
   docker-compose.yml
-  up / down         Dev bring-up (Compose only)
 ```
 
 Desktop assets live under `os/usr/share/` (look-and-feel, plasmoids, wallpapers, Preferences) and `os/etc/xdg/` (colors, kwin blur). Brand SVGs: `os/usr/share/dadi/brand/`.
@@ -41,23 +40,21 @@ Required on the control service (fail at startup if missing):
 | `DADI_RUNTIME` | `podman` or `compose` |
 | `DADI_COMPOSE_DIR` | Required when `DADI_RUNTIME=compose` |
 
-Module secrets live in per-module `.env` files under the state dir (or sibling repos in compose). Nas does not invent defaults for missing values.
+Module secrets live in sibling repo `.env` files in compose (`../dwar/.env`, …) and under `DADI_STATE_DIR/modules/` on the appliance. Nas does not invent defaults for missing values.
 
 ## Local run
 
 Dev is **headless Compose** on a Mac — no Plasma, no Tauri, no Overmind. The module stack plus browser Hath come up together; open `http://hath.dadi`.
 
-`/etc/hosts` must resolve `*.dadi` (including `hath.dadi`) to localhost; Docker running; then:
+One-time: `/etc/hosts` must resolve `*.dadi` (including `hath.dadi`) to localhost; Docker running; each sibling module has a `.env` (copy from `.env.example` if missing). Then:
 
 ```sh
-./up
+docker compose up --build
 # → http://hath.dadi
 
-./down           # stop containers
-./down --wipe    # also destroy volumes
+docker compose down       # stop containers
+docker compose down -v    # also destroy volumes
 ```
-
-`./up` passes args through to `docker compose up --build` (e.g. `./up -d`).
 
 Tauri Hath (mesh / provisioning work) is separate: `cd ../hath && net/build.sh && npm run tauri dev`.
 
@@ -143,7 +140,7 @@ curl -sG 'http://nas.dadi/logs' \
 
 | Environment | Runtime | Definition |
 | --- | --- | --- |
-| Development | Docker Compose on a Mac (headless) | `docker-compose.yml` + `./up` |
+| Development | Docker Compose on a Mac (headless) | `docker-compose.yml` |
 | Production | bootc host systemd + podman modules | units + quadlets under `/etc/containers/systemd/` |
 
 Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under test is browser Hath.
@@ -208,8 +205,16 @@ Add to `/etc/hosts`:
 127.0.0.1  dwar.dadi yaad.dadi dimaag.dadi nas.dadi hath.dadi
 ```
 
+Copy module env files if missing:
+
+```sh
+cp ../dwar/.env.example ../dwar/.env
+cp ../yaad/.env.example ../yaad/.env
+cp ../dimaag/.env.example ../dimaag/.env
+```
+
 Docker Desktop (or equivalent) must be running. No Overmind / tmux.
 
 ## Working on one module
 
-Edit sibling directories (`../yaad`, …). Bind mounts + watchers pick up changes. Start a subset with `docker compose up yaad yaad-postgres` when you only need those containers. For UI-only work: `docker compose up hath caddy nas-service …` or just `./up` and open `http://hath.dadi`.
+Edit sibling directories (`../yaad`, …). Bind mounts + watchers pick up changes. Start a subset with `docker compose up yaad yaad-postgres` when you only need those containers. For UI-only work: `docker compose up hath caddy nas-service …` or just `docker compose up --build` and open `http://hath.dadi`.

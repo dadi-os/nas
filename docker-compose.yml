@@ -34,10 +34,10 @@ services:
     build:
       context: ../dwar
       target: dev
-    env_file: ./.run/dadi/modules/dwar/.env
+    env_file: ../dwar/.env
     volumes:
       - ../dwar:/app
-      - ./.run/dadi/modules/dwar/config.toml:/app/config.toml:ro
+      - ../dwar/config.toml:/app/config.toml:ro
     expose: ["8080"]
     healthcheck:
       test:
@@ -54,7 +54,7 @@ services:
 
   yaad-postgres:
     image: pgvector/pgvector:pg18
-    env_file: ./.run/dadi/modules/yaad/.env
+    env_file: ../yaad/.env
     environment:
       POSTGRES_USER: yaad
       POSTGRES_DB: yaad
@@ -71,7 +71,7 @@ services:
     build:
       context: ../yaad
       target: dev
-    env_file: ./.run/dadi/modules/yaad/.env
+    env_file: ../yaad/.env
     volumes:
       - ../yaad:/app
       - /app/node_modules
@@ -86,7 +86,7 @@ services:
     build:
       context: ../yaad
       target: dev
-    env_file: ./.run/dadi/modules/yaad/.env
+    env_file: ../yaad/.env
     volumes:
       - ../yaad:/app
       - /app/node_modules
@@ -111,7 +111,7 @@ services:
 
   dimaag-postgres:
     image: postgres:18
-    env_file: ./.run/dadi/modules/dimaag/.env
+    env_file: ../dimaag/.env
     environment:
       POSTGRES_USER: dimaag
       POSTGRES_DB: dimaag
@@ -128,7 +128,7 @@ services:
     build:
       context: ../dimaag
       target: dev
-    env_file: ./.run/dadi/modules/dimaag/.env
+    env_file: ../dimaag/.env
     volumes:
       - ../dimaag:/app
       - /app/node_modules
@@ -143,7 +143,7 @@ services:
     build:
       context: ../dimaag
       target: dev
-    env_file: ./.run/dadi/modules/dimaag/.env
+    env_file: ../dimaag/.env
     volumes:
       - ../dimaag:/app
       - /app/node_modules
@@ -241,7 +241,12 @@ services:
       - ./headscale/config.yaml:/etc/headscale/config.yaml:ro
       - headscale_data:/var/lib/headscale
       - headscale_run:/var/run/headscale
-      - ./.run/dadi:/var/lib/dadi
+      # Sibling module files are the compose source of truth (same paths Preferences edits).
+      - ../dwar/.env:/var/lib/dadi/modules/dwar/.env
+      - ../yaad/.env:/var/lib/dadi/modules/yaad/.env
+      - ../dimaag/.env:/var/lib/dadi/modules/dimaag/.env
+      - ../dwar/config.toml:/var/lib/dadi/modules/dwar/config.toml
+      - cloudflared_data:/var/lib/dadi/cloudflared
       - .:/nas:ro
       - /var/run/docker.sock:/var/run/docker.sock
     expose: ["8080"]
@@ -287,7 +292,8 @@ services:
     command: ["-config.file=/etc/loki/config.yaml"]
     volumes:
       - ./logging/loki-config.yaml:/etc/loki/config.yaml:ro
-      - loki_data:/loki
+      - type: tmpfs
+        target: /loki
     expose: ["3100"]
     networks: [dadi]
 
@@ -316,5 +322,5 @@ volumes:
   headscale_run:
   tailscale_state:
   bootstrap:
-  loki_data:
+  cloudflared_data:
   alloy_data:
