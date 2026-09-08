@@ -1,3 +1,15 @@
+# Build from repo root: podman build -f os/Containerfile .
+FROM golang:1.23-bookworm AS nas-build
+WORKDIR /src
+COPY service/go.mod ./
+COPY service/*.go ./
+RUN CGO_ENABLED=0 go build -o /nas .
+
+FROM headscale/headscale:0.26 AS headscale
+FROM caddy:2.9.1-alpine AS caddy
+FROM grafana/loki:3.4.2 AS loki
+FROM grafana/alloy:v1.7.1 AS alloy
+
 FROM quay.io/fedora/fedora-bootc:42
 
 RUN dnf -y install \
@@ -16,10 +28,22 @@ RUN dnf -y install \
     fuse-libs \
   && dnf clean all
 
+# Tailscale client (open-source); Headscale is the control plane.
+RUN curl -fsSL https://pkgs.tailscale.com/stable/fedora/tailscale.repo \
+      -o /etc/yum.repos.d/tailscale.repo \
+  && dnf -y install tailscale \
+  && dnf clean all
+
 # Cloudflare tunnel binary (not in Fedora repos).
 RUN curl -fsSL -o /usr/local/bin/cloudflared \
       https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
   && chmod 0755 /usr/local/bin/cloudflared
+
+COPY --from=nas-build /nas /usr/local/bin/nas
+COPY --from=headscale /ko-app/headscale /usr/local/bin/headscale
+COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
+COPY --from=loki /usr/bin/loki /usr/local/bin/loki
+COPY --from=alloy /bin/alloy /usr/local/bin/alloy
 
 # /home is machine state — create the account without writing a home directory.
 RUN useradd \
@@ -30,20 +54,29 @@ RUN useradd \
     --shell /bin/bash \
     ankur
 
-RUN mkdir -p /usr/ssh
+RUN mkdir -p /usr/ssh /var/lib/headscale /var/lib/loki /var/lib/alloy
 
-COPY etc/ /etc/
-COPY usr/ /usr/
-COPY authorized_keys /usr/ssh/ankur-authorized-keys
+COPY os/etc/ /etc/
+COPY os/usr/ /usr/
+COPY os/authorized_keys /usr/ssh/ankur-authorized-keys
 
 RUN chmod 0440 /etc/sudoers.d/ankur \
   && chmod 0644 /usr/ssh/ankur-authorized-keys \
   && chmod 0755 /usr/libexec/dadi/*.sh \
+  && chmod 0755 /usr/share/dadi/bootstrap.sh \
   && systemctl enable sshd.service \
   && systemctl enable dadi-seed.service \
   && systemctl enable seatd.service \
   && systemctl enable hath-kiosk.service \
   && systemctl enable cloudflared.service \
+  && systemctl enable headscale.service \
+  && systemctl enable bootstrap.service \
+  && systemctl enable tailscaled.service \
+  && systemctl enable dadi-tailscale.service \
+  && systemctl enable loki.service \
+  && systemctl enable alloy.service \
+  && systemctl enable nas.service \
+  && systemctl enable caddy.service \
   && systemctl enable podman-auto-update.timer
 
 # Last occurrence wins in os-release parsers — brand as dadiOS without

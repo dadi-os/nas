@@ -1,5 +1,4 @@
 // Production Alloy: journald (podman/systemd) + Hath log file → Loki.
-// Compose still uses logging/config.alloy (docker.sock).
 
 discovery.relabel "journal" {
   targets = []
@@ -16,16 +15,10 @@ discovery.relabel "journal" {
     target_label  = "unit"
   }
 
+  // Host nas unit has no container_name — label it as service=nas.
   rule {
-    source_labels = ["service"]
-    regex         = ""
-    replacement   = ""
-    target_label  = "_empty_service"
-  }
-
-  rule {
-    source_labels = ["service"]
-    regex         = "nas-service"
+    source_labels = ["__journal__systemd_unit"]
+    regex         = "nas\\.service"
     target_label  = "service"
     replacement   = "nas"
   }
@@ -39,7 +32,7 @@ loki.source.journal "dadi" {
 
 local.file_match "hath" {
   path_targets = [{
-    __path__ = "/var/log/hath/hath.log",
+    __path__ = "/var/lib/dadi/hath/hath.log",
     service  = "hath",
   }]
 }
@@ -72,6 +65,6 @@ loki.process "normalize" {
 
 loki.write "local" {
   endpoint {
-    url = "http://loki:3100/loki/api/v1/push"
+    url = "http://127.0.0.1:3100/loki/api/v1/push"
   }
 }

@@ -1,0 +1,13 @@
+[Unit]
+Description=Caddy reverse proxy for *.dadi
+After=dwar.service yaad.service dimaag.service nas.service
+Wants=dwar.service yaad.service dimaag.service nas.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/caddy run --config /etc/dadi/Caddyfile --adapter caddyfile
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,6 @@
 [Unit]
 Description=Hath kiosk under cage
-After=network-online.target seatd.service caddy.service nas-service.service dadi-seed.service
+After=network-online.target seatd.service caddy.service nas.service dadi-seed.service
 Wants=network-online.target seatd.service caddy.service
 
 [Service]

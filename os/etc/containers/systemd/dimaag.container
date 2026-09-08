@@ -7,6 +7,11 @@ Wants=dimaag-migrate.service
 Image=ghcr.io/dadi-os/dimaag:latest
 ContainerName=dimaag
 Network=dadi.network
+PublishPort=127.0.0.1:8083:8080
+AddHost=dwar.dadi:host-gateway
+AddHost=yaad.dadi:host-gateway
+AddHost=dimaag.dadi:host-gateway
+AddHost=nas.dadi:host-gateway
 EnvironmentFile=/var/lib/dadi/modules/dimaag/.env
 AutoUpdate=registry
 HealthCmd=node -e "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

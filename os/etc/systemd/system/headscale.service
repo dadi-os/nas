@@ -1,0 +1,14 @@
+[Unit]
+Description=Headscale control server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/mkdir -p /var/lib/headscale /run/headscale
+ExecStart=/usr/local/bin/headscale serve
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

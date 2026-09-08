@@ -1,0 +1,14 @@
+[Unit]
+Description=Headscale user + host mesh auth key
+After=headscale.service dadi-seed.service
+Requires=headscale.service
+Wants=dadi-seed.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/bin/mkdir -p /var/lib/dadi/bootstrap
+ExecStart=/usr/share/dadi/bootstrap.sh
+
+[Install]
+WantedBy=multi-user.target

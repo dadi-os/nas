@@ -14,7 +14,7 @@ permissions:
   packages: write
 
 jobs:
-  os-image:
+  nas-image:
     runs-on: ubuntu-latest
     outputs:
       run: ${{ steps.changes.outputs.run }}
@@ -23,7 +23,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect os changes
+      - name: Detect nas changes
         id: changes
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -35,7 +35,7 @@ jobs:
             exit 0
           fi
           if git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" \
-            | grep -qE '^(os/|\.github/workflows/cd\.yml)'; then
+            | grep -qE '^(os/|service/|\.github/workflows/cd\.yml)'; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -53,21 +53,21 @@ jobs:
         if: steps.changes.outputs.run == 'true'
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push nas-os
+      - name: Build and push nas
         if: steps.changes.outputs.run == 'true'
         uses: docker/build-push-action@v6
         with:
-          context: ./os
+          context: .
           file: ./os/Containerfile
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/nas-os:latest
-            ghcr.io/${{ github.repository_owner }}/nas-os:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/nas:latest
+            ghcr.io/${{ github.repository_owner }}/nas:${{ github.sha }}
 
-  os-iso:
-    needs: os-image
-    if: needs.os-image.outputs.run == 'true'
+  nas-iso:
+    needs: nas-image
+    if: needs.nas-image.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -113,14 +113,14 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" \
             | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Pull nas-os
-        run: sudo podman pull "ghcr.io/${{ github.repository_owner }}/nas-os:${{ github.sha }}"
+      - name: Pull nas
+        run: sudo podman pull "ghcr.io/${{ github.repository_owner }}/nas:${{ github.sha }}"
 
       - name: Tag latest for installer payload
         run: |
           sudo podman tag \
-            "ghcr.io/${{ github.repository_owner }}/nas-os:${{ github.sha }}" \
-            "ghcr.io/${{ github.repository_owner }}/nas-os:latest"
+            "ghcr.io/${{ github.repository_owner }}/nas:${{ github.sha }}" \
+            "ghcr.io/${{ github.repository_owner }}/nas:latest"
 
       - name: Build anaconda ISO
         run: |
@@ -135,7 +135,7 @@ jobs:
             --rootfs xfs \
             --use-librepo=True \
             --progress verbose \
-            "ghcr.io/${{ github.repository_owner }}/nas-os:latest"
+            "ghcr.io/${{ github.repository_owner }}/nas:latest"
 
       - name: Stage ISO artifact
         run: |
@@ -154,10 +154,10 @@ jobs:
           tag_name: dadiOS-${{ github.sha }}
           name: dadiOS ${{ github.sha }}
           body: |
-            Unattended installer ISO for dadiOS (`nas-os`).
+            Unattended installer ISO for dadiOS (`nas`).
 
             Flashing this USB and booting it **wipes the first disk** with LUKS (passphrase from `DADIOS_LUKS_PASSPHRASE`).
-            OS image: `ghcr.io/${{ github.repository_owner }}/nas-os:${{ github.sha }}`
+            OS image: `ghcr.io/${{ github.repository_owner }}/nas:${{ github.sha }}`
           files: os/installer/output/dadiOS-amd64.iso
           fail_on_unmatched_files: true
 
@@ -170,55 +170,6 @@ jobs:
             Latest unattended dadiOS installer ISO (from `${{ github.sha }}`).
 
             Flashing this USB and booting it **wipes the first disk**.
+            OS image: `ghcr.io/${{ github.repository_owner }}/nas:${{ github.sha }}`
           files: os/installer/output/dadiOS-amd64.iso
           fail_on_unmatched_files: true
-
-  nas-service:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Detect service changes
-        id: changes
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" \
-            | grep -qE '^(service/|\.github/workflows/cd\.yml)'; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Log in to GHCR
-        if: steps.changes.outputs.run == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        if: steps.changes.outputs.run == 'true'
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push nas-service
-        if: steps.changes.outputs.run == 'true'
-        uses: docker/build-push-action@v6
-        with:
-          context: ./service
-          file: ./service/Dockerfile
-          target: production
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/nas-service:latest
-            ghcr.io/${{ github.repository_owner }}/nas-service:${{ github.sha }}

@@ -17,15 +17,29 @@ var moduleEnvNames = map[string]struct{}{
 	"dimaag": {},
 }
 
-// moduleUnit maps module name → systemd/quadlet unit (prod) or compose service (dev).
+// moduleUnit maps API name → systemd unit (prod / DADI_RUNTIME=podman).
 var moduleUnit = map[string]string{
 	"dwar":        "dwar",
 	"yaad":        "yaad",
 	"dimaag":      "dimaag",
-	"nas-service": "nas-service",
+	"nas":         "nas.service",
+	"caddy":       "caddy.service",
+	"headscale":   "headscale.service",
+	"cloudflared": "cloudflared.service",
+	"loki":        "loki.service",
+	"alloy":       "alloy.service",
+	"tailscale":   "dadi-tailscale.service",
+}
+
+// composeService maps API name → docker compose service (dev). Empty = no-op.
+var composeService = map[string]string{
+	"dwar":        "dwar",
+	"yaad":        "yaad",
+	"dimaag":      "dimaag",
+	"nas":         "nas-service",
 	"caddy":       "caddy",
 	"headscale":   "headscale",
-	"cloudflared": "cloudflared.service",
+	"cloudflared": "",
 	"loki":        "loki",
 	"alloy":       "alloy",
 	"tailscale":   "tailscale",
@@ -218,19 +232,22 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 }
 
 func (s stateConfig) restartModule(name string) error {
-	unit, ok := moduleUnit[name]
-	if !ok {
-		return fmt.Errorf("unknown module %q", name)
-	}
 	switch s.runtime {
 	case "podman":
+		unit, ok := moduleUnit[name]
+		if !ok {
+			return fmt.Errorf("unknown module %q", name)
+		}
 		return hostSystemctl("restart", unit)
 	case "compose":
-		if name == "cloudflared" {
-			// Tunnel is prod-only (host unit); nothing to restart under Compose.
+		svc, ok := composeService[name]
+		if !ok {
+			return fmt.Errorf("unknown module %q", name)
+		}
+		if svc == "" {
 			return nil
 		}
-		return s.composeCmd("restart", unit)
+		return s.composeCmd("restart", svc)
 	default:
 		return fmt.Errorf("unsupported runtime %q", s.runtime)
 	}
@@ -241,10 +258,11 @@ func (s stateConfig) stackUp() error {
 	case "podman":
 		_ = hostSystemctl("start", "dadi-seed.service")
 		units := []string{
-			"yaad-postgres", "dimaag-postgres", "headscale", "loki",
+			"yaad-postgres", "dimaag-postgres", "headscale.service", "loki.service",
 			"yaad-migrate", "dimaag-migrate",
-			"yaad", "dimaag", "dwar", "bootstrap",
-			"nas-service", "caddy", "alloy", "tailscale", "cloudflared.service",
+			"yaad", "dimaag", "dwar", "bootstrap.service",
+			"nas.service", "caddy.service", "alloy.service",
+			"tailscaled.service", "dadi-tailscale.service", "cloudflared.service",
 		}
 		for _, u := range units {
 			if err := hostSystemctl("start", u); err != nil {
@@ -263,10 +281,10 @@ func (s stateConfig) stackDown() error {
 	switch s.runtime {
 	case "podman":
 		units := []string{
-			"cloudflared.service", "tailscale", "caddy", "nas-service", "alloy",
-			"dwar", "yaad", "dimaag", "bootstrap",
+			"cloudflared.service", "dadi-tailscale.service", "caddy.service", "nas.service", "alloy.service",
+			"dwar", "yaad", "dimaag", "bootstrap.service",
 			"yaad-migrate", "dimaag-migrate",
-			"yaad-postgres", "dimaag-postgres", "headscale", "loki",
+			"yaad-postgres", "dimaag-postgres", "headscale.service", "loki.service",
 		}
 		for _, u := range units {
 			_ = hostSystemctl("stop", u)
@@ -279,9 +297,8 @@ func (s stateConfig) stackDown() error {
 	}
 }
 
-// hostSystemctl runs systemctl on the host PID 1 namespace (nas-service uses --pid=host).
 func hostSystemctl(verb string, unit string) error {
-	return runCmd("nsenter", "-t", "1", "-m", "-u", "-i", "systemctl", verb, unit)
+	return runCmd("systemctl", verb, unit)
 }
 
 func (s stateConfig) composeCmd(args ...string) error {

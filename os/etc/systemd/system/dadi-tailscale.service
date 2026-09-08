@@ -1,0 +1,12 @@
+[Unit]
+Description=Join Headscale mesh as os
+After=bootstrap.service tailscaled.service
+Requires=bootstrap.service tailscaled.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/dadi/tailscale-up.sh
+
+[Install]
+WantedBy=multi-user.target

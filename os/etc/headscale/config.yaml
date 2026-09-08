@@ -34,7 +34,9 @@ dns:
   nameservers:
     global:
       - 1.1.1.1
-  # Assumes the tailscale sidecar is the first node and receives 100.64.0.1.
+  # Assumes host tailscaled (hostname os) is the first node and receives
+  # 100.64.0.1. Extra records point service names at the box; host Caddy
+  # on :80 routes by Host header.
   extra_records:
     - name: "yaad.dadi"
       type: "A"

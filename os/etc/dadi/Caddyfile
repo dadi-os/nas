@@ -4,17 +4,17 @@
 }
 
 http://dwar.dadi {
-	reverse_proxy dwar:8080
+	reverse_proxy 127.0.0.1:8081
 }
 
 http://yaad.dadi {
-	reverse_proxy yaad:8080
+	reverse_proxy 127.0.0.1:8082
 }
 
 http://dimaag.dadi {
-	reverse_proxy dimaag:8080
+	reverse_proxy 127.0.0.1:8083
 }
 
 http://nas.dadi {
-	reverse_proxy nas-service:8080
+	reverse_proxy 127.0.0.1:8092
 }

@@ -1,0 +1,20 @@
+[Unit]
+Description=Nas control plane
+After=network-online.target dadi-seed.service headscale.service loki.service bootstrap.service
+Requires=dadi-seed.service
+Wants=network-online.target headscale.service loki.service bootstrap.service
+
+[Service]
+Type=simple
+Environment=CONTROL_URL=https://dadi.ardusa.dev
+Environment=HEADSCALE_USER=ankur
+Environment=LISTEN_ADDR=127.0.0.1:8092
+Environment=LOKI_URL=http://127.0.0.1:3100
+Environment=DADI_STATE_DIR=/var/lib/dadi
+Environment=DADI_RUNTIME=podman
+ExecStart=/usr/local/bin/nas
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

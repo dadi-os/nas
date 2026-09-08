@@ -71,7 +71,7 @@ func main() {
 		handleProvision(w, r, controlURL, userName)
 	})
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
-		handleStatus(w, r, started)
+		handleStatus(w, r, started, state.runtime)
 	})
 	mux.HandleFunc("GET /logs", func(w http.ResponseWriter, r *http.Request) {
 		handleLogs(w, r, lokiURL)
@@ -81,7 +81,7 @@ func main() {
 	})
 	registerConfigRoutes(mux, state)
 
-	slog.Info("nas-service listening", "addr", listen, "state_dir", state.dir, "runtime", state.runtime)
+	slog.Info("nas listening", "addr", listen, "state_dir", state.dir, "runtime", state.runtime)
 	if err := http.ListenAndServe(listen, mux); err != nil {
 		slog.Error("listen failed", "err", err)
 		os.Exit(1)
@@ -208,19 +208,37 @@ type diskStatus struct {
 	TotalBytes uint64 `json:"total_bytes"`
 }
 
-var healthTargets = []struct {
+func healthTargets(runtime string) []struct {
 	name string
 	url  string
-}{
-	{name: "yaad", url: "http://yaad:8080/health"},
-	{name: "dimaag", url: "http://dimaag:8080/health"},
-	{name: "dwar", url: "http://dwar:8080/health"},
+} {
+	// Prod: host Caddy publishes app containers on localhost.
+	// Dev compose: container DNS on the dadi network.
+	if runtime == "podman" {
+		return []struct {
+			name string
+			url  string
+		}{
+			{name: "yaad", url: "http://127.0.0.1:8082/health"},
+			{name: "dimaag", url: "http://127.0.0.1:8083/health"},
+			{name: "dwar", url: "http://127.0.0.1:8081/health"},
+		}
+	}
+	return []struct {
+		name string
+		url  string
+	}{
+		{name: "yaad", url: "http://yaad:8080/health"},
+		{name: "dimaag", url: "http://dimaag:8080/health"},
+		{name: "dwar", url: "http://dwar:8080/health"},
+	}
 }
 
-func handleStatus(w http.ResponseWriter, _ *http.Request, started time.Time) {
-	services := make([]serviceStatus, 0, len(healthTargets))
+func handleStatus(w http.ResponseWriter, _ *http.Request, started time.Time, runtime string) {
+	targets := healthTargets(runtime)
+	services := make([]serviceStatus, 0, len(targets))
 	client := &http.Client{Timeout: 2 * time.Second}
-	for _, t := range healthTargets {
+	for _, t := range targets {
 		resp, err := client.Get(t.url)
 		healthy := false
 		if err == nil {
