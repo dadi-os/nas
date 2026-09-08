@@ -32,28 +32,16 @@ loki.source.docker "dadi" {
   forward_to    = [loki.process.normalize.receiver]
 }
 
-local.file_match "hath" {
-  path_targets = [{
-    __path__ = "/var/log/hath/hath.log",
-    service  = "hath",
-  }]
-}
-
-loki.source.file "hath" {
-  targets    = local.file_match.hath.targets
-  forward_to = [loki.process.normalize.receiver]
-}
-
 loki.process "normalize" {
   forward_to = [loki.write.local.receiver]
 
   stage.drop {
     source     = "service"
-    expression = "^(alloy|loki|.*-postgres|headscale|tailscale|bootstrap)$"
+    expression = "^(alloy|loki|caddy|hath|.*-postgres|.*-migrate|headscale|tailscale|bootstrap)$"
   }
 
   stage.match {
-    selector = `{service=~"dimaag|yaad|dwar|nas|hath"}`
+    selector = `{service=~"dimaag|yaad|dwar|nas"}`
 
     stage.json {
       expressions = {

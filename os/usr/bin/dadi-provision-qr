@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Render a sage-on-bone QR PNG with the dadi mark centered.
+# Usage: dadi-provision-qr BUNDLE OUT.png
+set -euo pipefail
+
+bundle="${1:-}"
+out="${2:-}"
+if [ -z "$bundle" ] || [ -z "$out" ]; then
+  echo "usage: dadi-provision-qr BUNDLE OUT.png" >&2
+  exit 1
+fi
+
+for bin in qrencode rsvg-convert magick; do
+  command -v "$bin" >/dev/null 2>&1 || {
+    echo "dadi-provision-qr: missing $bin" >&2
+    exit 1
+  }
+done
+
+mark_svg=/usr/share/dadi/brand/dadi-mark.svg
+if [ ! -f "$mark_svg" ]; then
+  echo "dadi-provision-qr: missing $mark_svg" >&2
+  exit 1
+fi
+
+tmp="$(mktemp /tmp/dadi-qr.XXXXXX.png)"
+trap 'rm -f "$tmp" "${tmp}.mark.png"' EXIT
+
+qrencode -o "$tmp" -s 10 -m 2 \
+  --foreground=5C6B52 \
+  --background=FAFAF7 \
+  "$bundle"
+
+rsvg-convert -w 72 -h 72 "$mark_svg" -o "${tmp}.mark.png"
+magick "$tmp" \
+  \( -size 96x96 xc:'#fafaf7' -fill '#fafaf7' -draw 'roundrectangle 0,0 95,95 12,12' \) \
+  -gravity center -compose over -composite \
+  \( "${tmp}.mark.png" \) -gravity center -compose over -composite \
+  "$out"

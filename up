@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Preflight, then Overmind brings up Compose + Hath as one process group.
+# Preflight, then bring up the headless compose stack (modules + Hath web).
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-HOSTS_LINE="127.0.0.1  dwar.dadi yaad.dadi dimaag.dadi nas.dadi"
+HOSTS_LINE="127.0.0.1  dwar.dadi yaad.dadi dimaag.dadi nas.dadi hath.dadi"
 
 ensure_env() {
   local module="$1"
@@ -30,6 +30,12 @@ if ! grep -q '\.dadi' /etc/hosts; then
   exit 1
 fi
 
+if ! grep -q 'hath\.dadi' /etc/hosts; then
+  echo "up: /etc/hosts is missing hath.dadi. Add or update to:" >&2
+  echo "  ${HOSTS_LINE}" >&2
+  exit 1
+fi
+
 if ! docker info >/dev/null 2>&1; then
   echo "up: docker is not running" >&2
   exit 1
@@ -40,15 +46,10 @@ if [ ! -d ../hath ]; then
   exit 1
 fi
 
-if ! command -v overmind >/dev/null 2>&1; then
-  echo "up: overmind is required (brew install overmind / tmux)" >&2
-  exit 1
-fi
-
 mkdir -p .run
 # Dev Nas state dir (module env/config editable via Nas APIs). Seed once before compose reads env_file.
 if [ ! -d .run/dadi/modules ]; then
-  mkdir -p .run/dadi/modules/dwar .run/dadi/modules/yaad .run/dadi/modules/dimaag .run/dadi/cloudflared .run/dadi/hath
+  mkdir -p .run/dadi/modules/dwar .run/dadi/modules/yaad .run/dadi/modules/dimaag .run/dadi/cloudflared
   for mod in dwar yaad dimaag; do
     if [ -f "../${mod}/.env" ]; then
       cp "../${mod}/.env" ".run/dadi/modules/${mod}/.env"
@@ -59,11 +60,10 @@ if [ ! -d .run/dadi/modules ]; then
   cp ../dwar/config.toml .run/dadi/modules/dwar/config.toml
   : > .run/dadi/cloudflared/token
 fi
-# Fresh session: Hath file + Loki store. Alloy positions stay so it does not
-# replay historical Docker stdout into the empty store.
-: > .run/hath.log
+
+# Fresh session: reset Loki so Alloy does not serve stale history.
 docker compose stop loki alloy >/dev/null 2>&1 || true
 docker compose rm -f loki >/dev/null 2>&1 || true
 docker volume rm dadi_loki_data >/dev/null 2>&1 || true
 
-exec overmind start "$@"
+exec docker compose up --build "$@"

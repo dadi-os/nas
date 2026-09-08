@@ -29,6 +29,7 @@ PlasmoidItem {
             { id: "yaad", label: "Yaad" },
             { id: "dimaag", label: "Dimaag" },
             { id: "tunnel", label: "Tunnel" },
+            { id: "devices", label: "Devices" },
             { id: "desktop", label: "Desktop" },
             { id: "power", label: "Power" }
         ]
@@ -166,6 +167,9 @@ PlasmoidItem {
                     }
                     TunnelPane {
                         onSaved: msg => win.showToast(msg)
+                    }
+                    DevicesPane {
+                        runner: executable
                     }
                     DesktopPane {
                         runner: executable

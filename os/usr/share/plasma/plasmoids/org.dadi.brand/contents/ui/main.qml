@@ -50,6 +50,10 @@ PlasmoidItem {
             }
 
             MenuItem {
+                text: "Add Device…"
+                onTriggered: executable.exec("dadi-add-device")
+            }
+            MenuItem {
                 text: "Preferences…"
                 onTriggered: executable.exec("dadi-preferences")
             }

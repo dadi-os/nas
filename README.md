@@ -22,7 +22,7 @@ nas/
   os/               bootc image, host units, Plasma desktop, prod Alloy, installer
   headscale/        Headscale config templates
   docker-compose.yml
-  up / down         Dev bring-up
+  up / down         Dev bring-up (Compose only)
 ```
 
 Desktop assets live under `os/usr/share/` (look-and-feel, plasmoids, wallpapers, Preferences) and `os/etc/xdg/` (colors, kwin blur). Brand SVGs: `os/usr/share/dadi/brand/`.
@@ -45,13 +45,21 @@ Module secrets live in per-module `.env` files under the state dir (or sibling r
 
 ## Local run
 
-Dev (Mac): `/etc/hosts` must resolve `*.dadi` to localhost; install Overmind + tmux; then `./up`. See topology tables below.
+Dev is **headless Compose** on a Mac — no Plasma, no Tauri, no Overmind. The module stack plus browser Hath come up together; open `http://hath.dadi`.
+
+`/etc/hosts` must resolve `*.dadi` (including `hath.dadi`) to localhost; Docker running; then:
 
 ```sh
 ./up
+# → http://hath.dadi
+
 ./down           # stop containers
-./down --wipe    # also destroy volumes and Hath credentials
+./down --wipe    # also destroy volumes
 ```
+
+`./up` passes args through to `docker compose up --build` (e.g. `./up -d`).
+
+Tauri Hath (mesh / provisioning work) is separate: `cd ../hath && net/build.sh && npm run tauri dev`.
 
 ## CI / CD
 
@@ -64,7 +72,7 @@ Concurrency cancels superseded CI runs on the same ref.
 
 ## Logging contract (source of truth)
 
-All dadi modules emit **one JSON object per line** on stdout (Hath also appends to `HATH_LOG_FILE` for Alloy).
+All dadi modules emit **one JSON object per line** on stdout. Dev Alloy scrapes Docker container logs only (no Hath file tail — browser Hath logs stay in the browser console).
 
 | Field | Meaning |
 | --- | --- |
@@ -76,7 +84,7 @@ All dadi modules emit **one JSON object per line** on stdout (Hath also appends 
 | `request_id` | Per-request correlation id |
 | `method`, `path`, `status`, `duration_ms` | HTTP request summary (one line per request) |
 
-Alloy drops non-JSON lines for app services and drops infra noise (postgres, headscale, alloy, loki, …). Do not emit npm/tsx banners, uvicorn access spam, or Fastify boot chatter as the primary signal.
+Alloy drops non-JSON lines for app services and drops infra noise (postgres, headscale, alloy, loki, caddy, hath Vite, …). Do not emit npm/tsx banners, uvicorn access spam, or Fastify boot chatter as the primary signal.
 
 ### Shared error codes
 
@@ -122,11 +130,12 @@ curl -sG 'http://nas.dadi/logs' \
 | `sddm` + Plasma | host graphical | bone glass desktop; દાદી brand; Preferences + crest widgets |
 | `dwar` / `yaad` / `dimaag` (+ postgres / migrate) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8083` |
 
-### Development (Mac Compose)
+### Development (Mac Compose, headless)
 
 | Service | Image source | Internal address |
 | --- | --- | --- |
-| `caddy` | `caddy:2-alpine` | host port 80 |
+| `caddy` | `caddy:2-alpine` | host port 80; CORS for `Origin: http://hath.dadi` |
+| `hath` | `../hath` `dev` target (Vite) | `*:8080` → `http://hath.dadi` |
 | `dwar` / `yaad` / `dimaag` | sibling builds, `dev` target | `*:8080` |
 | `nas-service` | `./service` | host `8092` |
 | `loki` / `alloy` | official images | log pipeline |
@@ -134,10 +143,10 @@ curl -sG 'http://nas.dadi/logs' \
 
 | Environment | Runtime | Definition |
 | --- | --- | --- |
-| Development | Docker Compose + Overmind on a Mac | `docker-compose.yml` + `Procfile` |
+| Development | Docker Compose on a Mac (headless) | `docker-compose.yml` + `./up` |
 | Production | bootc host systemd + podman modules | units + quadlets under `/etc/containers/systemd/` |
 
-Same `*.dadi` names in both environments.
+Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under test is browser Hath.
 
 ### First install
 
@@ -149,7 +158,7 @@ CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes an
 4. At the LUKS prompt, enter the passphrase. SDDM autologins as `ankur` into Plasma (દાદી desktop).
 5. SSH with a key matching [`os/authorized_keys`](os/authorized_keys).
 6. Point a Cloudflare tunnel at Headscale; paste the token via Nas `PUT /cloudflared/token` (or Hath System → tunnel from another device).
-7. Provision Hath clients against `https://dadi.ardusa.dev` (phones / other machines — Hath is not on the box).
+7. Provision Hath clients: on the box open **Add Device** (dock / brand menu / Preferences → Devices), name the node, show the sage QR. Scan from Hath on the phone/laptop (`https://dadi.ardusa.dev` control URL is embedded in the bundle).
 
 Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`.
 
@@ -177,7 +186,8 @@ Plasma on the box only — Hath is for other devices. Visual system is **bone gl
 | Look-and-feel | `org.dadi.desktop` — translucent top bar (32px), autohide float dock, crest widgets |
 | Brand menu | plasmoid `org.dadi.brand` |
 | Widgets | `org.dadi.widget.{system,memory,agents,timeline,logs}` |
-| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (module `.env` / dwar config / tunnel → `DADI_STATE_DIR`) |
+| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (module `.env` / dwar config / tunnel / devices → `DADI_STATE_DIR`) |
+| Add Device | `dadi-add-device` → `plasmawindowed org.dadi.adddevice` (mint Nas `POST /provision` QR for Hath) |
 | Wallpaper | `dadi-wallpaper Bloom\|Mist\|Vein` |
 | Blur / lid | `os/etc/xdg/kwinrc`, `os/etc/systemd/logind.conf.d/dadi-lid.conf` |
 | Plymouth / SDDM | theme `dadi` |
@@ -195,13 +205,11 @@ Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale i
 Add to `/etc/hosts`:
 
 ```
-127.0.0.1  dwar.dadi yaad.dadi dimaag.dadi nas.dadi
+127.0.0.1  dwar.dadi yaad.dadi dimaag.dadi nas.dadi hath.dadi
 ```
 
-```sh
-brew install overmind tmux
-```
+Docker Desktop (or equivalent) must be running. No Overmind / tmux.
 
 ## Working on one module
 
-Edit sibling directories (`../yaad`, …). Bind mounts + watchers pick up changes. Start a subset with `docker compose up yaad yaad-postgres` when you only need those containers.
+Edit sibling directories (`../yaad`, …). Bind mounts + watchers pick up changes. Start a subset with `docker compose up yaad yaad-postgres` when you only need those containers. For UI-only work: `docker compose up hath caddy nas-service …` or just `./up` and open `http://hath.dadi`.

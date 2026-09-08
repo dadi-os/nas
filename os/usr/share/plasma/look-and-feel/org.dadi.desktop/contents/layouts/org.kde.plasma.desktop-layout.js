@@ -152,7 +152,7 @@ var layout = {
                     "config": {
                         "/": { "immutability": "1" },
                         "/Configuration/General": {
-                            "launchers": "applications:org.kde.dolphin.desktop,applications:org.kde.konsole.desktop,applications:org.dadi.preferences.desktop",
+                            "launchers": "applications:org.kde.dolphin.desktop,applications:org.kde.konsole.desktop,applications:org.dadi.adddevice.desktop,applications:org.dadi.preferences.desktop",
                             "max": "12",
                             "showOnlyCurrentDesktop": "false",
                             "showOnlyCurrentActivity": "false",

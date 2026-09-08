@@ -11,39 +11,9 @@ elif [ $# -gt 0 ]; then
   exit 1
 fi
 
-identifier=$(jq -r '.identifier' ../hath/src-tauri/tauri.conf.json)
-if [ -z "$identifier" ] || [ "$identifier" = "null" ]; then
-  echo "down: could not read identifier from ../hath/src-tauri/tauri.conf.json" >&2
-  exit 1
-fi
-
-case "$(uname -s)" in
-  Darwin)
-    hath_dir="${HOME}/Library/Application Support/${identifier}"
-    ;;
-  Linux)
-    hath_dir="${HOME}/.local/share/${identifier}"
-    ;;
-  *)
-    echo "down: unsupported platform $(uname -s) for Hath app data" >&2
-    exit 1
-    ;;
-esac
-
-creds_path="${hath_dir}/credentials.json"
-
 if [ "$wipe" = true ]; then
-  echo "down: wiping Docker volumes and deleting ${creds_path}"
+  echo "down: wiping Docker volumes"
   docker compose down -v
-  rm -f "$creds_path"
-  rm -f .run/hath.log
 else
   docker compose down
-  rm -f .run/hath.log
 fi
-
-# Stale Overmind socket blocks the next ./up after a hard stop or ./down.
-if command -v overmind >/dev/null 2>&1; then
-  overmind quit 2>/dev/null || true
-fi
-rm -f .overmind.sock

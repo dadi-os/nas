@@ -3,18 +3,52 @@
 	auto_https off
 }
 
+# Browser Hath at http://hath.dadi calls the mesh hosts cross-origin.
+(cors_hath) {
+	@cors_preflight {
+		method OPTIONS
+		header Origin http://hath.dadi
+	}
+	handle @cors_preflight {
+		header Access-Control-Allow-Origin "http://hath.dadi"
+		header Access-Control-Allow-Methods "GET, POST, PUT, OPTIONS"
+		header Access-Control-Allow-Headers "*"
+		header Access-Control-Max-Age "86400"
+		respond "" 204
+	}
+	@cors_origin header Origin http://hath.dadi
+	header @cors_origin Access-Control-Allow-Origin "http://hath.dadi"
+	header @cors_origin Vary Origin
+}
+
+http://hath.dadi {
+	reverse_proxy hath:8080
+}
+
 http://dwar.dadi {
-	reverse_proxy dwar:8080
+	import cors_hath
+	handle {
+		reverse_proxy dwar:8080
+	}
 }
 
 http://yaad.dadi {
-	reverse_proxy yaad:8080
+	import cors_hath
+	handle {
+		reverse_proxy yaad:8080
+	}
 }
 
 http://dimaag.dadi {
-	reverse_proxy dimaag:8080
+	import cors_hath
+	handle {
+		reverse_proxy dimaag:8080
+	}
 }
 
 http://nas.dadi {
-	reverse_proxy nas-service:8080
+	import cors_hath
+	handle {
+		reverse_proxy nas-service:8080
+	}
 }

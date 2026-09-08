@@ -17,6 +17,7 @@ services:
           - yaad.dadi
           - dimaag.dadi
           - nas.dadi
+          - hath.dadi
     depends_on:
       dwar:
         condition: service_healthy
@@ -25,6 +26,8 @@ services:
       dimaag:
         condition: service_healthy
       nas-service:
+        condition: service_healthy
+      hath:
         condition: service_healthy
 
   dwar:
@@ -242,7 +245,7 @@ services:
       - .:/nas:ro
       - /var/run/docker.sock:/var/run/docker.sock
     expose: ["8080"]
-    # Host publish so hath-dev can provision before the mesh is up.
+    # Host publish for curl provision / debugging before mesh DNS.
     ports:
       - "8092:8080"
     healthcheck:
@@ -255,6 +258,28 @@ services:
         condition: service_completed_successfully
       loki:
         condition: service_started
+    networks: [dadi]
+
+  # Browser Hath (Vite). Prod Hath remains the Tauri app on other devices.
+  hath:
+    build:
+      context: ../hath
+      target: dev
+    volumes:
+      - ../hath:/app
+      - /app/node_modules
+    expose: ["8080"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 60
     networks: [dadi]
 
   loki:
@@ -276,7 +301,6 @@ services:
     volumes:
       - ./logging/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./.run:/var/log/hath
       - alloy_data:/var/lib/alloy/data
     depends_on:
       - loki

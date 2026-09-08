@@ -1,0 +1,15 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "KPlugin": {
+        "Authors": [{"Name": "dadi"}],
+        "Category": "Network",
+        "Description": "Provision a new Hath device with a branded setup QR",
+        "Icon": "dadi",
+        "Id": "org.dadi.adddevice",
+        "License": "MIT",
+        "Name": "Add Device",
+        "Version": "1.0"
+    },
+    "X-Plasma-StandAloneApp": true
+}

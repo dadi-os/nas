@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Add Device
+GenericName=Provision a Hath node
+Comment=Create a setup QR for a new Hath device
+Exec=dadi-add-device
+Icon=dadi
+Categories=Network;Settings;
+StartupNotify=true
+Terminal=false

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Launch Add Device (mesh provisioning QR).
+set -euo pipefail
+if command -v plasmawindowed >/dev/null 2>&1; then
+  exec plasmawindowed org.dadi.adddevice
+fi
+export QML2_IMPORT_PATH="${QML2_IMPORT_PATH:+$QML2_IMPORT_PATH:}/usr/share/dadi/qml"
+exec /usr/bin/qml6 /usr/share/dadi/add-device/main.qml "$@"
