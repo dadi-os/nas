@@ -150,7 +150,7 @@ Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under 
 CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes and publishes it on the `dadiOS-latest` GitHub Release (also `dadiOS-<sha>`).
 
 1. Set repo secret `DADIOS_LUKS_PASSPHRASE` (no quotes, `#`, or backslashes).
-2. Download `dadiOS-amd64.iso` from the `dadiOS-latest` release.
+2. Download all `dadiOS-amd64.iso.*` parts from the `dadiOS-latest` release and reassemble: `cat dadiOS-amd64.iso.* > dadiOS-amd64.iso`.
 3. Flash to USB; boot the target machine. **The first disk is wiped with no confirmation.**
 4. At the LUKS prompt, enter the passphrase. SDDM autologins as `ankur` into Plasma (દાદી desktop).
 5. SSH with a key matching [`os/authorized_keys`](os/authorized_keys).

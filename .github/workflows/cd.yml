@@ -159,11 +159,19 @@ jobs:
           iso="$(find os/installer/output -name '*.iso' -type f | head -n 1)"
           if [ -z "$iso" ]; then
             echo "No ISO produced under os/installer/output" >&2
-            find os/installer/output -type f >&2 || true
+            find os/installer/output -type f >&2
             exit 1
           fi
           cp "$iso" os/installer/output/dadiOS-amd64.iso
           ls -lh os/installer/output/dadiOS-amd64.iso
+          # GitHub release assets must be < 2 GiB; Plasma installer is ~3.4G.
+          split -b 1400M -d \
+            os/installer/output/dadiOS-amd64.iso \
+            os/installer/output/dadiOS-amd64.iso.
+          rm -f os/installer/output/dadiOS-amd64.iso
+          ls -lh os/installer/output/dadiOS-amd64.iso.*
+          sha256sum os/installer/output/dadiOS-amd64.iso.* \
+            | tee os/installer/output/SHA256SUMS
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -175,7 +183,14 @@ jobs:
 
             Flashing this USB and booting it **wipes the first disk** with LUKS (passphrase from `DADIOS_LUKS_PASSPHRASE`).
             OS image: `ghcr.io/${{ github.repository_owner }}/nas:${{ github.sha }}`
-          files: os/installer/output/dadiOS-amd64.iso
+
+            The ISO is split for GitHub's 2 GiB asset limit. Reassemble, then flash:
+            ```
+            cat dadiOS-amd64.iso.* > dadiOS-amd64.iso
+            ```
+          files: |
+            os/installer/output/dadiOS-amd64.iso.*
+            os/installer/output/SHA256SUMS
           fail_on_unmatched_files: true
 
       - name: Update dadiOS-latest release
@@ -188,5 +203,13 @@ jobs:
 
             Flashing this USB and booting it **wipes the first disk**.
             OS image: `ghcr.io/${{ github.repository_owner }}/nas:${{ github.sha }}`
-          files: os/installer/output/dadiOS-amd64.iso
+
+            The ISO is split for GitHub's 2 GiB asset limit. Reassemble, then flash:
+            ```
+            cat dadiOS-amd64.iso.* > dadiOS-amd64.iso
+            ```
+          files: |
+            os/installer/output/dadiOS-amd64.iso.*
+            os/installer/output/SHA256SUMS
           fail_on_unmatched_files: true
+          overwrite_files: true
