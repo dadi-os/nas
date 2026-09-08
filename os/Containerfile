@@ -45,10 +45,8 @@ COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
 COPY --from=loki /usr/bin/loki /usr/local/bin/loki
 COPY --from=alloy /bin/alloy /usr/local/bin/alloy
 
-# video/render/input are created at boot via sysusers — need them for useradd.
-RUN groupadd -f -r video \
-  && groupadd -f -r render \
-  && groupadd -f -r input
+# video/render/input live in /usr/lib/group (nss-altfiles); shadow-utils only reads /etc/group.
+RUN grep -E '^(video|render|input):' /usr/lib/group >> /etc/group
 
 # /home is machine state — create the account without writing a home directory.
 RUN useradd \
