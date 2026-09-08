@@ -45,6 +45,11 @@ COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
 COPY --from=loki /usr/bin/loki /usr/local/bin/loki
 COPY --from=alloy /bin/alloy /usr/local/bin/alloy
 
+# video/render/input are created at boot via sysusers — need them for useradd.
+RUN groupadd -f -r video \
+  && groupadd -f -r render \
+  && groupadd -f -r input
+
 # /home is machine state — create the account without writing a home directory.
 RUN useradd \
     --uid 1000 \
