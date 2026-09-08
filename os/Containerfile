@@ -27,12 +27,13 @@ RUN chmod 0440 /etc/sudoers.d/ankur \
   && chmod 0644 /usr/ssh/ankur-authorized-keys \
   && systemctl enable sshd.service
 
-# Last occurrence wins in os-release parsers — brand as dadiOS on top of fedora-release.
+# Last occurrence wins in os-release parsers — brand as dadiOS without
+# changing ID (bootc-image-builder keys off ID=fedora for distro defs).
 RUN printf '%s\n' \
   'NAME="dadiOS"' \
   'PRETTY_NAME="dadiOS"' \
-  'ID=dadios' \
-  'ID_LIKE=fedora' \
+  'VARIANT="dadiOS"' \
+  'VARIANT_ID=dadios' \
   >> /usr/lib/os-release
 
 RUN bootc container lint
