@@ -2,7 +2,7 @@
 
 Nas is the OS and infrastructure layer for dadi. It owns topology — which services exist, how they are networked and named, how they start, and how logs are collected and queried. It is the composition layer: the only place the full system is written down.
 
-**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. App modules (`dwar`, `yaad`, `dimaag`) stay as containers and update via `podman-auto-update` with no reboot.
+**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box UI is a Plasma desktop (dadi look-and-feel — bone/sage, દાદી brand); Hath is for other devices only. App modules (`dwar`, `yaad`, `dimaag`) stay as containers and update via `podman-auto-update` with no reboot.
 
 ## Dependencies
 
@@ -117,6 +117,7 @@ curl -sG 'http://nas.dadi/logs' \
 | `nas` | host systemd | control API on `127.0.0.1:8092` |
 | `loki` / `alloy` | host systemd | logs |
 | `cloudflared` | host systemd | tunnel to Headscale |
+| `sddm` + Plasma | host graphical | autologin `ankur`; bone/sage dadi look-and-feel |
 | `dwar` / `yaad` / `dimaag` (+ postgres / migrate) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8083` |
 
 ### Development (Mac Compose)
@@ -143,10 +144,10 @@ CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes an
 1. Set repo secret `DADIOS_LUKS_PASSPHRASE` (no quotes, `#`, or backslashes).
 2. Download `dadiOS-amd64.iso` from the `dadiOS-latest` release.
 3. Flash to USB; boot the target machine. **The first disk is wiped with no confirmation.**
-4. At the LUKS prompt, enter the passphrase. Console autologins as `ankur`.
+4. At the LUKS prompt, enter the passphrase. SDDM autologins as `ankur` into Plasma (દાદી desktop).
 5. SSH with a key matching [`os/authorized_keys`](os/authorized_keys).
-6. Point a Cloudflare tunnel at Headscale; paste the token in Hath System → tunnel (or `PUT /cloudflared/token`).
-7. Provision Hath clients against `https://dadi.ardusa.dev`.
+6. Point a Cloudflare tunnel at Headscale; paste the token via Nas `PUT /cloudflared/token` (or Hath System → tunnel from another device).
+7. Provision Hath clients against `https://dadi.ardusa.dev` (phones / other machines — Hath is not on the box).
 
 Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`.
 

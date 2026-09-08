@@ -1,0 +1,5 @@
+[General]
+ColorScheme=Dadi
+
+[KDE]
+LookAndFeelPackage=org.dadi.desktop

@@ -1,0 +1,49 @@
+[kdeglobals][General]
+ColorScheme=Dadi
+Name=dadi
+fixed=Noto Sans,10,-1,5,50,0,0,0,0,0
+font=Noto Sans,10,-1,5,50,0,0,0,0,0
+menuFont=Noto Sans,10,-1,5,50,0,0,0,0,0
+smallestReadableFont=Noto Sans,8,-1,5,50,0,0,0,0,0
+toolBarFont=Noto Sans,10,-1,5,50,0,0,0,0,0
+
+[kdeglobals][KDE]
+LookAndFeelPackage=org.dadi.desktop
+widgetStyle=Breeze
+
+[kdeglobals][Icons]
+Theme=breeze
+
+[kdeglobals][WM]
+activeBackground=250,250,247
+activeBlend=250,250,247
+activeForeground=44,48,42
+inactiveBackground=247,249,244
+inactiveBlend=247,249,244
+inactiveForeground=110,117,104
+
+[plasmarc][Theme]
+name=default
+
+[plasmarc][Wallpapers]
+usersWallpapers=
+
+[Wallpaper]
+Image=Dadi
+
+[kcminputrc][Mouse]
+cursorTheme=breeze_cursors
+
+[kwinrc][org.kde.kdecoration2]
+library=org.kde.breeze
+theme=Breeze
+
+[kwinrc][Windows]
+BorderlessMaximizedWindows=false
+
+[dolphinrc][General]
+ShowHiddenFiles=true
+ShowFullPath=true
+
+[konsolerc][Desktop Entry]
+DefaultProfile=Dadi.profile

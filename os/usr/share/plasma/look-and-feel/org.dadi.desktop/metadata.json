@@ -1,0 +1,19 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "dadi"
+            }
+        ],
+        "Category": "",
+        "Description": "dadiOS — bone ground, sage accent, Gujarati brand",
+        "Id": "org.dadi.desktop",
+        "License": "MIT",
+        "Name": "dadi",
+        "Version": "1.0"
+    },
+    "Keywords": "dadi;bone;sage",
+    "X-Plasma-APIVersion": "2",
+    "X-Plasma-MainScript": "defaults"
+}

@@ -1,0 +1,25 @@
+# dadiOS Plymouth theme — bone ground, sage wordmark, quiet sage spinner.
+Window.SetBackgroundTopColor(0.98, 0.98, 0.97);
+Window.SetBackgroundBottomColor(0.97, 0.98, 0.96);
+
+wordmark.image = Image("wordmark.png");
+wordmark.sprite = Sprite(wordmark.image);
+wordmark.sprite.SetX(Window.GetWidth() / 2 - wordmark.image.GetWidth() / 2);
+wordmark.sprite.SetY(Window.GetHeight() / 2 - wordmark.image.GetHeight() / 2 - 24);
+
+spinner.image = Image("spinner.png");
+spinner.sprite = Sprite();
+spinner.sprite.SetX(Window.GetWidth() / 2 - spinner.image.GetWidth() / 2);
+spinner.sprite.SetY(Window.GetHeight() / 2 + wordmark.image.GetHeight() / 2 + 8);
+
+fun refresh_callback() {
+  spinner.sprite.SetImage(spinner.image.Rotate(Math.Pi * Global.progress * 2 * 4));
+}
+
+Plymouth.SetRefreshFunction(refresh_callback);
+
+fun progress_callback(duration, progress) {
+  Global.progress = progress;
+}
+
+Plymouth.SetBootProgressFunction(progress_callback);

@@ -1,0 +1,19 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "dadi"
+            }
+        ],
+        "Category": "Windows and Tasks",
+        "Description": "dadiOS Gujarati brand mark",
+        "Icon": "dadi",
+        "Id": "org.dadi.brand",
+        "License": "MIT",
+        "Name": "દાદી",
+        "Version": "1.0",
+        "Website": ""
+    }
+}

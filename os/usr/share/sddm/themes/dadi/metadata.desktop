@@ -1,0 +1,13 @@
+[SddmGreeterTheme]
+Name=dadi
+Description=dadiOS greeter — દાદી
+Author=dadi
+Copyright=(c) dadi
+License=MIT
+Type=sddm-theme
+Version=1.0
+MainScript=Main.qml
+ConfigFile=theme.conf
+Theme-Id=dadi
+Theme-API=2.0
+Screenshot=wordmark.png

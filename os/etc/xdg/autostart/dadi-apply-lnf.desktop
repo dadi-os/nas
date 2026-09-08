@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Apply dadi desktop
+Comment=One-shot look-and-feel for dadiOS
+Exec=/usr/libexec/dadi/apply-desktop.sh
+X-KDE-autostart-condition=ksmserver
+OnlyShowIn=KDE;
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

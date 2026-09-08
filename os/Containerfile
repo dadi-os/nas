@@ -19,13 +19,25 @@ RUN dnf -y install \
     jq \
     vim-minimal \
     git \
-    cage \
-    seatd \
     mesa-dri-drivers \
     mesa-vulkan-drivers \
     libglvnd-egl \
     fuse \
     fuse-libs \
+    plasma-desktop \
+    plasma-workspace \
+    plasma-workspace-wayland \
+    plasma-nm \
+    plasma-pa \
+    sddm \
+    sddm-breeze \
+    dolphin \
+    konsole \
+    plymouth \
+    plymouth-plugin-script \
+    google-noto-sans-fonts \
+    google-noto-sans-gujarati-fonts \
+    librsvg2-tools \
   && dnf clean all
 
 # Tailscale client (open-source); Headscale is the control plane.
@@ -63,14 +75,39 @@ COPY os/etc/ /etc/
 COPY os/usr/ /usr/
 COPY os/authorized_keys /usr/ssh/ankur-authorized-keys
 
+# Render Plymouth / SDDM / icon brand marks from SVG (Gujarati દાદી).
+RUN mkdir -p \
+      /usr/share/plymouth/themes/dadi \
+      /usr/share/sddm/themes/dadi \
+      /usr/share/pixmaps \
+      /usr/share/icons/hicolor/48x48/apps \
+      /usr/share/icons/hicolor/128x128/apps \
+  && rsvg-convert -w 640 -h 240 /usr/share/dadi/brand/dadi-wordmark.svg \
+       -o /usr/share/plymouth/themes/dadi/wordmark.png \
+  && rsvg-convert -w 480 -h 180 /usr/share/dadi/brand/dadi-wordmark.svg \
+       -o /usr/share/sddm/themes/dadi/wordmark.png \
+  && cp -a /usr/share/wallpapers/Dadi/contents/images/1920x1080.png \
+       /usr/share/sddm/themes/dadi/background.png \
+  && rsvg-convert -w 64 -h 64 /usr/share/dadi/brand/dadi-mark.svg \
+       -o /usr/share/pixmaps/dadi.png \
+  && rsvg-convert -w 48 -h 48 /usr/share/dadi/brand/dadi-mark.svg \
+       -o /usr/share/icons/hicolor/48x48/apps/dadi.png \
+  && rsvg-convert -w 128 -h 128 /usr/share/dadi/brand/dadi-mark.svg \
+       -o /usr/share/icons/hicolor/128x128/apps/dadi.png \
+  && plymouth-set-default-theme dadi \
+  && for k in /lib/modules/*; do \
+       [ -d "$k" ] || continue; \
+       dracut --force --kver "$(basename "$k")" || true; \
+     done
+
 RUN chmod 0440 /etc/sudoers.d/ankur \
   && chmod 0644 /usr/ssh/ankur-authorized-keys \
   && chmod 0755 /usr/libexec/dadi/*.sh \
   && chmod 0755 /usr/share/dadi/bootstrap.sh \
   && systemctl enable sshd.service \
   && systemctl enable dadi-seed.service \
-  && systemctl enable seatd.service \
-  && systemctl enable hath-kiosk.service \
+  && systemctl enable dadi-home.service \
+  && systemctl enable sddm.service \
   && systemctl enable cloudflared.service \
   && systemctl enable headscale.service \
   && systemctl enable bootstrap.service \

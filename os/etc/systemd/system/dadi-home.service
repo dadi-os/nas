@@ -1,0 +1,12 @@
+[Unit]
+Description=Ensure /home/ankur exists for Plasma session
+After=local-fs.target
+Before=sddm.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/dadi/ensure-home.sh
+
+[Install]
+WantedBy=multi-user.target

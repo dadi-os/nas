@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=dadi
+Description=dadiOS boot splash — દાદી
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/dadi
+ScriptFile=/usr/share/plymouth/themes/dadi/dadi.script
