@@ -46,8 +46,8 @@ CD builds an unattended Anaconda ISO whenever `os/**` changes and publishes it o
 4. Boot the target machine from that USB. **The first disk is wiped with no confirmation** — unplug extra drives. Install is unattended: LUKS uses the CD secret, then reboots.
 5. Remove the USB. At the LUKS prompt, enter the same passphrase. Console autologins as `ankur`. Hath starts under cage when the graphical target is up (downloads `hath-linux-x86_64.AppImage` on first start if missing).
 6. SSH from a Mac that holds a private key matching [`os/authorized_keys`](os/authorized_keys): `ssh ankur@<box-ip>`.
-7. Point a Cloudflare tunnel at this box’s Headscale (`localhost:8080`) for hostname `headscale.dadi.ardusa.dev`. Paste the tunnel token in Hath **System → MODULES → tunnel** (or `PUT /cloudflared/token` on nas-service).
-8. Provision Hath clients against `https://headscale.dadi.ardusa.dev`. Verify `bootc status` and module health on System.
+7. Point a Cloudflare tunnel at this box’s Headscale (`localhost:8080`) for hostname `dadi.ardusa.dev`. Paste the tunnel token in Hath **System → MODULES → tunnel** (or `PUT /cloudflared/token` on nas-service).
+8. Provision Hath clients against `https://dadi.ardusa.dev` (System → DEVICES on a connected Hath). Verify `bootc status` and module health on System.
 
 Machine config lives under `/var/lib/dadi/` (seeded on first boot from `/usr/share/dadi/seed`). Nas owns env/config files and stack lifecycle; Hath is only the UI.
 
@@ -69,7 +69,7 @@ Two naming layers exist at once and must not be confused:
 - **Docker DNS** — how containers reach each other. Caddy's `*.dadi` network aliases are this layer. `curl http://yaad.dadi/health` from the Mac via `/etc/hosts` → localhost:80 is still this path.
 - **Headscale MagicDNS** — how tsnet clients (Hath) resolve `*.dadi`. Extra records in `headscale/config.yaml` (dev) / `/etc/headscale/config.yaml` (prod) point service names at the sidecar's mesh address. Separate namespace, separate mechanism. Neither replaces the other.
 
-Headscale must be reachable before a device joins the mesh. In **dev** that is `localhost:8080`. In **prod** clients use `https://headscale.dadi.ardusa.dev` (Cloudflare tunnel → Headscale on the box). `control_url` in the provisioning bundle carries that value.
+Headscale must be reachable before a device joins the mesh. In **dev** that is `localhost:8080`. In **prod** clients use `https://dadi.ardusa.dev` (Cloudflare tunnel → Headscale on the box). `control_url` in the provisioning bundle carries that value.
 
 The Tailscale sidecar joins as hostname `os` (MagicDNS: `os.dadi`) and L3-forwards inbound mesh traffic to Caddy, which routes by Host header. Current Tailscale rejects `TS_DEST_IP` together with userspace mode, so the sidecar runs with kernel networking (`NET_ADMIN` + `/dev/net/tun`) and `TS_EXPERIMENTAL_DEST_DNS_NAME=caddy`.
 
@@ -139,7 +139,7 @@ Ctrl-C stops Overmind (Compose attach + Hath together). Containers may still be 
 
 Hath is a native process in both environments — it is not containerized anywhere. In prod it is the Plymouth/kiosk desktop under cage; in dev Overmind launches Tauri on the Mac.
 
-Dev has no external connectivity by design. Headscale stays on localhost; a phone joining from cellular is a production concern and changes one value in the provisioning bundle when it arrives.
+Dev has no external connectivity by design. Headscale stays on localhost. Production clients reach Headscale at `https://dadi.ardusa.dev` via the Cloudflare tunnel; mint setup codes from Hath **System → DEVICES** on a mesh-connected install.
 
 Each module owns its `.env` (gitignored). Nas points `env_file` at those files. `./up` copies from `.env.example` when a file is missing — Dwar's may stay empty for a stack that does not need model calls (Dwar boots and returns `503 provider_unconfigured` on routes that need a key). Database passwords and URLs live in each module's `.env`; `POSTGRES_USER` / `POSTGRES_DB` stay inline in compose as topology.
 

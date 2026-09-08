@@ -1,5 +1,5 @@
 # Production Headscale. Clients dial the Cloudflare tunnel hostname.
-server_url: https://headscale.dadi.ardusa.dev
+server_url: https://dadi.ardusa.dev
 listen_addr: 0.0.0.0:8080
 metrics_listen_addr: 127.0.0.1:9090
 grpc_listen_addr: 127.0.0.1:50443

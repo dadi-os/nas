@@ -7,7 +7,7 @@ Wants=loki.service
 Image=ghcr.io/dadi-os/nas-service:latest
 ContainerName=nas-service
 Network=dadi.network
-Environment=CONTROL_URL=https://headscale.dadi.ardusa.dev
+Environment=CONTROL_URL=https://dadi.ardusa.dev
 Environment=HEADSCALE_USER=ankur
 Environment=LISTEN_ADDR=:8080
 Environment=LOKI_URL=http://loki:3100
