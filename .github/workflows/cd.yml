@@ -103,6 +103,22 @@ jobs:
           )
           PY
 
+      - name: Free disk space
+        run: |
+          # bootc-image-builder needs tens of GB; ubuntu-latest is tight once Plasma lands.
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /usr/local/.ghcup \
+            /usr/share/swift \
+            /usr/local/share/powershell \
+            /usr/share/miniconda \
+            /usr/local/lib/node_modules \
+            /opt/hostedtoolcache
+          sudo docker system prune -af
+          df -h
+
       - name: Install podman
         run: |
           sudo apt-get update
@@ -125,6 +141,7 @@ jobs:
       - name: Build anaconda ISO
         run: |
           mkdir -p os/installer/output
+          df -h
           sudo podman run --rm --privileged \
             --security-opt label=type:unconfined_t \
             -v "$PWD/os/installer/config.rendered.toml:/config.toml:ro" \
