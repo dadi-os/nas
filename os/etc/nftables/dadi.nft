@@ -18,6 +18,8 @@ table inet filter {
 
 		iifname "tailscale0" accept
 
+		iifname { "podman*", "cni-podman*" } meta l4proto { tcp, udp } th dport 53 accept
+
 		# Matter / mDNS on the LAN (Ghar runs Network=host).
 		udp dport { 5353, 5540 } accept
 		ip6 daddr ff00::/8 accept

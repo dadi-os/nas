@@ -204,7 +204,6 @@ func (f *fsHost) handleRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	allLines := strings.Split(string(data), "\n")
-	// Trailing newline yields an empty final element; drop it for line count.
 	if len(allLines) > 0 && allLines[len(allLines)-1] == "" {
 		allLines = allLines[:len(allLines)-1]
 	}

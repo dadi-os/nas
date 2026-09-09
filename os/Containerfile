@@ -87,19 +87,13 @@ RUN useradd \
     --shell /bin/bash \
     ankur
 
-# Host agent user: terminals and project files under /var/lib/dadi.
-RUN useradd \
-    --system \
-    --home-dir /var/lib/dadi \
-    --no-create-home \
-    --shell /bin/bash \
-    dadi
-
 RUN mkdir -p /usr/ssh /var/lib/headscale /var/lib/loki /var/lib/alloy
 
 COPY os/etc/ /etc/
 COPY os/usr/ /usr/
 COPY os/authorized_keys /usr/ssh/ankur-authorized-keys
+
+RUN systemd-sysusers
 
 # Render Plymouth / SDDM / icon brand marks from SVG (Gujarati દાદી).
 RUN mkdir -p \
@@ -138,6 +132,7 @@ RUN chmod 0440 /etc/sudoers.d/ankur \
   && systemctl enable dadi-seed.service \
   && systemctl enable dadi-home.service \
   && systemctl enable sddm.service \
+  && systemctl set-default graphical.target \
   && systemctl enable cloudflared.service \
   && systemctl enable headscale.service \
   && systemctl enable bootstrap.service \

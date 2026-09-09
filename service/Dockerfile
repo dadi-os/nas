@@ -8,6 +8,20 @@ COPY go.mod go.sum ./
 COPY *.go ./
 RUN CGO_ENABLED=0 go build -o /nas-service .
 
+FROM golang:1.23-bookworm AS test
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+      ca-certificates util-linux procps tmux ripgrep bash \
+      xvfb chromium imagemagick fonts-liberation \
+  && rm -rf /var/lib/apt/lists/* \
+  && useradd --system --create-home --uid 1000 --shell /usr/sbin/nologin dadi
+ENV CHROMIUM_BIN=chromium
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY *.go ./
+CMD ["go", "test", "./..."]
+
 FROM debian:bookworm-slim AS production
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \

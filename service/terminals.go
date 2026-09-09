@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,7 +33,7 @@ var sessionNameRe = regexp.MustCompile(`^t([1-9][0-9]*)$`)
 type terminalHost struct {
 	host *hostRuntime
 	mu   sync.Mutex
-	busy map[string]struct{} // in-flight exec per session id
+	busy map[string]struct{}
 }
 
 func newTerminalHost(host *hostRuntime) *terminalHost {
@@ -90,10 +91,7 @@ func (t *terminalHost) isPaneBusy(id string) (bool, error) {
 func (t *terminalHost) listSessionNames() (map[string]struct{}, error) {
 	out, err := t.tmuxCmd("ls", "-F", "#{session_name}").CombinedOutput()
 	if err != nil {
-		// no server / no sessions
-		if strings.Contains(string(out), "no server running") ||
-			strings.Contains(string(out), "error connecting") ||
-			strings.Contains(err.Error(), "exit status 1") {
+		if isTmuxIdleError(err, out) {
 			return map[string]struct{}{}, nil
 		}
 		return nil, fmt.Errorf("tmux ls: %w (%s)", err, strings.TrimSpace(string(out)))
@@ -107,6 +105,13 @@ func (t *terminalHost) listSessionNames() (map[string]struct{}, error) {
 		names[line] = struct{}{}
 	}
 	return names, nil
+}
+
+func isTmuxIdleError(err error, out []byte) bool {
+	text := string(out) + err.Error()
+	return strings.Contains(text, "no server running") ||
+		strings.Contains(text, "error connecting") ||
+		strings.Contains(err.Error(), "exit status 1")
 }
 
 func (t *terminalHost) nextSessionID() (string, error) {
@@ -177,49 +182,54 @@ type terminalInfo struct {
 	Busy      bool   `json:"busy"`
 }
 
-func (t *terminalHost) handleList(w http.ResponseWriter, r *http.Request) {
-	out, err := t.tmuxCmd(
-		"ls", "-F",
-		"#{session_name}\t#{pane_current_path}\t#{session_created}\t#{pane_current_command}",
-	).CombinedOutput()
+func (t *terminalHost) sessionInfo(id string) (terminalInfo, error) {
+	cwd, err := t.tmuxOutput("display-message", "-p", "-t", id, "#{pane_current_path}")
 	if err != nil {
-		msg := string(out)
-		if strings.Contains(msg, "no server running") ||
-			strings.Contains(msg, "error connecting") ||
-			strings.Contains(err.Error(), "exit status 1") {
-			writeJSON(w, http.StatusOK, []terminalInfo{})
-			return
-		}
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, strings.TrimSpace(msg))
+		return terminalInfo{}, err
+	}
+	createdRaw, err := t.tmuxOutput("display-message", "-p", "-t", id, "#{session_created}")
+	if err != nil {
+		return terminalInfo{}, err
+	}
+	paneCmd, err := t.tmuxOutput("display-message", "-p", "-t", id, "#{pane_current_command}")
+	if err != nil {
+		return terminalInfo{}, err
+	}
+	createdUnix, _ := strconv.ParseInt(strings.TrimSpace(createdRaw), 10, 64)
+	paneCmd = strings.TrimSpace(paneCmd)
+	_, execBusy := t.busy[id]
+	busy := execBusy || (paneCmd != "" && paneCmd != t.host.idleShell)
+	return terminalInfo{
+		ID:        id,
+		Cwd:       strings.TrimSpace(cwd),
+		CreatedAt: time.Unix(createdUnix, 0).UTC().Format(time.RFC3339),
+		Busy:      busy,
+	}, nil
+}
+
+func (t *terminalHost) handleList(w http.ResponseWriter, r *http.Request) {
+	names, err := t.listSessionNames()
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 		return
 	}
+	ids := make([]string, 0, len(names))
+	for id := range names {
+		if sessionNameRe.MatchString(id) {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	list := make([]terminalInfo, 0)
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+	list := make([]terminalInfo, 0, len(ids))
+	for _, id := range ids {
+		info, err := t.sessionInfo(id)
+		if err != nil {
 			continue
 		}
-		parts := strings.Split(line, "\t")
-		if len(parts) < 4 {
-			continue
-		}
-		id := parts[0]
-		if !sessionNameRe.MatchString(id) {
-			continue
-		}
-		createdUnix, _ := strconv.ParseInt(parts[2], 10, 64)
-		createdAt := time.Unix(createdUnix, 0).UTC().Format(time.RFC3339)
-		paneCmd := parts[3]
-		_, execBusy := t.busy[id]
-		busy := execBusy || (paneCmd != "" && paneCmd != t.host.idleShell)
-		list = append(list, terminalInfo{
-			ID:        id,
-			Cwd:       parts[1],
-			CreatedAt: createdAt,
-			Busy:      busy,
-		})
+		list = append(list, info)
 	}
 	writeJSON(w, http.StatusOK, list)
 }
@@ -299,9 +309,8 @@ func (t *terminalHost) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nonce := hex.EncodeToString(nonceBytes)
-	// command; printf '\n__NAS_EXEC__%s %d\n' <nonce> $?
-	line := req.Command + "; printf '\\n" + execMarker + "%s %d\\n' " + shellSingleQuote(nonce) + " $?"
-	if err := t.tmuxCmd("send-keys", "-t", id, "-l", "--", line).Run(); err != nil {
+	execLine := req.Command + "; printf '\\n" + execMarker + "%s %d\\n' " + shellSingleQuote(nonce) + " $?"
+	if err := t.tmuxCmd("send-keys", "-t", id, "-l", "--", execLine).Run(); err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, "send-keys: "+err.Error())
 		return
 	}
@@ -323,14 +332,14 @@ func (t *terminalHost) handleExec(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
-		if code, body, ok := parseExecCapture(capOut, line, markerPrefix); ok {
+		if code, body, ok := parseExecCapture(capOut, execLine, markerPrefix); ok {
 			exitCode = &code
 			output = body
 			break
 		}
 		if time.Now().After(deadline) {
 			timedOut = true
-			output = partialExecOutput(capOut, line)
+			output = partialExecOutput(capOut, execLine)
 			break
 		}
 		time.Sleep(execPollInterval)
@@ -372,7 +381,6 @@ func parseExecCapture(capture, sentLine, markerPrefix string) (exitCode int, out
 		}
 	}
 	if cmdIdx < 0 {
-		// Fall back: first line that contains the marker setup before the result line.
 		for i := 0; i < markerIdx; i++ {
 			if strings.Contains(lines[i], execMarker) && strings.Contains(lines[i], "printf") {
 				cmdIdx = i

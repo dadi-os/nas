@@ -171,7 +171,6 @@ func TestFSSymlinkWriteEscapeForbidden(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("nope\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Point a link inside a write-protected tree... use /etc via link from workspace.
 	link := filepath.Join(root, "escape")
 	if err := os.Symlink("/etc/passwd", link); err != nil {
 		t.Fatal(err)

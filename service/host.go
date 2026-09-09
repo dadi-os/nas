@@ -38,11 +38,10 @@ func newHostRuntime(state stateConfig) (*hostRuntime, error) {
 		stateDir:    stateDir,
 		browsersDir: filepath.Join(stateDir, "browsers"),
 		runtime:     state.runtime,
-		// Appliance runs Nas as root and switches to dadi. Compose/dev skips.
-		switchUser: state.runtime == "podman",
-		idleShell:  "bash",
-		dadiUID:    -1,
-		dadiGID:    -1,
+		switchUser:  state.runtime == "podman",
+		idleShell:   "bash",
+		dadiUID:     -1,
+		dadiGID:     -1,
 	}
 	if !h.switchUser {
 		if shell := os.Getenv("SHELL"); shell != "" {
@@ -72,7 +71,6 @@ func newHostRuntime(state stateConfig) (*hostRuntime, error) {
 }
 
 func (h *hostRuntime) ensureDirs() error {
-	// Podman appliance: fixed /run/dadi (tmpfiles.d). Compose/dev: under state.
 	if h.runtime == "podman" {
 		h.runDir = defaultRunDir
 	} else {
@@ -82,7 +80,6 @@ func (h *hostRuntime) ensureDirs() error {
 		return fmt.Errorf("mkdir run dir %s: %w", h.runDir, err)
 	}
 	h.tmuxSocket = filepath.Join(h.runDir, tmuxSocketName)
-	// Darwin AF_UNIX path limit (~104); keep the socket short when state paths are deep (tests).
 	if runtime.GOOS == "darwin" && len(h.tmuxSocket) > 100 {
 		h.runDir = filepath.Join(os.TempDir(), fmt.Sprintf("dadi-tmux-%d", os.Getpid()))
 		if err := os.MkdirAll(h.runDir, 0o755); err != nil {

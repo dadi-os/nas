@@ -31,7 +31,6 @@ func testTerminalEnv(t *testing.T) (*terminalHost, *http.ServeMux) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Short isolated socket (macOS AF_UNIX path limit).
 	host.runDir = filepath.Join(os.TempDir(), fmt.Sprintf("nas-t-%d-%d", os.Getpid(), time.Now().UnixNano()%1_000_000))
 	host.tmuxSocket = filepath.Join(host.runDir, "tmux.sock")
 	if err := os.MkdirAll(host.runDir, 0o755); err != nil {
@@ -190,7 +189,6 @@ func TestTerminalsExecTimeoutThenKeys(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("keys %d %s", code, body)
 	}
-	// Wait for shell to recover after interrupt.
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		code, body = doJSON(t, mux, http.MethodPost, "/terminals/"+created.ID+"/exec", map[string]any{

@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.plasma.plasmoid
 import org.kde.plasma.core as PlasmaCore
+import org.kde.plasma.plasma5support as Plasma5Support
 
 PlasmoidItem {
     id: root
@@ -28,7 +29,7 @@ PlasmoidItem {
         property bool busy: false
         property bool copied: false
 
-        PlasmaCore.DataSource {
+        Plasma5Support.DataSource {
             id: executable
             engine: "executable"
             connectedSources: []

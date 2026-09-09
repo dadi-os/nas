@@ -12,23 +12,14 @@ concurrency:
 jobs:
   ci:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: service
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: service/go.mod
-          cache-dependency-path: service/go.sum
-
-      - name: Install tmux and ripgrep
-        run: sudo apt-get update && sudo apt-get install -y tmux ripgrep
-        working-directory: .
+      - name: Build test image
+        run: docker build -f service/Dockerfile --target test -t nas-service-test service/
 
       - name: Test
-        run: go test ./...
+        run: docker run --rm --shm-size=1g nas-service-test go test ./...
 
       - name: Vet
-        run: go vet ./...
+        run: docker run --rm nas-service-test go vet ./...

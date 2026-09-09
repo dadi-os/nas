@@ -71,7 +71,7 @@ Tauri Hath (mesh / provisioning work) is separate: `cd ../hath && net/build.sh &
 
 | Workflow | When | What |
 | --- | --- | --- |
-| `ci.yml` | PR + push to `main` | `go test` / `go vet` in `service/` |
+| `ci.yml` | PR + push to `main` | Build `service` Dockerfile `--target test`; `go test` / `go vet` in that image (same Chromium/Xvfb/tmux as prod) |
 | `cd.yml` | `os/**` or `service/**` on `main` (or dispatch) | Build/push `nas` image; build LUKS installer ISO; publish `dadiOS-*` releases |
 
 Concurrency cancels superseded CI runs on the same ref.
@@ -170,7 +170,7 @@ Each browser is a headed Chromium on its own Xvfb display (not headless, not a V
 | CDP port | `9300 + n` (loopback only) |
 | Profile dir | `$DADI_STATE_DIR/browsers/<n>` — created on first spawn, **never deleted by Nas** (cookies/logins survive kill + reboot when the id is reused) |
 
-`create` picks the lowest `n >= 10` whose `/tmp/.X11-unix/X<n>` is absent and whose CDP port is free. Spawns Xvfb as root (so it can bind `/tmp/.X11-unix`), then Chromium as `dadi` when that user exists — Chromium refuses to run as root without `--no-sandbox`. Window size 1920×1080; profile under `--user-data-dir`. On the appliance (`DADI_RUNTIME=podman`) the Chromium sandbox stays on. Compose/dev Docker disables user namespaces, so Chromium gets `--no-sandbox` and `--disable-dev-shm-usage` only in that runtime. Both processes use `setsid` so a Nas restart does not take them down. Stderr is logged under the `nas` service with `browser=<n>`.
+`create` picks the lowest `n >= 10` whose `/tmp/.X11-unix/X<n>` is absent and whose CDP port is free. Spawns Xvfb as root (so it can bind `/tmp/.X11-unix`), then Chromium as `dadi` on the appliance (`DADI_RUNTIME=podman`) — Chromium refuses to run as root without `--no-sandbox`. Compose/dev keeps the current process user and adds `--no-sandbox` / `--disable-dev-shm-usage` because those hosts disable user namespaces. Window size 1920×1080; profile under `--user-data-dir` (and `HOME`). Both processes use `setsid` so a Nas restart does not take them down. Stderr is logged under the `nas` service with `browser=<n>`.
 
 | Method | Path | Success | Errors |
 | --- | --- | --- | --- |
@@ -238,7 +238,7 @@ CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes an
 1. Set repo secret `DADIOS_LUKS_PASSPHRASE` (no quotes, `#`, or backslashes).
 2. Download all `dadiOS-amd64.iso.*` parts from the `dadiOS-latest` release and reassemble: `cat dadiOS-amd64.iso.* > dadiOS-amd64.iso`.
 3. Flash to USB; boot the target machine. **The first disk is wiped with no confirmation.**
-4. At the LUKS prompt, enter the passphrase. SDDM autologins as `ankur` into Plasma (દાદી desktop).
+4. At the LUKS prompt (first boot only; day-2+ is TPM2), disk unlocks. SDDM autologins as `ankur` straight into Plasma (દાદી desktop) — no greeter.
 5. SSH with a key matching [`os/authorized_keys`](os/authorized_keys).
 6. Point a Cloudflare tunnel at Headscale; set the public control plane URL and paste the tunnel token via Nas Preferences → Tunnel (`PUT /headscale/control-url`, `PUT /cloudflared/token`) or Hath System → tunnel from another device.
 7. Provision Hath clients: on the box open **Add Device** (dock / brand menu / Preferences → Devices), name the node, show the sage QR. Scan from Hath on the phone/laptop (`https://dadi.ardusa.dev` control URL is embedded in the bundle).
@@ -247,7 +247,7 @@ Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `pod
 
 ### Host firewall (nftables)
 
-Ruleset: `/etc/nftables/dadi.nft` (loaded by `nftables.service`). Default-deny input except loopback, Tailscale (`tailscale0`), SSH, and Matter on the LAN (UDP 5353 / 5540 + IPv6 multicast). ICMPv6 is accepted so neighbor discovery works. Ghar's HTTP port `8084` is explicitly dropped off-loopback; the process also binds `127.0.0.1` only.
+Ruleset: `/etc/nftables/dadi.nft` (loaded by `nftables.service`). Default-deny input except loopback, Tailscale (`tailscale0`), SSH, Matter on the LAN (UDP 5353 / 5540 + IPv6 multicast), and container DNS (UDP/TCP 53 from `podman*` / `cni-podman*` to aardvark-dns). ICMPv6 is accepted so neighbor discovery works. Ghar's HTTP port `8084` is explicitly dropped off-loopback; the process also binds `127.0.0.1` only.
 
 ## Desktop (dadiOS)
 

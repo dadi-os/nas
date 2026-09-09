@@ -7,7 +7,7 @@ Image=ghcr.io/dadi-os/yaad:latest
 ContainerName=yaad-migrate
 Network=dadi.network
 Environment=DATABASE_URL=postgres://yaad:yaad@yaad-postgres:5432/yaad
-Exec=npm run db:migrate
+Exec=node dist/db/migrate.js
 AutoUpdate=registry
 
 [Service]

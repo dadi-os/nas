@@ -138,17 +138,17 @@ var layout = {
         {
             "alignment": "center",
             "height": 56,
-            "hiding": "autohide",
+            "hiding": "normal",
             "lengthMode": "fit",
             "location": "bottom",
-            "maximumLength": 720,
-            "minimumLength": 220,
+            "maximumLength": 900,
+            "minimumLength": 420,
             "offset": 0,
             "opacity": "translucent",
             "floating": 1,
             "applets": [
                 {
-                    "plugin": "org.kde.plasma.icontasks",
+                    "plugin": "org.kde.plasma.taskmanager",
                     "config": {
                         "/": { "immutability": "1" },
                         "/Configuration/General": {

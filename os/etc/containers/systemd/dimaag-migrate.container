@@ -7,7 +7,7 @@ Image=ghcr.io/dadi-os/dimaag:latest
 ContainerName=dimaag-migrate
 Network=dadi.network
 Environment=DATABASE_URL=postgres://dimaag:dimaag@dimaag-postgres:5432/dimaag
-Exec=npm run db:migrate
+Exec=node dist/db/migrate.js
 AutoUpdate=registry
 
 [Service]

@@ -28,7 +28,6 @@ func requireBrowserDeps(t *testing.T) string {
 		bin = defaultChromium
 	}
 	if _, err := exec.LookPath(bin); err != nil {
-		// Fall back to common Debian name for local runs.
 		if _, err2 := exec.LookPath("chromium"); err2 == nil {
 			bin = "chromium"
 		} else {
@@ -109,7 +108,6 @@ func TestBrowsersCreateListDelete(t *testing.T) {
 	if code != http.StatusNoContent {
 		t.Fatalf("delete %d", code)
 	}
-	// Allow sockets to clear.
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if !bh.processesExist(10) {
@@ -130,7 +128,7 @@ func TestBrowsersCreateListDelete(t *testing.T) {
 }
 
 func TestBrowsersIDReuseAndProfile(t *testing.T) {
-	bh, mux, dir := testBrowserEnv(t)
+	bh, mux, _ := testBrowserEnv(t)
 
 	code, body := doJSON(t, mux, http.MethodPost, "/browsers", nil)
 	if code != http.StatusOK {
@@ -152,9 +150,7 @@ func TestBrowsersIDReuseAndProfile(t *testing.T) {
 		t.Fatalf("id %d", b2.ID)
 	}
 
-	marker := filepath.Join(dir, "browsers", "10", "nas-profile-marker")
-	// Profile may live under resolved browsersDir.
-	marker = filepath.Join(bh.profileDir(10), "nas-profile-marker")
+	marker := filepath.Join(bh.profileDir(10), "nas-profile-marker")
 	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +222,6 @@ func TestBrowsersWebsocketGetTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Rebuild cdp URL against the test server host.
 	verResp, err := http.Get(srv.URL + fmt.Sprintf("/browsers/%d/json/version", created.ID))
 	if err != nil {
 		t.Fatal(err)
@@ -238,9 +233,7 @@ func TestBrowsersWebsocketGetTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 	wsURL := ver.WebSocketDebuggerURL
-	if strings.HasPrefix(wsURL, "ws://") {
-		// httptest is http; gorilla accepts ws pointing at the server.
-	} else {
+	if !strings.HasPrefix(wsURL, "ws://") {
 		t.Fatalf("unexpected cdp url %s", wsURL)
 	}
 
