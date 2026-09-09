@@ -23,14 +23,14 @@ import (
 )
 
 const (
-	browserIDMin     = 10
-	cdpPortBase      = 9300
-	xvfbWait         = 2 * time.Second
-	chromiumWait     = 5 * time.Second
-	browserKillWait  = 5 * time.Second
-	browserScreenW   = 1920
-	browserScreenH   = 1080
-	defaultChromium  = "chromium-browser"
+	browserIDMin    = 10
+	cdpPortBase     = 9300
+	xvfbWait        = 2 * time.Second
+	chromiumWait    = 5 * time.Second
+	browserKillWait = 5 * time.Second
+	browserScreenW  = 1920
+	browserScreenH  = 1080
+	defaultChromium = "chromium-browser"
 )
 
 type browserHost struct {
@@ -63,7 +63,7 @@ func newBrowserHost(host *hostRuntime) *browserHost {
 }
 
 func displayName(id int) string { return fmt.Sprintf(":%d", id) }
-func cdpPort(id int) int       { return cdpPortBase + id }
+func cdpPort(id int) int        { return cdpPortBase + id }
 func xSocketPath(id int) string {
 	return filepath.Join("/tmp/.X11-unix", fmt.Sprintf("X%d", id))
 }

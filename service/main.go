@@ -78,7 +78,7 @@ func main() {
 	files.register(mux)
 	browsers.register(mux)
 
-	slog.Info("nas listening", "addr", listen, "state_dir", state.dir, "runtime", state.runtime, "projects", host.projectsDir)
+	slog.Info("nas listening", "addr", listen, "state_dir", state.dir, "runtime", state.runtime)
 	if err := http.ListenAndServe(listen, withRequestLog(mux)); err != nil {
 		slog.Error("listen failed", "code", CodeInternal, "err", err)
 		os.Exit(1)

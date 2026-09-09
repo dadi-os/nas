@@ -21,7 +21,7 @@ func testFSEnv(t *testing.T) (*fsHost, *http.ServeMux, string) {
 	fh := newFSHost(host)
 	mux := http.NewServeMux()
 	fh.register(mux)
-	return fh, mux, host.projectsDir
+	return fh, mux, host.stateDir
 }
 
 func TestFSReadOffsetLimit(t *testing.T) {
@@ -73,12 +73,12 @@ func TestFSEditMatches(t *testing.T) {
 	if code != http.StatusConflict {
 		t.Fatalf("zero matches status %d %s", code, body)
 	}
-	var zero map[string]int
+	var zero errorResponse
 	if err := json.Unmarshal(body, &zero); err != nil {
 		t.Fatal(err)
 	}
-	if zero["matches"] != 0 {
-		t.Fatalf("matches %+v", zero)
+	if zero.Error.Type != CodeConflict {
+		t.Fatalf("type %s", zero.Error.Type)
 	}
 
 	code, body = doJSON(t, mux, http.MethodPost, "/fs/edit", map[string]any{
@@ -89,12 +89,12 @@ func TestFSEditMatches(t *testing.T) {
 	if code != http.StatusConflict {
 		t.Fatalf("multi status %d %s", code, body)
 	}
-	var multi map[string]int
+	var multi errorResponse
 	if err := json.Unmarshal(body, &multi); err != nil {
 		t.Fatal(err)
 	}
-	if multi["matches"] != 2 {
-		t.Fatalf("matches %+v", multi)
+	if multi.Error.Type != CodeConflict || !strings.Contains(multi.Error.Message, "2") {
+		t.Fatalf("body %+v", multi)
 	}
 
 	code, body = doJSON(t, mux, http.MethodPost, "/fs/edit", map[string]any{
@@ -114,10 +114,11 @@ func TestFSEditMatches(t *testing.T) {
 	}
 }
 
-func TestFSPathOutsideForbidden(t *testing.T) {
+func TestFSWriteProtectedOS(t *testing.T) {
 	_, mux, _ := testFSEnv(t)
-	code, body := doJSON(t, mux, http.MethodPost, "/fs/read", map[string]any{
-		"path": "/etc/passwd",
+	code, body := doJSON(t, mux, http.MethodPost, "/fs/write", map[string]any{
+		"path":    "/etc/dadi-agent-should-not-write",
+		"content": "nope",
 	})
 	if code != http.StatusForbidden {
 		t.Fatalf("status %d %s", code, body)
@@ -131,18 +132,53 @@ func TestFSPathOutsideForbidden(t *testing.T) {
 	}
 }
 
-func TestFSSymlinkEscapeForbidden(t *testing.T) {
+func TestFSReadOSAllowed(t *testing.T) {
+	_, mux, _ := testFSEnv(t)
+	path := "/etc/hosts"
+	if _, err := os.Stat(path); err != nil {
+		t.Skip("no /etc/hosts")
+	}
+	code, body := doJSON(t, mux, http.MethodPost, "/fs/read", map[string]any{
+		"path": path,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("status %d %s", code, body)
+	}
+}
+
+func TestFSWriteProtectedStateRuntime(t *testing.T) {
+	_, mux, root := testFSEnv(t)
+	path := filepath.Join(root, "modules", "dwar", ".env")
+	code, body := doJSON(t, mux, http.MethodPost, "/fs/write", map[string]any{
+		"path":    path,
+		"content": "stolen",
+	})
+	if code != http.StatusForbidden {
+		t.Fatalf("status %d %s", code, body)
+	}
+	var errBody errorResponse
+	if err := json.Unmarshal(body, &errBody); err != nil {
+		t.Fatal(err)
+	}
+	if errBody.Error.Type != CodeForbidden {
+		t.Fatalf("type %s", errBody.Error.Type)
+	}
+}
+
+func TestFSSymlinkWriteEscapeForbidden(t *testing.T) {
 	_, mux, root := testFSEnv(t)
 	outside := filepath.Join(t.TempDir(), "secret.txt")
 	if err := os.WriteFile(outside, []byte("nope\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Point a link inside a write-protected tree... use /etc via link from workspace.
 	link := filepath.Join(root, "escape")
-	if err := os.Symlink(outside, link); err != nil {
+	if err := os.Symlink("/etc/passwd", link); err != nil {
 		t.Fatal(err)
 	}
-	code, body := doJSON(t, mux, http.MethodPost, "/fs/read", map[string]any{
-		"path": link,
+	code, body := doJSON(t, mux, http.MethodPost, "/fs/write", map[string]any{
+		"path":    link,
+		"content": "hacked",
 	})
 	if code != http.StatusForbidden {
 		t.Fatalf("status %d %s", code, body)
@@ -190,6 +226,7 @@ func TestFSWriteAndGlob(t *testing.T) {
 	}
 	code, body = doJSON(t, mux, http.MethodPost, "/fs/glob", map[string]any{
 		"pattern": "**/*.txt",
+		"cwd":     root,
 	})
 	if code != http.StatusOK {
 		t.Fatalf("glob %d %s", code, body)
@@ -214,6 +251,7 @@ func TestFSGrep(t *testing.T) {
 	}
 	code, body := doJSON(t, mux, http.MethodPost, "/fs/grep", map[string]any{
 		"pattern": "findme",
+		"cwd":     root,
 	})
 	if code != http.StatusOK {
 		t.Fatalf("grep %d %s", code, body)

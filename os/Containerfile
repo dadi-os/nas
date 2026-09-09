@@ -22,6 +22,7 @@ RUN dnf -y install \
     tmux \
     ripgrep \
     util-linux \
+    procps-ng \
     xorg-x11-server-Xvfb \
     chromium \
     dejavu-sans-fonts \

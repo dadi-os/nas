@@ -18,10 +18,10 @@ import (
 )
 
 var (
-	errForbidden     = errors.New("forbidden")
-	errNotFound      = errors.New("not found")
-	errInvalidPath   = errors.New("invalid path")
-	errBinaryFile    = errors.New("binary file")
+	errForbidden   = errors.New("forbidden")
+	errNotFound    = errors.New("not found")
+	errInvalidPath = errors.New("invalid path")
+	errBinaryFile  = errors.New("binary file")
 )
 
 type fsHost struct {
@@ -47,14 +47,13 @@ func writePathError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 }
 
-// resolveProjectsPath ensures path is absolute, under projectsDir, and (when
-// mustExist) resolves symlinks before the boundary check.
-func (h *hostRuntime) resolveProjectsPath(path string, mustExist bool) (string, error) {
+// resolveHostPath requires an absolute path and resolves symlinks when mustExist.
+// When forWrite is true, rejects OS / dadiOS runtime prefixes.
+func (h *hostRuntime) resolveHostPath(path string, mustExist, forWrite bool) (string, error) {
 	if !filepathIsAbs(path) {
 		return "", fmt.Errorf("%w: path must be absolute", errInvalidPath)
 	}
 	clean := filepath.Clean(path)
-	root := filepath.Clean(h.projectsDir)
 
 	if mustExist {
 		resolved, err := filepath.EvalSymlinks(clean)
@@ -66,7 +65,6 @@ func (h *hostRuntime) resolveProjectsPath(path string, mustExist bool) (string, 
 		}
 		clean = resolved
 	} else {
-		// Resolve existing prefix; reject symlink escapes on the way down.
 		resolved, err := resolveExistingPrefix(clean)
 		if err != nil {
 			return "", err
@@ -74,7 +72,7 @@ func (h *hostRuntime) resolveProjectsPath(path string, mustExist bool) (string, 
 		clean = resolved
 	}
 
-	if clean != root && !strings.HasPrefix(clean, root+string(os.PathSeparator)) {
+	if forWrite && h.isWriteProtected(clean) {
 		return "", errForbidden
 	}
 	return clean, nil
@@ -154,7 +152,7 @@ func (f *fsHost) handleRead(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "invalid json body")
 		return
 	}
-	path, err := f.host.resolveProjectsPath(strings.TrimSpace(req.Path), true)
+	path, err := f.host.resolveHostPath(strings.TrimSpace(req.Path), true, false)
 	if err != nil {
 		writePathError(w, r, err)
 		return
@@ -254,7 +252,7 @@ func (f *fsHost) handleWrite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "invalid json body")
 		return
 	}
-	path, err := f.host.resolveProjectsPath(strings.TrimSpace(req.Path), false)
+	path, err := f.host.resolveHostPath(strings.TrimSpace(req.Path), false, true)
 	if err != nil {
 		writePathError(w, r, err)
 		return
@@ -275,38 +273,14 @@ func (f *fsHost) handleWrite(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fsHost) mkdirAllOwned(dir string) error {
-	root := filepath.Clean(f.host.projectsDir)
 	dir = filepath.Clean(dir)
-	if dir != root && !strings.HasPrefix(dir, root+string(os.PathSeparator)) {
-		return errForbidden
-	}
-	// Create from root down so we can chown each new segment.
-	rel, err := filepath.Rel(root, dir)
-	if err != nil {
+	if _, err := f.host.resolveHostPath(dir, false, true); err != nil {
 		return err
 	}
-	if rel == "." {
-		return nil
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
 	}
-	cur := root
-	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
-		if part == "" || part == "." {
-			continue
-		}
-		cur = filepath.Join(cur, part)
-		if _, err := os.Stat(cur); err == nil {
-			continue
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-		if err := os.Mkdir(cur, 0o755); err != nil && !os.IsExist(err) {
-			return err
-		}
-		if err := f.host.chownDadi(cur); err != nil {
-			return err
-		}
-	}
-	return nil
+	return f.host.chownDadi(dir)
 }
 
 type editRequest struct {
@@ -325,7 +299,7 @@ func (f *fsHost) handleEdit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "old_string is required")
 		return
 	}
-	path, err := f.host.resolveProjectsPath(strings.TrimSpace(req.Path), true)
+	path, err := f.host.resolveHostPath(strings.TrimSpace(req.Path), true, true)
 	if err != nil {
 		writePathError(w, r, err)
 		return
@@ -337,9 +311,7 @@ func (f *fsHost) handleEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	count := strings.Count(string(body), req.OldString)
 	if count != 1 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		_ = json.NewEncoder(w).Encode(map[string]int{"matches": count})
+		writeError(w, r, http.StatusConflict, CodeConflict, fmt.Sprintf("expected exactly 1 match, got %d", count))
 		return
 	}
 	updated := strings.Replace(string(body), req.OldString, req.NewString, 1)
@@ -382,9 +354,9 @@ func (f *fsHost) handleGlob(w http.ResponseWriter, r *http.Request) {
 	}
 	cwd := strings.TrimSpace(req.Cwd)
 	if cwd == "" {
-		cwd = f.host.projectsDir
+		cwd = f.host.defaultCwd()
 	}
-	cwdResolved, err := f.host.resolveProjectsPath(cwd, true)
+	cwdResolved, err := f.host.resolveHostPath(cwd, true, false)
 	if err != nil {
 		writePathError(w, r, err)
 		return
@@ -406,15 +378,15 @@ func (f *fsHost) handleGlob(w http.ResponseWriter, r *http.Request) {
 	items := make([]pathMtime, 0, len(matches))
 	for _, rel := range matches {
 		abs := filepath.Join(cwdResolved, rel)
-		// Re-check boundary after join (reject escapes).
-		if _, err := f.host.resolveProjectsPath(abs, true); err != nil {
-			continue
-		}
-		fi, err := os.Stat(abs)
+		resolved, err := f.host.resolveHostPath(abs, true, false)
 		if err != nil {
 			continue
 		}
-		items = append(items, pathMtime{path: abs, mtime: fi.ModTime().UnixNano()})
+		fi, err := os.Stat(resolved)
+		if err != nil {
+			continue
+		}
+		items = append(items, pathMtime{path: resolved, mtime: fi.ModTime().UnixNano()})
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].mtime == items[j].mtime {
@@ -465,9 +437,9 @@ func (f *fsHost) handleGrep(w http.ResponseWriter, r *http.Request) {
 	}
 	cwd := strings.TrimSpace(req.Cwd)
 	if cwd == "" {
-		cwd = f.host.projectsDir
+		cwd = f.host.defaultCwd()
 	}
-	cwdResolved, err := f.host.resolveProjectsPath(cwd, true)
+	cwdResolved, err := f.host.resolveHostPath(cwd, true, false)
 	if err != nil {
 		writePathError(w, r, err)
 		return
@@ -498,7 +470,6 @@ func (f *fsHost) handleGrep(w http.ResponseWriter, r *http.Request) {
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 1 {
-			// no matches
 			writeJSON(w, http.StatusOK, grepResponse{Matches: []grepMatch{}, Truncated: false})
 			return
 		}
@@ -535,10 +506,11 @@ func (f *fsHost) handleGrep(w http.ResponseWriter, r *http.Request) {
 		if !filepathIsAbs(abs) {
 			abs = filepath.Join(cwdResolved, abs)
 		}
-		if _, err := f.host.resolveProjectsPath(abs, true); err != nil {
+		resolved, err := f.host.resolveHostPath(abs, true, false)
+		if err != nil {
 			continue
 		}
-		m := grepMatch{Path: abs, Line: ev.Data.LineNumber, Text: text}
+		m := grepMatch{Path: resolved, Line: ev.Data.LineNumber, Text: text}
 		entryLen := len(m.Path) + len(m.Text) + 16
 		if len(matches) >= limit || byteCount+entryLen > maxBytes {
 			truncated = true

@@ -34,13 +34,13 @@ type metricsSnapshot struct {
 }
 
 var (
-	metricsMu      sync.RWMutex
-	cachedCPU      *cpuStatus
-	cachedMem      *memoryStatus
-	cachedGPUs     []gpuStatus
-	lastCPUIdle    uint64
-	lastCPUTotal   uint64
-	haveCPUSample  bool
+	metricsMu     sync.RWMutex
+	cachedCPU     *cpuStatus
+	cachedMem     *memoryStatus
+	cachedGPUs    []gpuStatus
+	lastCPUIdle   uint64
+	lastCPUTotal  uint64
+	haveCPUSample bool
 )
 
 func startMetricsSampler() {

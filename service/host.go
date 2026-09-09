@@ -6,7 +6,9 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -17,7 +19,6 @@ const (
 
 type hostRuntime struct {
 	stateDir    string
-	projectsDir string
 	browsersDir string
 	runDir      string
 	tmuxSocket  string
@@ -29,10 +30,13 @@ type hostRuntime struct {
 }
 
 func newHostRuntime(state stateConfig) (*hostRuntime, error) {
+	stateDir := state.dir
+	if resolved, err := filepath.EvalSymlinks(stateDir); err == nil {
+		stateDir = resolved
+	}
 	h := &hostRuntime{
-		stateDir:    state.dir,
-		projectsDir: filepath.Join(state.dir, "projects"),
-		browsersDir: filepath.Join(state.dir, "browsers"),
+		stateDir:    stateDir,
+		browsersDir: filepath.Join(stateDir, "browsers"),
 		runtime:     state.runtime,
 		// Appliance runs Nas as root and switches to dadi. Compose/dev skips.
 		switchUser: state.runtime == "podman",
@@ -68,18 +72,18 @@ func newHostRuntime(state stateConfig) (*hostRuntime, error) {
 }
 
 func (h *hostRuntime) ensureDirs() error {
-	runDir := defaultRunDir
-	if err := os.MkdirAll(runDir, 0o755); err != nil {
-		// Non-root / read-only /run (dev Mac, CI): keep the socket under state.
-		runDir = filepath.Join(h.stateDir, "run")
-		if err := os.MkdirAll(runDir, 0o755); err != nil {
-			return fmt.Errorf("mkdir run dir: %w", err)
-		}
+	// Podman appliance: fixed /run/dadi (tmpfiles.d). Compose/dev: under state.
+	if h.runtime == "podman" {
+		h.runDir = defaultRunDir
+	} else {
+		h.runDir = filepath.Join(h.stateDir, "run")
 	}
-	h.runDir = runDir
-	h.tmuxSocket = filepath.Join(runDir, tmuxSocketName)
-	// macOS AF_UNIX path limit is short; fall back to /tmp when needed.
-	if len(h.tmuxSocket) > 100 {
+	if err := os.MkdirAll(h.runDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir run dir %s: %w", h.runDir, err)
+	}
+	h.tmuxSocket = filepath.Join(h.runDir, tmuxSocketName)
+	// Darwin AF_UNIX path limit (~104); keep the socket short when state paths are deep (tests).
+	if runtime.GOOS == "darwin" && len(h.tmuxSocket) > 100 {
 		h.runDir = filepath.Join(os.TempDir(), fmt.Sprintf("dadi-tmux-%d", os.Getpid()))
 		if err := os.MkdirAll(h.runDir, 0o755); err != nil {
 			return fmt.Errorf("mkdir short run dir: %w", err)
@@ -87,20 +91,14 @@ func (h *hostRuntime) ensureDirs() error {
 		h.tmuxSocket = filepath.Join(h.runDir, tmuxSocketName)
 	}
 
-	for _, dir := range []string{h.projectsDir, h.browsersDir} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("mkdir %s: %w", dir, err)
-		}
-		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
-			if dir == h.projectsDir {
-				h.projectsDir = resolved
-			} else {
-				h.browsersDir = resolved
-			}
-		}
-		if err := h.chownDadi(dir); err != nil {
-			return err
-		}
+	if err := os.MkdirAll(h.browsersDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir browsers: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(h.browsersDir); err == nil {
+		h.browsersDir = resolved
+	}
+	if err := h.chownDadi(h.browsersDir); err != nil {
+		return err
 	}
 	if h.switchUser {
 		if err := os.Chown(h.runDir, h.dadiUID, h.dadiGID); err != nil {
@@ -115,6 +113,57 @@ func (h *hostRuntime) chownDadi(path string) error {
 		return nil
 	}
 	return os.Chown(path, h.dadiUID, h.dadiGID)
+}
+
+// defaultCwd is used when terminal / glob / grep omit cwd (dadi home = state dir).
+func (h *hostRuntime) defaultCwd() string {
+	return h.stateDir
+}
+
+// writeProtectedPrefixes are OS and dadiOS runtime trees agents must not modify
+// via the filesystem API. Reads remain allowed.
+func (h *hostRuntime) writeProtectedPrefixes() []string {
+	prefixes := []string{
+		"/usr",
+		"/boot",
+		"/etc",
+		"/lib",
+		"/lib64",
+		"/bin",
+		"/sbin",
+		"/root",
+		"/var/lib/containers",
+	}
+	if runtime.GOOS == "darwin" {
+		prefixes = append(prefixes, "/System", "/Library")
+	}
+	for _, rel := range []string{"modules", "cloudflared", "headscale", "browsers", "run"} {
+		prefixes = append(prefixes, filepath.Join(h.stateDir, rel))
+	}
+	return prefixes
+}
+
+func pathUnderPrefix(path, prefix string) bool {
+	path = filepath.Clean(path)
+	prefix = filepath.Clean(prefix)
+	if path == prefix {
+		return true
+	}
+	sep := string(os.PathSeparator)
+	return strings.HasPrefix(path, prefix+sep)
+}
+
+func (h *hostRuntime) isWriteProtected(path string) bool {
+	path = filepath.Clean(path)
+	for _, prefix := range h.writeProtectedPrefixes() {
+		if pathUnderPrefix(path, prefix) {
+			return true
+		}
+		if resolved, err := filepath.EvalSymlinks(prefix); err == nil && pathUnderPrefix(path, resolved) {
+			return true
+		}
+	}
+	return false
 }
 
 // command returns an *exec.Cmd that runs as dadi on the appliance.

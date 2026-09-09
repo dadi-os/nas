@@ -107,9 +107,10 @@ HTTP errors use `{ "error": { "type": "<code>", "message": "..." } }` where `typ
 | `log_query_failed` | Loki query or parse failed |
 | `invalid_request` | Bad client input |
 | `not_found` | Unknown resource |
-| `forbidden` | Path outside `$DADI_STATE_DIR/projects` |
-| `busy` | Terminal has a running command / in-flight exec |
+| `forbidden` | Write into OS / dadiOS runtime paths (see Host agent) |
+| `busy` | Terminal pane already running a command / in-flight exec |
 | `binary_file` | Filesystem read of a binary file (415) |
+| `conflict` | FS edit matched 0 or many times (need exactly one) |
 | `internal_error` | Unexpected server failure |
 
 App modules may add domain-specific codes; they should reuse the table above for overlapping failures.
@@ -118,15 +119,17 @@ App modules may add domain-specific codes; they should reuse the table above for
 
 Anonymous HTTP on `LISTEN_ADDR`. Nothing is persisted in Nas — **tmux is the registry of terminals**. Every terminal endpoint re-validates the target with tmux at call time.
 
-### Host user and project root
+### Host user
 
 | Piece | Value |
 | --- | --- |
 | System user | `dadi` (created in the OS Containerfile; home `$DADI_STATE_DIR`; shell `/bin/bash`) |
-| tmux socket | `/run/dadi/tmux.sock` (`tmpfiles.d` creates `/run/dadi` owned by `dadi`) |
-| Project root | `$DADI_STATE_DIR/projects` (created at Nas startup if missing; owned by `dadi`) |
+| tmux socket | `/run/dadi/tmux.sock` on appliance (`tmpfiles.d`); under `$DADI_STATE_DIR/run` in Compose |
+| Default cwd | `$DADI_STATE_DIR` when terminal / glob / grep omit `cwd` |
 
 On the appliance (`DADI_RUNTIME=podman`) Nas runs as root and launches every tmux command via `runuser -u dadi --` with `-S /run/dadi/tmux.sock`. In Compose/dev the process already runs as the container user, so the user switch is skipped; the same socket flag and code path remain.
+
+There is **no project sandbox folder**. Agents may read any absolute path. **Writes** are denied under OS and dadiOS runtime trees (symlinks resolved before the check): `/usr`, `/boot`, `/etc`, `/lib`, `/lib64`, `/bin`, `/sbin`, `/root`, `/var/lib/containers`, and under `$DADI_STATE_DIR`: `modules`, `cloudflared`, `headscale`, `browsers`, `run`. Darwin also denies `/System` and `/Library`. Terminals are not path-jailed — the FS API is the write gate; shell power is bounded by the `dadi` OS user.
 
 ### Terminals
 
@@ -134,7 +137,7 @@ Session names are `t<n>` for positive integers. `POST /terminals` picks the lowe
 
 | Method | Path | Body / query | Success | Errors |
 | --- | --- | --- | --- | --- |
-| `POST` | `/terminals` | `{ "cwd"?: string }` (default project root) | `{ id, cwd }` | `invalid_request` |
+| `POST` | `/terminals` | `{ "cwd"?: string }` (default state dir) | `{ id, cwd }` | `invalid_request` |
 | `GET` | `/terminals` | — | `[{ id, cwd, created_at, busy }]` | — |
 | `POST` | `/terminals/{id}/exec` | `{ "command": string, "timeout_seconds"?: number (default 120, max 3600), "max_bytes"?: number (default 32768) }` | `{ exit_code, output, truncated, timed_out }` | `not_found`, `busy` (409), `invalid_request` |
 | `GET` | `/terminals/{id}/capture` | `?lines=N` (default 200) | `{ output }` | `not_found`, `invalid_request` |
@@ -145,15 +148,15 @@ Session names are `t<n>` for positive integers. `POST /terminals` picks the lowe
 
 ### Filesystem
 
-All paths must be absolute and resolve under `$DADI_STATE_DIR/projects` (symlinks evaluated before the check). Writes chown to `dadi` on the appliance so terminals can edit what Nas wrote.
+Paths must be absolute. Reads are unrestricted (aside from `binary_file`). Writes/edits fail with `forbidden` on protected prefixes above. Writes chown to `dadi` on the appliance.
 
 | Method | Path | Body | Success | Errors |
 | --- | --- | --- | --- | --- |
-| `POST` | `/fs/read` | `{ path, offset?: number (1-based), limit?: number (default 500), max_bytes?: number (default 65536) }` | `{ content, total_lines, truncated }` (`N\tline`) | `forbidden`, `not_found`, `binary_file` (415), `invalid_request` |
+| `POST` | `/fs/read` | `{ path, offset?: number (1-based), limit?: number (default 500), max_bytes?: number (default 65536) }` | `{ content, total_lines, truncated }` (`N\tline`) | `not_found`, `binary_file` (415), `invalid_request` |
 | `POST` | `/fs/write` | `{ path, content }` (creates parents) | `{ bytes }` | `forbidden`, `invalid_request` |
-| `POST` | `/fs/edit` | `{ path, old_string, new_string }` (exactly one match) | `{ replaced: true }` | `forbidden`, `not_found`; **409** `{ matches: N }` on 0 or many (no fuzzy fallback) |
-| `POST` | `/fs/glob` | `{ pattern, cwd?, limit?: number (default 500) }` | `{ paths, truncated }` (mtime desc) | `forbidden`, `invalid_request` |
-| `POST` | `/fs/grep` | `{ pattern, cwd?, glob?, limit?: number (default 200), max_bytes?: number (default 65536) }` | `{ matches: [{ path, line, text }], truncated }` | `forbidden`, `invalid_request` |
+| `POST` | `/fs/edit` | `{ path, old_string, new_string }` (exactly one match) | `{ replaced: true }` | `forbidden`, `not_found`, `conflict` (409) |
+| `POST` | `/fs/glob` | `{ pattern, cwd?, limit?: number (default 500) }` | `{ paths, truncated }` (mtime desc) | `not_found`, `invalid_request` |
+| `POST` | `/fs/grep` | `{ pattern, cwd?, glob?, limit?: number (default 200), max_bytes?: number (default 65536) }` | `{ matches: [{ path, line, text }], truncated }` | `not_found`, `invalid_request` |
 
 ### Browsers
 

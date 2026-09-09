@@ -142,7 +142,7 @@ func (t *terminalHost) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	cwd := strings.TrimSpace(req.Cwd)
 	if cwd == "" {
-		cwd = t.host.projectsDir
+		cwd = t.host.defaultCwd()
 	}
 	if !filepathIsAbs(cwd) {
 		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "cwd must be absolute")
