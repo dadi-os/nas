@@ -9,7 +9,7 @@ keyboard us
 timezone UTC --utc
 network --bootproto=dhcp --device=link --activate --onboot=on
 rootpw --lock
-user --name=setup --lock
+user --name=setup --password=$6$lECKZK9wyBsU1xGD$KtwcHJppZQYaQ.kna8f2g27QmJ.KmoAlaiZvAbsFC/GwWzApQSgThlxEHy56LSNL2pbQCHHqxsf9yMk8yNWVU. --iscrypted
 %pre
 disk=$(lsblk -dn -o NAME,TYPE,RM | awk '$2=="disk" && $3=="0" {print $1; exit}')
 echo "ignoredisk --only-use=$disk" > /tmp/disk-include.ks

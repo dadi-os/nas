@@ -34,3 +34,25 @@ fun progress_callback(duration, progress) {
 }
 
 Plymouth.SetBootProgressFunction(progress_callback);
+
+# LUKS passphrase — prompt + masked bullets in ink on bone
+password.sprite = Sprite();
+password.sprite.SetOpacity(0);
+
+fun display_password_callback(prompt, bullets) {
+  mask = "";
+  for (i = 0; i < bullets; i++) {
+    mask += "•";
+  }
+  if (mask != "") {
+    password.image = Image.Text(prompt + "\n" + mask, 0.17, 0.19, 0.16, 1, "Sans 14", "center");
+  } else {
+    password.image = Image.Text(prompt, 0.17, 0.19, 0.16, 1, "Sans 14", "center");
+  }
+  password.sprite.SetImage(password.image);
+  password.sprite.SetX(Window.GetWidth() / 2 - password.image.GetWidth() / 2);
+  password.sprite.SetY(Window.GetHeight() / 2 + wordmark.image.GetHeight() / 2 + spinner.image.GetHeight() + 36);
+  password.sprite.SetOpacity(1);
+}
+
+Plymouth.SetDisplayPasswordFunction(display_password_callback);

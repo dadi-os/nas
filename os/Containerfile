@@ -45,6 +45,8 @@ RUN dnf -y install \
     ImageMagick \
     wl-clipboard \
     nftables \
+    tpm2-tools \
+    fido2-tools \
   && dnf clean all
 
 # Tailscale client (open-source); Headscale is the control plane.
