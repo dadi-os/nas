@@ -3,7 +3,8 @@ After=dadi-seed.service
 Requires=dadi-seed.service
 
 [Container]
-Image=pgvector/pgvector:pg18
+Image=docker.io/pgvector/pgvector:pg18
+
 ContainerName=yaad-postgres
 Network=dadi.network
 Environment=POSTGRES_USER=yaad

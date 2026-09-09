@@ -1,0 +1,4 @@
+# Matter fabric storage — operational credentials and commissioned node state.
+# Named volume so podman-auto-update restarts keep the fabric intact.
+[Volume]
+VolumeName=ghar_matter

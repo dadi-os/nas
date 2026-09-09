@@ -1,0 +1,29 @@
+[Unit]
+After=dadi-seed.service ghar-postgres.service ghar-migrate.service
+Requires=dadi-seed.service ghar-postgres.service
+Wants=ghar-migrate.service
+
+[Container]
+Image=ghcr.io/dadi-os/ghar:latest
+ContainerName=ghar
+# Matter needs mDNS and IPv6 multicast on the real LAN — bridge networking
+# cannot provide that. Host network + loopback HTTP bind is the boundary.
+Network=host
+Environment=HOST=127.0.0.1
+Environment=PORT=8084
+Environment=DATABASE_URL=postgres://ghar:ghar@127.0.0.1:5435/ghar
+Environment=MATTER_STORAGE_PATH=/var/lib/ghar/matter
+# Fabric credentials and commissioned peers. Survives AutoUpdate=registry
+# image pulls; losing this volume forces physical factory-reset of every node.
+Volume=ghar_matter.volume:/var/lib/ghar/matter
+AutoUpdate=registry
+HealthCmd=node -e "fetch('http://127.0.0.1:8084/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+HealthInterval=2s
+HealthTimeout=5s
+HealthRetries=30
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

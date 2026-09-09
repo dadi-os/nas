@@ -44,6 +44,7 @@ RUN dnf -y install \
     qrencode \
     ImageMagick \
     wl-clipboard \
+    nftables \
   && dnf clean all
 
 # Tailscale client (open-source); Headscale is the control plane.
@@ -127,6 +128,7 @@ RUN chmod 0440 /etc/sudoers.d/ankur \
   && systemctl enable alloy.service \
   && systemctl enable nas.service \
   && systemctl enable caddy.service \
+  && systemctl enable nftables.service \
   && systemctl enable podman-auto-update.timer
 
 # Last occurrence wins in os-release parsers — brand as dadiOS without

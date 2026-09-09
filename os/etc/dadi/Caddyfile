@@ -15,6 +15,10 @@ http://dimaag.dadi {
 	reverse_proxy 127.0.0.1:8083
 }
 
+http://ghar.dadi {
+	reverse_proxy 127.0.0.1:8084
+}
+
 http://nas.dadi {
 	reverse_proxy 127.0.0.1:8092
 }

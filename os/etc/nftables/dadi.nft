@@ -1,0 +1,45 @@
+#!/usr/sbin/nft -f
+# dadiOS host firewall. Default deny on input except the mesh and Matter.
+# There was no prior ruleset in-tree; this encodes the intended posture.
+
+flush ruleset
+
+table inet filter {
+	chain input {
+		type filter hook input priority filter; policy drop;
+
+		ct state established,related accept
+		ct state invalid drop
+
+		iif "lo" accept
+
+		# Neighbor discovery and IPv6 breakage if filtered like IPv4 ICMP.
+		meta l4proto ipv6-icmp accept
+
+		iifname "tailscale0" accept
+
+		# Matter / mDNS on the LAN (Ghar runs Network=host).
+		udp dport { 5353, 5540 } accept
+		ip6 daddr ff00::/8 accept
+
+		# SSH for box admin (keys only).
+		tcp dport 22 accept
+
+		# Insurance: Ghar HTTP must not be reachable off loopback.
+		# Loopback traffic already accepted above; this never matches lo.
+		tcp dport 8084 drop
+	}
+
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+
+		ct state established,related accept
+		# Podman / CNI bridges for module containers on dadi.network.
+		iifname { "podman*", "cni-podman*", "veth*" } accept
+		oifname { "podman*", "cni-podman*", "veth*" } accept
+	}
+
+	chain output {
+		type filter hook output priority filter; policy accept;
+	}
+}

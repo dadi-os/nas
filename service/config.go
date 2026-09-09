@@ -22,6 +22,7 @@ var moduleUnit = map[string]string{
 	"dwar":        "dwar",
 	"yaad":        "yaad",
 	"dimaag":      "dimaag",
+	"ghar":        "ghar",
 	"nas":         "nas.service",
 	"caddy":       "caddy.service",
 	"headscale":   "headscale.service",
@@ -36,6 +37,7 @@ var composeService = map[string]string{
 	"dwar":        "dwar",
 	"yaad":        "yaad",
 	"dimaag":      "dimaag",
+	"ghar":        "ghar",
 	"nas":         "nas-service",
 	"caddy":       "caddy",
 	"headscale":   "headscale",
@@ -258,9 +260,9 @@ func (s stateConfig) stackUp() error {
 	case "podman":
 		_ = hostSystemctl("start", "dadi-seed.service")
 		units := []string{
-			"yaad-postgres", "dimaag-postgres", "headscale.service", "loki.service",
-			"yaad-migrate", "dimaag-migrate",
-			"yaad", "dimaag", "dwar", "bootstrap.service",
+			"yaad-postgres", "dimaag-postgres", "ghar-postgres", "headscale.service", "loki.service",
+			"yaad-migrate", "dimaag-migrate", "ghar-migrate",
+			"yaad", "dimaag", "dwar", "ghar", "bootstrap.service",
 			"nas.service", "caddy.service", "alloy.service",
 			"tailscaled.service", "dadi-tailscale.service", "cloudflared.service",
 		}
@@ -282,9 +284,9 @@ func (s stateConfig) stackDown() error {
 	case "podman":
 		units := []string{
 			"cloudflared.service", "dadi-tailscale.service", "caddy.service", "nas.service", "alloy.service",
-			"dwar", "yaad", "dimaag", "bootstrap.service",
-			"yaad-migrate", "dimaag-migrate",
-			"yaad-postgres", "dimaag-postgres", "headscale.service", "loki.service",
+			"dwar", "yaad", "dimaag", "ghar", "bootstrap.service",
+			"yaad-migrate", "dimaag-migrate", "ghar-migrate",
+			"yaad-postgres", "dimaag-postgres", "ghar-postgres", "headscale.service", "loki.service",
 		}
 		for _, u := range units {
 			_ = hostSystemctl("stop", u)

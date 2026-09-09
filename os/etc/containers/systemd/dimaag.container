@@ -11,6 +11,7 @@ PublishPort=127.0.0.1:8083:8080
 AddHost=dwar.dadi:host-gateway
 AddHost=yaad.dadi:host-gateway
 AddHost=dimaag.dadi:host-gateway
+AddHost=ghar.dadi:host-gateway
 AddHost=nas.dadi:host-gateway
 Environment=DATABASE_URL=postgres://dimaag:dimaag@dimaag-postgres:5432/dimaag
 AutoUpdate=registry

@@ -50,6 +50,9 @@ dns:
     - name: "dwar.dadi"
       type: "A"
       value: "100.64.0.1"
+    - name: "ghar.dadi"
+      type: "A"
+      value: "100.64.0.1"
 
 unix_socket: /var/run/headscale/headscale.sock
 unix_socket_permission: "0770"

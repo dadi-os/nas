@@ -46,6 +46,13 @@ http://dimaag.dadi {
 	}
 }
 
+http://ghar.dadi {
+	import cors_hath
+	handle {
+		reverse_proxy ghar:8080
+	}
+}
+
 http://nas.dadi {
 	import cors_hath
 	handle {

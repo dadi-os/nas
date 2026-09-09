@@ -1,0 +1,24 @@
+[Unit]
+After=dadi-seed.service
+Requires=dadi-seed.service
+
+[Container]
+Image=postgres:18
+ContainerName=ghar-postgres
+Network=dadi.network
+# Host-networked Ghar cannot resolve container DNS; publish Postgres on loopback.
+PublishPort=127.0.0.1:5435:5432
+Environment=POSTGRES_USER=ghar
+Environment=POSTGRES_DB=ghar
+Environment=POSTGRES_PASSWORD=ghar
+Volume=ghar_pg.volume:/var/lib/postgresql
+HealthCmd=pg_isready -U ghar -d ghar
+HealthInterval=2s
+HealthTimeout=5s
+HealthRetries=20
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

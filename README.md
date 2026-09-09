@@ -2,7 +2,7 @@
 
 Nas is the OS and infrastructure layer for dadi. It owns topology — which services exist, how they are networked and named, how they start, and how logs are collected and queried. It is the composition layer: the only place the full system is written down.
 
-**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box UI is Plasma **bone glass** (Bloom field, translucent panels, દાદી brand, crest widgets, Preferences). Hath is for other devices only. App modules (`dwar`, `yaad`, `dimaag`) stay as containers and update via `podman-auto-update` with no reboot.
+**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box UI is Plasma **bone glass** (Bloom field, translucent panels, દાદી brand, crest widgets, Preferences). Hath is for other devices only. App modules (`dwar`, `yaad`, `dimaag`, `ghar`) stay as containers and update via `podman-auto-update` with no reboot.
 
 ## Dependencies
 
@@ -75,7 +75,7 @@ All dadi modules emit **one JSON object per line** on stdout. Dev Alloy scrapes 
 | --- | --- |
 | `time` | RFC3339 / RFC3339Nano UTC |
 | `level` | `debug` \| `info` \| `warn` \| `error` |
-| `service` | `nas` \| `dwar` \| `yaad` \| `dimaag` \| `hath` |
+| `service` | `nas` \| `dwar` \| `yaad` \| `dimaag` \| `hath` \| `ghar` |
 | `msg` | Human message; may include `\n` for multi-line detail |
 | `code` | Stable error/event code when applicable |
 | `request_id` | Per-request correlation id |
@@ -125,7 +125,7 @@ curl -sG 'http://nas.dadi/logs' \
 | `loki` / `alloy` | host systemd | logs |
 | `cloudflared` | host systemd | tunnel to Headscale |
 | `sddm` + Plasma | host graphical | bone glass desktop; દાદી brand; Preferences + crest widgets |
-| `dwar` / `yaad` / `dimaag` (+ postgres / migrate) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8083` |
+| `dwar` / `yaad` / `dimaag` / `ghar` (+ postgres / migrate) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8084` (`ghar` uses `Network=host`, binds loopback) |
 
 ### Development (Mac Compose, headless)
 
@@ -133,7 +133,7 @@ curl -sG 'http://nas.dadi/logs' \
 | --- | --- | --- |
 | `caddy` | `caddy:2-alpine` | host port 80; CORS for `Origin: http://hath.dadi` |
 | `hath` | `../hath` `dev` target (Vite) | `*:8080` → `http://hath.dadi` |
-| `dwar` / `yaad` / `dimaag` | sibling builds, `dev` target | `*:8080` |
+| `dwar` / `yaad` / `dimaag` / `ghar` | sibling builds, `dev` target | `*:8080` (Matter does not work on Mac Docker) |
 | `nas-service` | `./service` | host `8092` |
 | `loki` / `alloy` | official images | log pipeline |
 | `headscale` / `tailscale` | official images | mesh |
@@ -158,6 +158,10 @@ CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes an
 7. Provision Hath clients: on the box open **Add Device** (dock / brand menu / Preferences → Devices), name the node, show the sage QR. Scan from Hath on the phone/laptop (`https://dadi.ardusa.dev` control URL is embedded in the bundle).
 
 Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`.
+
+### Host firewall (nftables)
+
+Ruleset: `/etc/nftables/dadi.nft` (loaded by `nftables.service`). Default-deny input except loopback, Tailscale (`tailscale0`), SSH, and Matter on the LAN (UDP 5353 / 5540 + IPv6 multicast). ICMPv6 is accepted so neighbor discovery works. Ghar's HTTP port `8084` is explicitly dropped off-loopback; the process also binds `127.0.0.1` only.
 
 ## Desktop (dadiOS)
 
@@ -202,7 +206,7 @@ Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale i
 Add to `/etc/hosts`:
 
 ```
-127.0.0.1  dwar.dadi yaad.dadi dimaag.dadi nas.dadi hath.dadi
+127.0.0.1  dwar.dadi yaad.dadi dimaag.dadi ghar.dadi nas.dadi hath.dadi
 ```
 
 Copy Dwar env if missing:
@@ -211,7 +215,7 @@ Copy Dwar env if missing:
 cp ../dwar/.env.example ../dwar/.env
 ```
 
-Yaad and Dimaag need no `.env` — Nas injects fixed local Postgres credentials.
+Yaad, Dimaag, and Ghar need no `.env` — Nas injects fixed local Postgres credentials.
 
 Docker Desktop (or equivalent) must be running. No Overmind / tmux.
 

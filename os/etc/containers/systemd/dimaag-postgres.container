@@ -3,7 +3,8 @@ After=dadi-seed.service
 Requires=dadi-seed.service
 
 [Container]
-Image=postgres:18
+Image=docker.io/library/postgres:18
+
 ContainerName=dimaag-postgres
 Network=dadi.network
 Environment=POSTGRES_USER=dimaag

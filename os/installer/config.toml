@@ -10,6 +10,11 @@ timezone UTC --utc
 network --bootproto=dhcp --device=link --activate --onboot=on
 rootpw --lock
 user --name=setup --lock
+%pre
+disk=$(lsblk -dn -o NAME,TYPE,RM | awk '$2=="disk" && $3=="0" {print $1; exit}')
+echo "ignoredisk --only-use=$disk" > /tmp/disk-include.ks
+%end
+%include /tmp/disk-include.ks
 zerombr
 clearpart --all --initlabel --disklabel=gpt
 autopart --noswap --type=lvm --encrypted --passphrase=__LUKS_PASSPHRASE__

@@ -41,7 +41,7 @@ loki.process "normalize" {
   }
 
   stage.match {
-    selector = `{service=~"dimaag|yaad|dwar|nas"}`
+    selector = `{service=~"dimaag|yaad|dwar|nas|ghar"}`
 
     stage.json {
       expressions = {

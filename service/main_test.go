@@ -28,7 +28,7 @@ func TestRequireEnv(t *testing.T) {
 
 func TestHealthTargets(t *testing.T) {
 	podman := healthTargets("podman")
-	if len(podman) != 3 {
+	if len(podman) != 4 {
 		t.Fatalf("podman targets: %d", len(podman))
 	}
 	if !strings.Contains(podman[0].url, "127.0.0.1") {
@@ -36,7 +36,7 @@ func TestHealthTargets(t *testing.T) {
 	}
 
 	compose := healthTargets("compose")
-	if len(compose) != 3 {
+	if len(compose) != 4 {
 		t.Fatalf("compose targets: %d", len(compose))
 	}
 	if !strings.Contains(compose[0].url, "yaad:8080") {

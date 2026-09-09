@@ -16,6 +16,7 @@ services:
           - dwar.dadi
           - yaad.dadi
           - dimaag.dadi
+          - ghar.dadi
           - nas.dadi
           - hath.dadi
     depends_on:
@@ -24,6 +25,8 @@ services:
       yaad:
         condition: service_healthy
       dimaag:
+        condition: service_healthy
+      ghar:
         condition: service_healthy
       nas-service:
         condition: service_healthy
@@ -167,6 +170,67 @@ services:
       dimaag-postgres:
         condition: service_healthy
       dimaag-migrate:
+        condition: service_completed_successfully
+    networks: [dadi]
+
+  ghar-postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ghar
+      POSTGRES_DB: ghar
+      POSTGRES_PASSWORD: ghar
+    volumes:
+      - ghar_pg:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ghar -d ghar"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    networks: [dadi]
+
+  ghar-migrate:
+    build:
+      context: ../ghar
+      target: dev
+    environment:
+      DATABASE_URL: postgres://ghar:ghar@ghar-postgres:5432/ghar
+    volumes:
+      - ../ghar:/app
+      - /app/node_modules
+    command: ["npm", "run", "db:migrate"]
+    depends_on:
+      ghar-postgres:
+        condition: service_healthy
+    networks: [dadi]
+    restart: "no"
+
+  ghar:
+    build:
+      context: ../ghar
+      target: dev
+    environment:
+      DATABASE_URL: postgres://ghar:ghar@ghar-postgres:5432/ghar
+      MATTER_STORAGE_PATH: /var/lib/ghar/matter
+    volumes:
+      - ../ghar:/app
+      - /app/node_modules
+      - ghar_matter:/var/lib/ghar/matter
+    expose: ["8080"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    depends_on:
+      ghar-postgres:
+        condition: service_healthy
+      ghar-migrate:
         condition: service_completed_successfully
     networks: [dadi]
 
@@ -320,6 +384,8 @@ networks:
 volumes:
   yaad_pg:
   dimaag_pg:
+  ghar_pg:
+  ghar_matter:
   headscale_data:
   headscale_run:
   tailscale_state:

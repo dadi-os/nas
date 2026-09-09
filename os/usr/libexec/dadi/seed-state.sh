@@ -43,4 +43,14 @@ if [ ! -f "$STATE/cloudflared/token" ]; then
   : >"$STATE/cloudflared/token"
 fi
 
+# Ensure dwar .env exists (blank keys until set via Preferences).
+if [ ! -f "$STATE/modules/dwar/.env" ]; then
+  cat >"$STATE/modules/dwar/.env" <<'EOF'
+ANTHROPIC_API_KEY=
+GEMINI_API_KEY=
+OPENAI_API_KEY=
+DEEPGRAM_API_KEY=
+EOF
+fi
+
 chmod -R u+rwX,go-rwx "$STATE/modules" "$STATE/cloudflared" 2>/dev/null || true

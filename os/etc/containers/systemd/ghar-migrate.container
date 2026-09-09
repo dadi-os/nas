@@ -1,0 +1,18 @@
+[Unit]
+After=dadi-seed.service ghar-postgres.service
+Requires=dadi-seed.service ghar-postgres.service
+
+[Container]
+Image=ghcr.io/dadi-os/ghar:latest
+ContainerName=ghar-migrate
+Network=dadi.network
+Environment=DATABASE_URL=postgres://ghar:ghar@ghar-postgres:5432/ghar
+Exec=node dist/db/migrate.js
+AutoUpdate=registry
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
