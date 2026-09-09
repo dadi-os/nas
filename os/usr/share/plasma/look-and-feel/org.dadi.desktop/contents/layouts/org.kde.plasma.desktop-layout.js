@@ -61,7 +61,7 @@ var layout = {
                     "sortMode": "-1"
                 },
                 "/Wallpaper/org.kde.image/General": {
-                    "Image": "file:///usr/share/wallpapers/DadiBloom/contents/images/1920x1080.png",
+                    "Image": "file:///usr/share/wallpapers/Dadi/contents/images/1920x1080.png",
                     "FillMode": "2"
                 }
             },

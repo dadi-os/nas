@@ -93,7 +93,7 @@ RUN mkdir -p \
        -o /usr/share/plymouth/themes/dadi/wordmark.png \
   && rsvg-convert -w 480 -h 180 /usr/share/dadi/brand/dadi-wordmark.svg \
        -o /usr/share/sddm/themes/dadi/wordmark.png \
-  && cp -a /usr/share/wallpapers/DadiBloom/contents/images/1920x1080.png \
+  && cp -a /usr/share/wallpapers/Dadi/contents/images/1920x1080.png \
        /usr/share/sddm/themes/dadi/background.png \
   && rsvg-convert -w 64 -h 64 /usr/share/dadi/brand/dadi-mark.svg \
        -o /usr/share/pixmaps/dadi.png \
@@ -103,7 +103,7 @@ RUN mkdir -p \
        -o /usr/share/icons/hicolor/128x128/apps/dadi.png \
   && mkdir -p /usr/lib64/qt6/qml/org/dadi \
   && ln -sfn /usr/share/dadi/qml/org/dadi/Desktop /usr/lib64/qt6/qml/org/dadi/Desktop \
-  && chmod 0755 /usr/bin/dadi-preferences /usr/bin/dadi-wallpaper \
+  && chmod 0755 /usr/bin/dadi-preferences \
        /usr/bin/dadi-add-device /usr/bin/dadi-provision-qr \
   && plymouth-set-default-theme dadi \
   && for k in /lib/modules/*; do \

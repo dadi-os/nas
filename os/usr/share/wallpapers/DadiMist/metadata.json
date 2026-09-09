@@ -1,9 +1,0 @@
-{
-    "KPlugin": {
-        "Authors": [{"Name": "dadi"}],
-        "Id": "DadiMist",
-        "License": "MIT",
-        "Name": "dadi Mist",
-        "Version": "1.0"
-    }
-}

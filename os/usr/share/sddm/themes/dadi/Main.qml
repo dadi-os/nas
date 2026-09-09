@@ -15,7 +15,7 @@ Rectangle {
         opacity: 1
     }
 
-    // Soft veil over bloom field
+    // Soft veil over leaf field
     Rectangle {
         anchors.fill: parent
         color: Qt.rgba(250 / 255, 250 / 255, 247 / 255, 0.35)

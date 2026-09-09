@@ -2,7 +2,7 @@
 
 Nas is the OS and infrastructure layer for dadi. It owns topology — which services exist, how they are networked and named, how they start, and how logs are collected and queried. It is the composition layer: the only place the full system is written down.
 
-**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box UI is Plasma **bone glass** (Bloom field, translucent panels, દાદી brand, crest widgets, Preferences). Hath is for other devices only. App modules (`dwar`, `yaad`, `dimaag`, `ghar`) stay as containers and update via `podman-auto-update` with no reboot.
+**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box UI is Plasma **bone glass** (leaf field, translucent panels, દાદી brand, crest widgets, Preferences). Hath is for other devices only. App modules (`dwar`, `yaad`, `dimaag`, `ghar`) stay as containers and update via `podman-auto-update` with no reboot.
 
 ## Dependencies
 
@@ -169,7 +169,7 @@ Plasma on the box only — Hath is for other devices. Visual system is **bone gl
 
 | Layer | Spec |
 | --- | --- |
-| Field | Wallpapers `DadiBloom` (default), `DadiMist`, `DadiVein` |
+| Field | Wallpaper `Dadi` — sage leaf + glass leaf on bone |
 | Veil | Menu bar / dock / widgets — ~62% bone + blur 32px + specular rim |
 | Sheet | Popovers — ~78% bone + blur 24px |
 | Solid | Editors / Preferences content — `#fafaf7` |
@@ -189,7 +189,7 @@ Plasma on the box only — Hath is for other devices. Visual system is **bone gl
 | Widgets | `org.dadi.widget.{system,memory,agents,timeline,logs}` |
 | Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (dwar `.env` / config / tunnel / devices → `DADI_STATE_DIR`) |
 | Add Device | `dadi-add-device` → `plasmawindowed org.dadi.adddevice` (mint Nas `POST /provision` QR for Hath) |
-| Wallpaper | `dadi-wallpaper Bloom\|Mist\|Vein` |
+| Wallpaper | `Dadi` (`/usr/share/wallpapers/Dadi/`) |
 | Blur / lid | `os/etc/xdg/kwinrc`, `os/etc/systemd/logind.conf.d/dadi-lid.conf` |
 | Plymouth / SDDM | theme `dadi` |
 
