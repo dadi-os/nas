@@ -12,12 +12,14 @@ Nas does not call other app modules as a client for its own control plane. It de
 - Loki (`LOKI_URL`) for log query
 - Host systemd / Docker Compose for stack lifecycle (`DADI_RUNTIME`)
 - State directory for module env/config (`DADI_STATE_DIR`)
+- Host `tmux` (terminals) and `rg` (filesystem grep); appliance also needs `runuser` from util-linux
+- Host `Xvfb`, Chromium, and ImageMagick `import` (browsers); fonts for page text
 
 ## Layout
 
 ```
 nas/
-  service/          Go control API (provision, status, logs, module config)
+  service/          Go control API (provision, status, logs, terminals, fs, browsers, module config)
   logging/          Dev Alloy + Loki configs
   os/               bootc image, host units, Plasma desktop, prod Alloy, installer
   headscale/        Headscale config templates
@@ -105,9 +107,83 @@ HTTP errors use `{ "error": { "type": "<code>", "message": "..." } }` where `typ
 | `log_query_failed` | Loki query or parse failed |
 | `invalid_request` | Bad client input |
 | `not_found` | Unknown resource |
+| `forbidden` | Path outside `$DADI_STATE_DIR/projects` |
+| `busy` | Terminal has a running command / in-flight exec |
+| `binary_file` | Filesystem read of a binary file (415) |
 | `internal_error` | Unexpected server failure |
 
 App modules may add domain-specific codes; they should reuse the table above for overlapping failures.
+
+## Host agent surface (terminals + filesystem)
+
+Anonymous HTTP on `LISTEN_ADDR`. Nothing is persisted in Nas — **tmux is the registry of terminals**. Every terminal endpoint re-validates the target with tmux at call time.
+
+### Host user and project root
+
+| Piece | Value |
+| --- | --- |
+| System user | `dadi` (created in the OS Containerfile; home `$DADI_STATE_DIR`; shell `/bin/bash`) |
+| tmux socket | `/run/dadi/tmux.sock` (`tmpfiles.d` creates `/run/dadi` owned by `dadi`) |
+| Project root | `$DADI_STATE_DIR/projects` (created at Nas startup if missing; owned by `dadi`) |
+
+On the appliance (`DADI_RUNTIME=podman`) Nas runs as root and launches every tmux command via `runuser -u dadi --` with `-S /run/dadi/tmux.sock`. In Compose/dev the process already runs as the container user, so the user switch is skipped; the same socket flag and code path remain.
+
+### Terminals
+
+Session names are `t<n>` for positive integers. `POST /terminals` picks the lowest `n` absent from `tmux ls`. History limit is `50000`.
+
+| Method | Path | Body / query | Success | Errors |
+| --- | --- | --- | --- | --- |
+| `POST` | `/terminals` | `{ "cwd"?: string }` (default project root) | `{ id, cwd }` | `invalid_request` |
+| `GET` | `/terminals` | — | `[{ id, cwd, created_at, busy }]` | — |
+| `POST` | `/terminals/{id}/exec` | `{ "command": string, "timeout_seconds"?: number (default 120, max 3600), "max_bytes"?: number (default 32768) }` | `{ exit_code, output, truncated, timed_out }` | `not_found`, `busy` (409), `invalid_request` |
+| `GET` | `/terminals/{id}/capture` | `?lines=N` (default 200) | `{ output }` | `not_found`, `invalid_request` |
+| `POST` | `/terminals/{id}/keys` | `{ "keys": string[] }` (verbatim `tmux send-keys`, e.g. `["C-c"]`) | `{ sent: true }` | `not_found`, `invalid_request` |
+| `DELETE` | `/terminals/{id}` | — | 204 | `not_found` |
+
+`busy` is true when `#{pane_current_command}` is not the login shell, or an exec is in flight. Exec appends a nonce marker after the command, polls `capture-pane` every 200ms, and returns output between the echoed command and the marker. On timeout the command keeps running (`timed_out: true`, `exit_code: null`); use `capture` / `keys` to follow up. Truncation keeps head and tail with an elided-bytes note in the middle.
+
+### Filesystem
+
+All paths must be absolute and resolve under `$DADI_STATE_DIR/projects` (symlinks evaluated before the check). Writes chown to `dadi` on the appliance so terminals can edit what Nas wrote.
+
+| Method | Path | Body | Success | Errors |
+| --- | --- | --- | --- | --- |
+| `POST` | `/fs/read` | `{ path, offset?: number (1-based), limit?: number (default 500), max_bytes?: number (default 65536) }` | `{ content, total_lines, truncated }` (`N\tline`) | `forbidden`, `not_found`, `binary_file` (415), `invalid_request` |
+| `POST` | `/fs/write` | `{ path, content }` (creates parents) | `{ bytes }` | `forbidden`, `invalid_request` |
+| `POST` | `/fs/edit` | `{ path, old_string, new_string }` (exactly one match) | `{ replaced: true }` | `forbidden`, `not_found`; **409** `{ matches: N }` on 0 or many (no fuzzy fallback) |
+| `POST` | `/fs/glob` | `{ pattern, cwd?, limit?: number (default 500) }` | `{ paths, truncated }` (mtime desc) | `forbidden`, `invalid_request` |
+| `POST` | `/fs/grep` | `{ pattern, cwd?, glob?, limit?: number (default 200), max_bytes?: number (default 65536) }` | `{ matches: [{ path, line, text }], truncated }` | `forbidden`, `invalid_request` |
+
+### Browsers
+
+Each browser is a headed Chromium on its own Xvfb display (not headless, not a VM). Nas only spawns, lists, kills, proxies CDP, and screenshots the virtual monitor. Callers drive pages over CDP. Running processes are the registry — nothing is stored in Nas.
+
+**Derivation from integer id `n` (lowest free `n >= 10`; 1–9 reserved for Plasma):**
+
+| Field | Value |
+| --- | --- |
+| X display | `:n` |
+| CDP port | `9300 + n` (loopback only) |
+| Profile dir | `$DADI_STATE_DIR/browsers/<n>` — created on first spawn, **never deleted by Nas** (cookies/logins survive kill + reboot when the id is reused) |
+
+`create` picks the lowest `n >= 10` whose `/tmp/.X11-unix/X<n>` is absent and whose CDP port is free. Spawns Xvfb as root (so it can bind `/tmp/.X11-unix`), then Chromium as `dadi` when that user exists — Chromium refuses to run as root without `--no-sandbox`. Window size 1920×1080; profile under `--user-data-dir`. On the appliance (`DADI_RUNTIME=podman`) the Chromium sandbox stays on. Compose/dev Docker disables user namespaces, so Chromium gets `--no-sandbox` and `--disable-dev-shm-usage` only in that runtime. Both processes use `setsid` so a Nas restart does not take them down. Stderr is logged under the `nas` service with `browser=<n>`.
+
+| Method | Path | Success | Errors |
+| --- | --- | --- | --- |
+| `POST` | `/browsers` | `{ id, display, cdp_url }` | `internal_error` (Xvfb/Chromium startup; message includes stderr) |
+| `GET` | `/browsers` | `[{ id, display, cdp_url, healthy }]` — `healthy` false if Xvfb is up but CDP is not | — |
+| `DELETE` | `/browsers/{id}` | 204 (SIGTERM process groups, wait ≤5s, SIGKILL) | `not_found` if neither process exists |
+| `GET` | `/browsers/{id}/json/version` | Chromium `/json/version` with `ws://127.0.0.1:<port>/…` rewritten to `ws://<Host>/browsers/<id>/…` | `not_found`, `upstream_unreachable` |
+| `GET` | `/browsers/{id}/json/list` | Same rewrite for `/json/list` | `not_found`, `upstream_unreachable` |
+| `GET` | `/browsers/{id}/devtools/{rest…}` | WebSocket reverse proxy to `ws://127.0.0.1:<port>/devtools/{rest}` (no buffering / idle timeout on the upgrade) | `not_found`, `upstream_unreachable` |
+| `GET` | `/browsers/{id}/screenshot` | `image/png` of the whole virtual monitor (`import -display :n -window root`) | `not_found`, `internal_error` |
+
+`cdp_url` is `ws://<request Host>/browsers/<id>/devtools/browser/<uuid>` from `/json/version` after rewrite — hand it straight to a CDP client. Screenshot is the only way to see popups, download bars, and chrome outside the page; page screenshots stay on CDP.
+
+Chromium binary defaults to `chromium-browser` (Fedora). Set `CHROMIUM_BIN` (Compose/dev image sets `chromium`).
+
+Caddy `http://nas.dadi` is a plain `reverse_proxy` to Nas (`127.0.0.1:8092` in prod, `nas-service:8080` in Compose). Caddy proxies WebSocket upgrades by default — no extra config required for CDP.
 
 Log query example:
 

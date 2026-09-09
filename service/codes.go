@@ -13,5 +13,8 @@ const (
 	CodeLogQueryFailed        = "log_query_failed"
 	CodeInvalidRequest        = "invalid_request"
 	CodeNotFound              = "not_found"
+	CodeForbidden             = "forbidden"
+	CodeBusy                  = "busy"
+	CodeBinaryFile            = "binary_file"
 	CodeInternal              = "internal_error"
 )

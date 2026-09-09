@@ -44,6 +44,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	host, err := newHostRuntime(state)
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeConfigMissing)
+		os.Exit(1)
+	}
+	terminals := newTerminalHost(host)
+	files := newFSHost(host)
+	browsers := newBrowserHost(host)
+
 	started := time.Now()
 	startMetricsSampler()
 	mux := http.NewServeMux()
@@ -65,8 +74,11 @@ func main() {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	registerConfigRoutes(mux, state)
+	terminals.register(mux)
+	files.register(mux)
+	browsers.register(mux)
 
-	slog.Info("nas listening", "addr", listen, "state_dir", state.dir, "runtime", state.runtime)
+	slog.Info("nas listening", "addr", listen, "state_dir", state.dir, "runtime", state.runtime, "projects", host.projectsDir)
 	if err := http.ListenAndServe(listen, withRequestLog(mux)); err != nil {
 		slog.Error("listen failed", "code", CodeInternal, "err", err)
 		os.Exit(1)

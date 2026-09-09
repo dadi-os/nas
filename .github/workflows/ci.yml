@@ -23,6 +23,10 @@ jobs:
           go-version-file: service/go.mod
           cache-dependency-path: service/go.sum
 
+      - name: Install tmux and ripgrep
+        run: sudo apt-get update && sudo apt-get install -y tmux ripgrep
+        working-directory: .
+
       - name: Test
         run: go test ./...
 

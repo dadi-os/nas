@@ -304,6 +304,7 @@ services:
       DADI_STATE_DIR: /var/lib/dadi
       DADI_RUNTIME: compose
       DADI_COMPOSE_DIR: /nas
+      CHROMIUM_BIN: chromium
     volumes:
       - ./service:/src
       - ./headscale/config.yaml:/etc/headscale/config.yaml:ro
@@ -314,6 +315,7 @@ services:
       - ../dwar/config.toml:/var/lib/dadi/modules/dwar/config.toml
       - cloudflared_data:/var/lib/dadi/cloudflared
       - headscale_control_url:/var/lib/dadi/headscale
+      - browsers_data:/var/lib/dadi/browsers
       - .:/nas:ro
       - /var/run/docker.sock:/var/run/docker.sock
     expose: ["8080"]
@@ -393,4 +395,5 @@ volumes:
   bootstrap:
   cloudflared_data:
   headscale_control_url:
+  browsers_data:
   alloy_data:

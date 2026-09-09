@@ -1,7 +1,7 @@
 # Build from repo root: podman build -f os/Containerfile .
 FROM golang:1.23-bookworm AS nas-build
 WORKDIR /src
-COPY service/go.mod ./
+COPY service/go.mod service/go.sum ./
 COPY service/*.go ./
 RUN CGO_ENABLED=0 go build -o /nas .
 
@@ -19,6 +19,14 @@ RUN dnf -y install \
     jq \
     vim-minimal \
     git \
+    tmux \
+    ripgrep \
+    util-linux \
+    xorg-x11-server-Xvfb \
+    chromium \
+    dejavu-sans-fonts \
+    liberation-fonts \
+    google-noto-emoji-fonts \
     mesa-dri-drivers \
     mesa-vulkan-drivers \
     libglvnd-egl \
@@ -77,6 +85,14 @@ RUN useradd \
     --no-create-home \
     --shell /bin/bash \
     ankur
+
+# Host agent user: terminals and project files under /var/lib/dadi.
+RUN useradd \
+    --system \
+    --home-dir /var/lib/dadi \
+    --no-create-home \
+    --shell /bin/bash \
+    dadi
 
 RUN mkdir -p /usr/ssh /var/lib/headscale /var/lib/loki /var/lib/alloy
 
