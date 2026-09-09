@@ -88,6 +88,50 @@ func (s stateConfig) cloudflaredTokenPath() string {
 	return filepath.Join(s.dir, "cloudflared", "token")
 }
 
+func (s stateConfig) controlURLPath() string {
+	return filepath.Join(s.dir, "headscale", "control_url")
+}
+
+// seedControlURL writes CONTROL_URL into the preference file once when the
+// file is missing or empty. After that the file is the sole source of truth.
+func (s stateConfig) seedControlURL(envSeed string) error {
+	path := s.controlURLPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	body, err := os.ReadFile(path)
+	if err == nil && strings.TrimSpace(string(body)) != "" {
+		return nil
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	seed := strings.TrimSpace(envSeed)
+	if seed == "" {
+		if os.IsNotExist(err) {
+			return os.WriteFile(path, []byte{}, 0o600)
+		}
+		return nil
+	}
+	return os.WriteFile(path, []byte(seed+"\n"), 0o600)
+}
+
+// resolveControlURL reads the on-disk preference; empty or missing is an error.
+func (s stateConfig) resolveControlURL() (string, error) {
+	body, err := os.ReadFile(s.controlURLPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("control URL not set — configure in Preferences → Tunnel")
+		}
+		return "", err
+	}
+	u := strings.TrimSpace(string(body))
+	if u == "" {
+		return "", fmt.Errorf("control URL not set — configure in Preferences → Tunnel")
+	}
+	return u, nil
+}
+
 func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 	mux.HandleFunc("GET /modules/{name}/env", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
@@ -227,6 +271,47 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 		if err := s.restartModule("cloudflared"); err != nil {
 			slog.Error("restart cloudflared after token write", "code", CodeInternal, "err", err)
 			writeError(w, r, http.StatusInternalServerError, CodeInternal, "wrote token but restart failed: "+err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+
+	mux.HandleFunc("GET /headscale/control-url", func(w http.ResponseWriter, r *http.Request) {
+		body, err := os.ReadFile(s.controlURLPath())
+		if err != nil {
+			if os.IsNotExist(err) {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				return
+			}
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte(strings.TrimSpace(string(body))))
+	})
+
+	mux.HandleFunc("PUT /headscale/control-url", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<12))
+		if err != nil {
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "read body")
+			return
+		}
+		url := strings.TrimSpace(string(body))
+		if url == "" {
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "control URL is required")
+			return
+		}
+		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "control URL must be http(s)")
+			return
+		}
+		path := s.controlURLPath()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+			return
+		}
+		if err := os.WriteFile(path, []byte(url+"\n"), 0o600); err != nil {
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

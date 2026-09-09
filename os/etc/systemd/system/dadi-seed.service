@@ -6,6 +6,7 @@ Before=network-online.target
 
 [Service]
 Type=oneshot
+Environment=CONTROL_URL=https://dadi.ardusa.dev
 ExecStart=/usr/libexec/dadi/seed-state.sh
 RemainAfterExit=yes
 

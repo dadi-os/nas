@@ -313,6 +313,7 @@ services:
       - ../dwar/.env:/var/lib/dadi/modules/dwar/.env
       - ../dwar/config.toml:/var/lib/dadi/modules/dwar/config.toml
       - cloudflared_data:/var/lib/dadi/cloudflared
+      - headscale_control_url:/var/lib/dadi/headscale
       - .:/nas:ro
       - /var/run/docker.sock:/var/run/docker.sock
     expose: ["8080"]
@@ -391,4 +392,5 @@ volumes:
   tailscale_state:
   bootstrap:
   cloudflared_data:
+  headscale_control_url:
   alloy_data:

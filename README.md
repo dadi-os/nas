@@ -32,13 +32,20 @@ Required on the control service (fail at startup if missing):
 
 | Variable | Meaning |
 | --- | --- |
-| `CONTROL_URL` | Headscale URL embedded in device bundles |
 | `HEADSCALE_USER` | Headscale user for preauth keys |
 | `LOKI_URL` | Loki base URL for `GET /logs` |
 | `LISTEN_ADDR` | HTTP listen address |
 | `DADI_STATE_DIR` | Persistent state root |
 | `DADI_RUNTIME` | `podman` or `compose` |
 | `DADI_COMPOSE_DIR` | Required when `DADI_RUNTIME=compose` |
+
+Optional seed (written once into `/var/lib/dadi/headscale/control_url` when that file is empty):
+
+| Variable | Meaning |
+| --- | --- |
+| `CONTROL_URL` | Initial public Headscale URL for device provision bundles |
+
+After seed, Preferences → Tunnel (or `PUT /headscale/control-url`) is the sole source of truth. Provision fails until the file is non-empty.
 
 Module secrets live in sibling `../dwar/.env` in compose and under `DADI_STATE_DIR/modules/dwar/` on the appliance. Yaad/Dimaag Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar values.
 
@@ -154,7 +161,7 @@ CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes an
 3. Flash to USB; boot the target machine. **The first disk is wiped with no confirmation.**
 4. At the LUKS prompt, enter the passphrase. SDDM autologins as `ankur` into Plasma (દાદી desktop).
 5. SSH with a key matching [`os/authorized_keys`](os/authorized_keys).
-6. Point a Cloudflare tunnel at Headscale; paste the token via Nas `PUT /cloudflared/token` (or Hath System → tunnel from another device).
+6. Point a Cloudflare tunnel at Headscale; set the public control plane URL and paste the tunnel token via Nas Preferences → Tunnel (`PUT /headscale/control-url`, `PUT /cloudflared/token`) or Hath System → tunnel from another device.
 7. Provision Hath clients: on the box open **Add Device** (dock / brand menu / Preferences → Devices), name the node, show the sage QR. Scan from Hath on the phone/laptop (`https://dadi.ardusa.dev` control URL is embedded in the bundle).
 
 Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`.

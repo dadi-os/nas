@@ -36,11 +36,21 @@ while IFS= read -r -d '' src; do
   fi
 done < <(find "$SEED" -print0)
 
-mkdir -p "$STATE/cloudflared" "$STATE/modules/dwar"
+mkdir -p "$STATE/cloudflared" "$STATE/modules/dwar" "$STATE/headscale"
 
 # Ensure cloudflared token file exists (may be empty until set via Nas).
 if [ ! -f "$STATE/cloudflared/token" ]; then
   : >"$STATE/cloudflared/token"
+fi
+
+# Control URL preference file (Preferences → Tunnel). Empty until set or seeded.
+if [ ! -f "$STATE/headscale/control_url" ]; then
+  : >"$STATE/headscale/control_url"
+  chmod 0600 "$STATE/headscale/control_url"
+fi
+if [ ! -s "$STATE/headscale/control_url" ] && [ -n "${CONTROL_URL:-}" ]; then
+  printf '%s\n' "$CONTROL_URL" >"$STATE/headscale/control_url"
+  chmod 0600 "$STATE/headscale/control_url"
 fi
 
 # Ensure dwar .env exists (blank keys until set via Preferences).
@@ -53,4 +63,4 @@ DEEPGRAM_API_KEY=
 EOF
 fi
 
-chmod -R u+rwX,go-rwx "$STATE/modules" "$STATE/cloudflared" 2>/dev/null || true
+chmod -R u+rwX,go-rwx "$STATE/modules" "$STATE/cloudflared" "$STATE/headscale" 2>/dev/null || true

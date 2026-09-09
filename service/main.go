@@ -19,11 +19,6 @@ import (
 func main() {
 	slog.SetDefault(newLogger())
 
-	controlURL, err := requireEnv("CONTROL_URL")
-	if err != nil {
-		slog.Error(err.Error(), "code", CodeConfigMissing)
-		os.Exit(1)
-	}
 	userName, err := requireEnv("HEADSCALE_USER")
 	if err != nil {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
@@ -44,11 +39,20 @@ func main() {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
 	}
+	if err := state.seedControlURL(os.Getenv("CONTROL_URL")); err != nil {
+		slog.Error(err.Error(), "code", CodeConfigMissing)
+		os.Exit(1)
+	}
 
 	started := time.Now()
 	startMetricsSampler()
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /provision", func(w http.ResponseWriter, r *http.Request) {
+		controlURL, err := state.resolveControlURL()
+		if err != nil {
+			writeError(w, r, http.StatusInternalServerError, CodeConfigMissing, err.Error())
+			return
+		}
 		handleProvision(w, r, controlURL, userName)
 	})
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +200,7 @@ func healthTargets(runtime string) []struct {
 		return []struct {
 			name string
 			url  string
-		}		{
+		}{
 			{name: "yaad", url: "http://127.0.0.1:8082/health"},
 			{name: "dimaag", url: "http://127.0.0.1:8083/health"},
 			{name: "dwar", url: "http://127.0.0.1:8081/health"},
