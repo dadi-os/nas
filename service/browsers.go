@@ -39,6 +39,8 @@ var chromiumSingletonLocks = []string{
 	"SingletonSocket",
 }
 
+// browserHost manages headed Chromium + Xvfb instances for the host agent API.
+// On the appliance (host.switchUser) Chromium runs as dadi; compose/dev keep the process user.
 type browserHost struct {
 	host        *hostRuntime
 	chromiumBin string
@@ -124,6 +126,7 @@ func clearSingletonLocks(dir string) {
 	}
 }
 
+// ensureProfile creates the browser profile directory and clears Chromium singleton locks.
 func (b *browserHost) ensureProfile(id int) error {
 	dir := b.profileDir(id)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -142,6 +145,8 @@ func (b *browserHost) ensureProfile(id int) error {
 	return b.host.chownDadi(dir)
 }
 
+// chromiumArgs returns Chromium flags for this runtime. Compose adds --no-sandbox
+// and --disable-dev-shm-usage when user namespaces are unavailable.
 func (b *browserHost) chromiumArgs(id, port int) []string {
 	args := []string{
 		fmt.Sprintf("--remote-debugging-port=%d", port),
@@ -231,6 +236,8 @@ func (l *lineLogger) String() string {
 	return l.buf.String()
 }
 
+// startDetached starts name under setsid. When asDadi is true and runUID is set,
+// the process runs as dadi via runuser; otherwise it keeps the current user (Xvfb).
 func (b *browserHost) startDetached(
 	browserID int,
 	procName string,
@@ -271,6 +278,8 @@ func waitForFile(path string, timeout time.Duration) bool {
 	return false
 }
 
+// waitForCDP polls the Chromium DevTools /json/version endpoint until it returns
+// 200 or timeout. If alive was true at least once and later returns false, wait ends early.
 func waitForCDP(port int, timeout time.Duration, alive func() bool) bool {
 	client := &http.Client{Timeout: 500 * time.Millisecond}
 	versionURL := fmt.Sprintf("http://127.0.0.1:%d/json/version", port)
@@ -353,6 +362,7 @@ func (b *browserHost) killBrowser(id int) {
 	clearSingletonLocks(b.profileDir(id))
 }
 
+// rewriteCDPBody rewrites loopback websocket debugger URLs to the nas proxy path.
 func rewriteCDPBody(body []byte, host string, id, port int) []byte {
 	to := fmt.Sprintf("ws://%s/browsers/%d/", host, id)
 	out := bytes.ReplaceAll(body, []byte(fmt.Sprintf("ws://127.0.0.1:%d/", port)), []byte(to))
