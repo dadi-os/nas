@@ -206,37 +206,17 @@ func TestParseHeadscaleNodesArray(t *testing.T) {
 	if len(nodes) != 2 {
 		t.Fatalf("len %d", len(nodes))
 	}
-	clients := make([]meshClient, 0, len(nodes))
-	for _, node := range nodes {
-		name := strings.TrimSpace(node.GivenName)
-		if name == "" {
-			name = strings.TrimSpace(node.Name)
-		}
-		clients = append(clients, meshClient{
-			NodeName:    name,
-			Online:      node.Online,
-			LastSeen:    formatHeadscaleLastSeen(node.LastSeen),
-			IPAddresses: node.IPAddresses,
-		})
+	if nodes[0].GivenName != "os" || !nodes[0].Online || nodes[0].LastSeen == nil || *nodes[0].LastSeen != "2026-01-02T03:04:05Z" {
+		t.Fatalf("node0 %+v", nodes[0])
 	}
-	if clients[0].NodeName != "os" || !clients[0].Online || clients[0].LastSeen == nil {
-		t.Fatalf("client0 %+v", clients[0])
-	}
-	if clients[1].NodeName != "ankur-phone" || clients[1].Online || clients[1].LastSeen != nil {
-		t.Fatalf("client1 %+v", clients[1])
+	if nodes[1].GivenName != "ankur-phone" || nodes[1].Online || nodes[1].LastSeen != nil {
+		t.Fatalf("node1 %+v", nodes[1])
 	}
 }
 
-func TestParseHeadscaleNodesWrapped(t *testing.T) {
+func TestParseHeadscaleNodesRejectsObject(t *testing.T) {
 	raw := []byte(`{"nodes":[{"name":"laptop","givenName":"","online":true,"lastSeen":"2026-01-01T00:00:00Z","ipAddresses":["100.64.0.2"]}]}`)
-	nodes, err := parseHeadscaleNodes(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(nodes) != 1 || nodes[0].Name != "laptop" {
-		t.Fatalf("%+v", nodes)
-	}
-	if got := formatHeadscaleLastSeen(nodes[0].LastSeen); got == nil || *got != "2026-01-01T00:00:00Z" {
-		t.Fatalf("lastSeen %v", got)
+	if _, err := parseHeadscaleNodes(raw); err == nil {
+		t.Fatal("expected error for non-array JSON")
 	}
 }

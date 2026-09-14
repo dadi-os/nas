@@ -197,11 +197,11 @@ type meshClient struct {
 }
 
 type headscaleNode struct {
-	Name        string          `json:"name"`
-	GivenName   string          `json:"givenName"`
-	Online      bool            `json:"online"`
-	LastSeen    json.RawMessage `json:"lastSeen"`
-	IPAddresses []string        `json:"ipAddresses"`
+	Name        string   `json:"name"`
+	GivenName   string   `json:"givenName"`
+	Online      bool     `json:"online"`
+	LastSeen    *string  `json:"lastSeen"`
+	IPAddresses []string `json:"ipAddresses"`
 }
 
 // handleListClients returns Headscale mesh nodes for the appliance user.
@@ -214,6 +214,7 @@ func handleListClients(w http.ResponseWriter, r *http.Request, userName string) 
 	writeJSON(w, http.StatusOK, map[string]any{"clients": clients})
 }
 
+// listMeshClients runs `headscale nodes list -o json` and maps nodes to meshClient values.
 func listMeshClients(userName string) ([]meshClient, error) {
 	out, err := exec.Command("headscale", "nodes", "list", "--user", userName, "-o", "json").Output()
 	if err != nil {
@@ -236,43 +237,30 @@ func listMeshClients(userName string) ([]meshClient, error) {
 		if ips == nil {
 			ips = []string{}
 		}
+		var lastSeen *string
+		if node.LastSeen != nil {
+			trimmed := strings.TrimSpace(*node.LastSeen)
+			if trimmed != "" {
+				lastSeen = &trimmed
+			}
+		}
 		clients = append(clients, meshClient{
 			NodeName:    name,
 			Online:      node.Online,
-			LastSeen:    formatHeadscaleLastSeen(node.LastSeen),
+			LastSeen:    lastSeen,
 			IPAddresses: ips,
 		})
 	}
 	return clients, nil
 }
 
+// parseHeadscaleNodes decodes a JSON array from `headscale nodes list -o json`.
 func parseHeadscaleNodes(out []byte) ([]headscaleNode, error) {
 	var nodes []headscaleNode
-	if err := json.Unmarshal(out, &nodes); err == nil {
-		return nodes, nil
-	}
-	var wrapped struct {
-		Nodes []headscaleNode `json:"nodes"`
-	}
-	if err := json.Unmarshal(out, &wrapped); err != nil {
+	if err := json.Unmarshal(out, &nodes); err != nil {
 		return nil, fmt.Errorf("parse nodes: %w", err)
 	}
-	return wrapped.Nodes, nil
-}
-
-func formatHeadscaleLastSeen(raw json.RawMessage) *string {
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil
-	}
-	var asString string
-	if err := json.Unmarshal(raw, &asString); err == nil {
-		asString = strings.TrimSpace(asString)
-		if asString == "" {
-			return nil
-		}
-		return &asString
-	}
-	return nil
+	return nodes, nil
 }
 
 type statusResponse struct {
