@@ -12,6 +12,9 @@ AnimationDurationFactor=0.85
 LookAndFeelPackage=org.dadi.desktop
 widgetStyle=Breeze
 
+[KDE Action Restrictions][$i]
+action/lock_screen=false
+
 [Icons]
 Theme=breeze
 

@@ -8,4 +8,6 @@ cp -f /etc/xdg/kscreenlockerrc "$cfg/kscreenlockerrc"
 cp -f /etc/xdg/powerdevilrc "$cfg/powerdevilrc"
 cp -f /etc/xdg/powermanagementprofilesrc "$cfg/powermanagementprofilesrc"
 cp -f /etc/xdg/ksmserverrc "$cfg/ksmserverrc"
-loginctl unlock-session
+if [ -n "${XDG_SESSION_ID:-}" ]; then
+  loginctl unlock-session "$XDG_SESSION_ID"
+fi

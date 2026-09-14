@@ -4,3 +4,6 @@ ColorScheme=Dadi
 [KDE]
 LookAndFeelPackage=org.dadi.desktop
 widgetStyle=Breeze
+
+[KDE Action Restrictions][$i]
+action/lock_screen=false

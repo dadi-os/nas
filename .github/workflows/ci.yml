@@ -26,6 +26,18 @@ jobs:
             exit 1
           fi
 
+      - name: SDDM autologins dadi on Wayland
+        run: |
+          set -euo pipefail
+          grep -q 'sddm-wayland-plasma' os/Containerfile
+          grep -q 'systemctl mask plasmalogin.service' os/Containerfile
+          grep -q 'systemctl enable --force sddm.service' os/Containerfile
+          grep -q '^User=dadi$' os/etc/sddm.conf.d/dadi.conf
+          grep -q '^Session=plasma.desktop$' os/etc/sddm.conf.d/dadi.conf
+          grep -q 'CompositorCommand=kwin_wayland' os/etc/sddm.conf.d/dadi.conf
+          grep -q 'pam_permit.so' os/etc/pam.d/sddm-autologin
+          grep -q 'Requires=dadi-home.service' os/etc/systemd/system/sddm.service.d/dadi.conf
+
       - name: Build test image
         run: docker build -f service/Dockerfile --target test -t nas-service-test service/
 

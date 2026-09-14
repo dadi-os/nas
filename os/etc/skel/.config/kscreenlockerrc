@@ -1,4 +1,4 @@
-[Daemon]
+[Daemon][$i]
 Autolock=false
 LockOnResume=false
 Timeout=0

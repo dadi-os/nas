@@ -40,6 +40,7 @@ RUN dnf -y install \
     plasma-pa \
     sddm \
     sddm-breeze \
+    sddm-wayland-plasma \
     dolphin \
     konsole \
     kscreen \
@@ -137,7 +138,8 @@ RUN chmod 0440 /etc/sudoers.d/dadi-wheel \
   && systemctl enable dadi-home.service \
   && systemctl enable dadi-tpm-enroll.service \
   && systemctl enable dadi-inhibit-idle.service \
-  && systemctl enable sddm.service \
+  && systemctl mask plasmalogin.service \
+  && systemctl enable --force sddm.service \
   && systemctl set-default graphical.target \
   && systemctl enable cloudflared.service \
   && systemctl enable headscale.service \

@@ -233,7 +233,7 @@ On the appliance, `/usr/bin/dadi` talks to Dimaag (`DIMAAG_URL=http://dimaag.dad
 | `nas` | host systemd | control API on `127.0.0.1:8092` |
 | `loki` / `alloy` | host systemd | logs |
 | `cloudflared` | host systemd | tunnel to Headscale |
-| `sddm` + Plasma | host graphical | autologin `dadi`; no locker; bone glass desktop |
+| `sddm` + Plasma | host graphical | `sddm-wayland-plasma`; autologin `dadi`; no locker; bone glass desktop |
 | `dwar` / `yaad` / `dimaag` / `ghar` (+ postgres / migrate) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8084` (`ghar` uses `Network=host`, binds loopback) |
 
 ### Development (Mac Compose, headless)
@@ -262,7 +262,7 @@ CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes an
 2. Download all `dadiOS-amd64.iso.*` parts from the `dadiOS-latest` release and reassemble: `cat dadiOS-amd64.iso.* > dadiOS-amd64.iso`.
 3. Flash to USB; boot the target machine. **The first disk is wiped with no confirmation.**
 4. At the LUKS prompt (**first boot only**). `dadi-tpm-enroll` then seals the volume to TPM2 PCR 7. Later boots unlock without the passphrase unless Secure Boot policy changes (recovery passphrase is still the ISO secret).
-5. SDDM autologins as `dadi` into Plasma. There is no lock screen; lid close and idle do not sleep or show a greeter.
+5. SDDM (`sddm-wayland-plasma`, not Plasma Login Manager) autologins as `dadi` into Plasma. There is no lock screen; lid close and idle do not sleep or show a greeter.
 6. Add an SSH user in Preferences → Access (`POST /access/users`). SSH as that user with the password you set. `dadi` is not allowed to SSH.
 7. Point a Cloudflare tunnel at Headscale; set the public control plane URL and paste the tunnel token via Preferences → Tunnel (`PUT /headscale/control-url`, `PUT /cloudflared/token`). `cloudflared.service` starts only when the token file is non-empty and restarts on reboot.
 8. Provision Hath clients: on the box open **Add Device** (dock / brand menu / Preferences → Devices), name the node, show the QR. Scan from Hath on the phone/laptop (`https://dadi.ardusa.dev` control URL is embedded in the bundle).
@@ -300,9 +300,9 @@ Plasma on the box only — Hath is for other devices. Visual system is **bone gl
 | Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (access / dwar / tunnel / devices → `DADI_STATE_DIR`) |
 | Add Device | `dadi-add-device` → `plasmawindowed org.dadi.adddevice` (mint Nas `POST /provision` QR for Hath) |
 | Wallpaper | `Dadi` (`/usr/share/wallpapers/Dadi/`) |
-| Wake / lid | `kscreenlockerrc`, PowerDevil profiles, `dadi-inhibit-idle.service`, `logind.conf.d/dadi-lid.conf` |
+| Wake / lid | immutable `action/lock_screen=false`, `kscreenlockerrc`, PowerDevil profiles, `dadi-inhibit-idle.service`, `logind.conf.d/dadi-lid.conf` |
 | TPM | `dadi-tpm-enroll.service` → PCR 7 after first unlock |
-| Plymouth / SDDM | theme `dadi` |
+| Plymouth / SDDM | theme `dadi`; `sddm-wayland-plasma` greeter compositor; PAM `sddm-autologin` permits empty-password `dadi` |
 
 Glass rules: blur before tint; never translucent text; two opacities only (veil / sheet); no dark glass. Desktop widgets sample the wallpaper through Dual Kawase + refraction (adapted from [liquidglass-kde-widgets](https://github.com/jaxparrow07/liquidglass-kde-widgets), GPL-3). Layout is placed with `desktop.addWidget(plugin, x, y, w, h)` on first session and whenever `/usr/libexec/dadi/apply-desktop.sh` sees a new `LAYOUT_VERSION` (Preferences → Desktop → Reset layout).
 
