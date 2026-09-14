@@ -10,28 +10,41 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 12
+        spacing: 14
 
         Text {
             text: "Desktop"
             color: "#2c302a"
-            font.pixelSize: 22
+            font.pixelSize: 20
             font.weight: Font.DemiBold
         }
         Text {
-            text: "Field is the sage leaf and glass leaf wallpaper under bone glass. Panel blur, dock autohide, and icons-off ship with org.dadi.desktop."
+            text: "Field wallpaper, bone glass widgets (agents, memory, timeline, system), translucent top bar, floating dock. Icons stay off."
             color: "#6e7568"
-            font.pixelSize: 12
+            font.pixelSize: 13
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
 
-        Text {
-            text: "Reset layout: lookandfeeltool -a org.dadi.desktop --resetLayout"
-            color: "#a8af9f"
-            font.pixelSize: 11
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
+        Button {
+            Layout.preferredHeight: 40
+            Layout.preferredWidth: 180
+            onClicked: {
+                if (root.runner)
+                    root.runner.exec("/usr/libexec/dadi/apply-desktop.sh --force")
+                root.toast("Desktop layout reset")
+            }
+            background: Rectangle {
+                radius: 9
+                color: parent.down ? "#5c6b52" : "#8fa382"
+            }
+            contentItem: Text {
+                text: "Reset layout"
+                color: "#fafaf7"
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                font.pixelSize: 13
+            }
         }
 
         Item { Layout.fillHeight: true }

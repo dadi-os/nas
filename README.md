@@ -123,11 +123,21 @@ Anonymous HTTP on `LISTEN_ADDR`. Nothing is persisted in Nas — **tmux is the r
 
 | Piece | Value |
 | --- | --- |
-| System user | `dadi` (created in the OS Containerfile; home `$DADI_STATE_DIR`; shell `/bin/bash`) |
+| System user | `dadi` (created in the OS Containerfile; home `$DADI_STATE_DIR`; shell `/bin/bash`). Graphical session autologins as `dadi` with a locked password. Agents (tmux, Chromium) run as `dadi`. |
+| SSH user | `ankur` (`/home/ankur`). Password (set in Preferences → Access) or the baked authorized key. `dadi` cannot SSH. |
 | tmux socket | `/run/dadi/tmux.sock` on appliance (`tmpfiles.d`); under `$DADI_STATE_DIR/run` in Compose |
 | Default cwd | `$DADI_STATE_DIR` when terminal / glob / grep omit `cwd` |
 
 On the appliance (`DADI_RUNTIME=podman`) Nas runs as root and launches every tmux command via `runuser -u dadi --` with `-S /run/dadi/tmux.sock`. In Compose/dev the process already runs as the container user, so the user switch is skipped; the same socket flag and code path remain.
+
+| Method | Path | Body | Success | Errors |
+| --- | --- | --- | --- | --- |
+| `GET` | `/access` | — | `{ ssh_user, session_user, password_set, tpm }` | — |
+| `PUT` | `/access/ssh-password` | `{ "password": string }` (8–128 chars) | `{ status: ok }` | `invalid_request`, `forbidden` (compose), `internal_error` |
+| `GET` | `/modules/dwar/settings` | — | `{ env, config }` (keys + config.toml fields) | `internal_error` |
+| `PUT` | `/modules/dwar/settings` | `{ env, config }` | `{ status: ok }` (writes files, restarts dwar) | `invalid_request`, `internal_error` |
+
+`tpm` is `{ present, enrolled, pcrs?, device? }` from `/var/lib/dadi/tpm.json` after `dadi-tpm-enroll`. Remote reboot: TPM unlocks LUKS, systemd starts enabled units (`nas`, `cloudflared` once the token file is non-empty, mesh, SDDM autologin).
 
 There is **no project sandbox folder**. Agents may read any absolute path. **Writes** are denied under OS and dadiOS runtime trees (symlinks resolved before the check): `/usr`, `/boot`, `/etc`, `/lib`, `/lib64`, `/bin`, `/sbin`, `/root`, `/var/lib/containers`, and under `$DADI_STATE_DIR`: `modules`, `cloudflared`, `headscale`, `browsers`, `run`. Darwin also denies `/System` and `/Library`. Terminals are not path-jailed — the FS API is the write gate; shell power is bounded by the `dadi` OS user.
 
@@ -210,7 +220,7 @@ curl -sG 'http://nas.dadi/logs' \
 | `nas` | host systemd | control API on `127.0.0.1:8092` |
 | `loki` / `alloy` | host systemd | logs |
 | `cloudflared` | host systemd | tunnel to Headscale |
-| `sddm` + Plasma | host graphical | bone glass desktop; દાદી brand; Preferences + crest widgets |
+| `sddm` + Plasma | host graphical | autologin `dadi`; no locker; bone glass desktop |
 | `dwar` / `yaad` / `dimaag` / `ghar` (+ postgres / migrate) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8084` (`ghar` uses `Network=host`, binds loopback) |
 
 ### Development (Mac Compose, headless)
@@ -238,12 +248,13 @@ CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes an
 1. Set repo secret `DADIOS_LUKS_PASSPHRASE` (no quotes, `#`, or backslashes).
 2. Download all `dadiOS-amd64.iso.*` parts from the `dadiOS-latest` release and reassemble: `cat dadiOS-amd64.iso.* > dadiOS-amd64.iso`.
 3. Flash to USB; boot the target machine. **The first disk is wiped with no confirmation.**
-4. At the LUKS prompt (first boot only; day-2+ is TPM2), disk unlocks. SDDM autologins as `ankur` straight into Plasma (દાદી desktop) — no greeter.
-5. SSH with a key matching [`os/authorized_keys`](os/authorized_keys).
-6. Point a Cloudflare tunnel at Headscale; set the public control plane URL and paste the tunnel token via Nas Preferences → Tunnel (`PUT /headscale/control-url`, `PUT /cloudflared/token`) or Hath System → tunnel from another device.
-7. Provision Hath clients: on the box open **Add Device** (dock / brand menu / Preferences → Devices), name the node, show the sage QR. Scan from Hath on the phone/laptop (`https://dadi.ardusa.dev` control URL is embedded in the bundle).
+4. At the LUKS prompt (**first boot only**). `dadi-tpm-enroll` then seals the volume to TPM2 PCR 7. Later boots unlock without the passphrase unless Secure Boot policy changes (recovery passphrase is still the ISO secret).
+5. SDDM autologins as `dadi` into Plasma. There is no lock screen; lid close and idle do not sleep or show a greeter.
+6. Set the `ankur` SSH password in Preferences → Access (`PUT /access/ssh-password`). SSH as `ankur@<box>` with that password (keys in [`os/authorized_keys`](os/authorized_keys) still work). `dadi` is not allowed to SSH.
+7. Point a Cloudflare tunnel at Headscale; set the public control plane URL and paste the tunnel token via Preferences → Tunnel (`PUT /headscale/control-url`, `PUT /cloudflared/token`). `cloudflared.service` starts only when the token file is non-empty and restarts on reboot.
+8. Provision Hath clients: on the box open **Add Device** (dock / brand menu / Preferences → Devices), name the node, show the QR. Scan from Hath on the phone/laptop (`https://dadi.ardusa.dev` control URL is embedded in the bundle).
 
-Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`.
+Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`. If a firmware/Secure Boot change forces the LUKS passphrase again, wipe the TPM slot (`systemd-cryptenroll --wipe-slot=tpm2 <luks-dev>`) and `systemctl start dadi-tpm-enroll` to reseal.
 
 ### Host firewall (nftables)
 
@@ -270,16 +281,17 @@ Plasma on the box only — Hath is for other devices. Visual system is **bone gl
 
 | Surface | Where |
 | --- | --- |
-| Look-and-feel | `org.dadi.desktop` — translucent top bar (32px), autohide float dock, crest widgets |
+| Look-and-feel | `org.dadi.desktop` — translucent top bar (32px), floating dock, crest widgets |
 | Brand menu | plasmoid `org.dadi.brand` |
-| Widgets | `org.dadi.widget.{system,memory,agents,timeline,logs}` |
-| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (dwar `.env` / config / tunnel / devices → `DADI_STATE_DIR`) |
+| Widgets | `org.dadi.widget.{agents,memory,timeline,system}` — liquid glass (GPL-3 shaders from liquidglass-kde-widgets) + Hath data |
+| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (access / dwar / tunnel / devices → `DADI_STATE_DIR`) |
 | Add Device | `dadi-add-device` → `plasmawindowed org.dadi.adddevice` (mint Nas `POST /provision` QR for Hath) |
 | Wallpaper | `Dadi` (`/usr/share/wallpapers/Dadi/`) |
-| Blur / lid | `os/etc/xdg/kwinrc`, `os/etc/systemd/logind.conf.d/dadi-lid.conf` |
+| Wake / lid | `kscreenlockerrc`, PowerDevil profiles, `dadi-inhibit-idle.service`, `logind.conf.d/dadi-lid.conf` |
+| TPM | `dadi-tpm-enroll.service` → PCR 7 after first unlock |
 | Plymouth / SDDM | theme `dadi` |
 
-Glass rules: blur before tint; never translucent text; two opacities only (veil / sheet); no dark glass.
+Glass rules: blur before tint; never translucent text; two opacities only (veil / sheet); no dark glass. Desktop widgets sample the wallpaper through Dual Kawase + refraction (adapted from [liquidglass-kde-widgets](https://github.com/jaxparrow07/liquidglass-kde-widgets), GPL-3). Layout is placed with `desktop.addWidget(plugin, x, y, w, h)` on first session and whenever `/usr/libexec/dadi/apply-desktop.sh` sees a new `LAYOUT_VERSION` (Preferences → Desktop → Reset layout).
 
 ## Mesh
 

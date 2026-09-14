@@ -6,50 +6,33 @@ Item {
 
     property string title: ""
     default property alias content: body.data
-    property real frameRadius: 12
+    property real frameRadius: 16
 
     implicitWidth: 320
     implicitHeight: 220
 
-    // Veil glass body
-    Rectangle {
+    Glass {
         id: glass
         anchors.fill: parent
         anchors.margins: 2
         radius: root.frameRadius
-        color: Qt.rgba(250 / 255, 250 / 255, 247 / 255, 0.62)
-        border.width: 0
-
-        // Dashed stroke approximation via repeater rings
-        Rectangle {
-            anchors.fill: parent
-            radius: parent.radius
-            color: "transparent"
-            border.color: "#b9c9ab"
-            border.width: 1
-            opacity: 0.55
-        }
-
-        // Specular rim (top highlight)
-        Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            height: 1
-            radius: 1
-            color: Qt.rgba(1, 1, 1, 0.55)
-            opacity: 0.9
-        }
-        Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            height: 1
-            color: Qt.rgba(92 / 255, 107 / 255, 82 / 255, 0.06)
-        }
+        tint: "#fafaf7"
+        tintAlpha: 0.38
+        blurRadius: 24
+        fallbackOpacity: 0.62
     }
 
-    // Crest nameplate
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: 2
+        radius: root.frameRadius
+        color: "transparent"
+        border.color: "#b9c9ab"
+        border.width: 1
+        opacity: 0.55
+        z: 1
+    }
+
     Item {
         id: crest
         anchors.horizontalCenter: parent.horizontalCenter
@@ -58,7 +41,6 @@ Item {
         width: crestRow.width + 28
         height: 28
 
-        // Soft bloom under plate
         Rectangle {
             anchors.centerIn: parent
             width: parent.width + 24
@@ -88,7 +70,6 @@ Item {
 
             Rectangle {
                 radius: 3
-                color: "#fafaf7"
                 border.color: "#a8b89c"
                 border.width: 1
                 width: titleText.width + 18
@@ -131,5 +112,6 @@ Item {
         anchors.rightMargin: 14
         anchors.bottomMargin: 12
         clip: true
+        z: 3
     }
 }

@@ -4,11 +4,11 @@
     "KPlugin": {
         "Authors": [{"Name": "dadi"}],
         "Category": "System Information",
-        "Description": "Upcoming plans from Yaad",
+        "Description": "This week's plans from Yaad",
         "Icon": "dadi",
         "Id": "org.dadi.widget.timeline",
         "License": "MIT",
         "Name": "Timeline",
-        "Version": "1.0"
+        "Version": "2.0"
     }
 }

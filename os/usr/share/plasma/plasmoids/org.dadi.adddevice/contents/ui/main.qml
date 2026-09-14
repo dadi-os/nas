@@ -16,10 +16,10 @@ PlasmoidItem {
 
     fullRepresentation: Rectangle {
         id: win
-        Layout.minimumWidth: 420
-        Layout.minimumHeight: 560
-        Layout.preferredWidth: 460
-        Layout.preferredHeight: 640
+        Layout.minimumWidth: 380
+        Layout.minimumHeight: 520
+        Layout.preferredWidth: 420
+        Layout.preferredHeight: 580
         color: "#fafaf7"
 
         property string nodeName: ""
@@ -111,39 +111,35 @@ PlasmoidItem {
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 28
-            spacing: 16
+            anchors.leftMargin: 24
+            anchors.rightMargin: 24
+            anchors.topMargin: 20
+            anchors.bottomMargin: 20
+            spacing: 12
 
             Text {
-                text: "દાદી"
-                color: "#7e9270"
-                font.family: "Noto Sans Gujarati"
-                font.pixelSize: 36
-                font.weight: Font.Medium
-                Layout.alignment: Qt.AlignHCenter
+                text: "Add device"
+                color: "#2c302a"
+                font.pixelSize: 20
+                font.weight: Font.DemiBold
             }
-
             Text {
-                text: "ADD DEVICE"
-                color: "#a8af9f"
-                font.pixelSize: 11
-                font.letterSpacing: 2.5
-                Layout.alignment: Qt.AlignHCenter
-            }
-
-            Text {
-                text: "Name the new Hath, then show the QR. Single-use — expires in about an hour."
+                text: "Name the Hath, then scan the QR. Single-use, about an hour."
                 color: "#6e7568"
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
-                horizontalAlignment: Text.AlignHCenter
                 Layout.fillWidth: true
             }
 
+            Text {
+                text: "Name"
+                color: "#2c302a"
+                font.pixelSize: 13
+            }
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 48
-                radius: 12
+                Layout.preferredHeight: 40
+                radius: 9
                 color: "#f7f9f4"
                 border.color: nameField.activeFocus ? "#8fa382" : "#b9c9ab"
                 border.width: 1
@@ -151,11 +147,13 @@ PlasmoidItem {
                 TextInput {
                     id: nameField
                     anchors.fill: parent
-                    anchors.margins: 12
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    verticalAlignment: Text.AlignVCenter
                     text: win.nodeName
                     onTextChanged: win.nodeName = text
                     color: "#2c302a"
-                    font.pixelSize: 14
+                    font.pixelSize: 13
                     selectByMouse: true
                     clip: true
                     Keys.onReturnPressed: win.mint()
@@ -163,28 +161,28 @@ PlasmoidItem {
 
                 Text {
                     anchors.fill: parent
-                    anchors.margins: 12
-                    text: "ankur-phone"
+                    anchors.leftMargin: 12
+                    text: "phone"
                     color: "#b0b8a6"
-                    font.pixelSize: 14
+                    font.pixelSize: 13
+                    verticalAlignment: Text.AlignVCenter
                     visible: nameField.text.length === 0 && !nameField.activeFocus
                 }
             }
 
             Button {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 42
+                Layout.preferredHeight: 40
                 enabled: !win.busy && win.nodeName.trim().length > 0
                 onClicked: win.mint()
                 background: Rectangle {
-                    radius: 12
+                    radius: 9
                     color: parent.down ? "#5c6b52" : (parent.enabled ? "#8fa382" : "#d5ddcb")
                 }
                 contentItem: Text {
-                    text: win.busy ? "CREATING…" : "CREATE SETUP CODE"
+                    text: win.busy ? "Creating…" : "Create setup code"
                     color: "#fafaf7"
-                    font.pixelSize: 12
-                    font.letterSpacing: 1.5
+                    font.pixelSize: 13
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -193,21 +191,19 @@ PlasmoidItem {
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.minimumHeight: 260
 
                 Rectangle {
                     anchors.centerIn: parent
-                    width: 260
-                    height: 260
-                    radius: 16
-                    color: "#fafaf7"
+                    width: Math.min(parent.width, parent.height, 220)
+                    height: width
+                    radius: 12
+                    color: "#f7f9f4"
                     border.color: "#b9c9ab"
                     border.width: 1
 
                     Image {
-                        anchors.centerIn: parent
-                        width: 240
-                        height: 240
+                        anchors.fill: parent
+                        anchors.margins: 10
                         source: win.qrPath
                         fillMode: Image.PreserveAspectFit
                         visible: win.qrPath !== ""
@@ -217,7 +213,7 @@ PlasmoidItem {
                     Text {
                         anchors.centerIn: parent
                         visible: win.qrPath === ""
-                        text: win.busy ? "…" : "QR appears here"
+                        text: win.busy ? "…" : "QR"
                         color: "#b0b8a6"
                         font.pixelSize: 13
                     }
@@ -227,14 +223,12 @@ PlasmoidItem {
             Button {
                 Layout.alignment: Qt.AlignHCenter
                 visible: win.bundle !== ""
-                text: win.copied ? "Copied" : "Copy setup code"
                 flat: true
                 onClicked: win.copyBundle()
                 contentItem: Text {
-                    text: parent.text
+                    text: win.copied ? "Copied" : "Copy setup code"
                     color: "#5c6b52"
-                    font.pixelSize: 12
-                    font.letterSpacing: 1.2
+                    font.pixelSize: 13
                     horizontalAlignment: Text.AlignHCenter
                 }
             }
@@ -244,10 +238,8 @@ PlasmoidItem {
                 color: "#b56b5c"
                 font.pixelSize: 12
                 visible: win.status !== ""
-                Layout.alignment: Qt.AlignHCenter
-                wrapMode: Text.WordWrap
                 Layout.fillWidth: true
-                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
             }
         }
     }

@@ -64,15 +64,6 @@ PlasmoidItem {
             }
             MenuSeparator {}
             MenuItem {
-                text: "Lock Screen"
-                onTriggered: executable.exec("loginctl lock-session")
-            }
-            MenuItem {
-                text: "Sleep Display"
-                onTriggered: executable.exec("kscreen-doctor --dpms off")
-            }
-            MenuSeparator {}
-            MenuItem {
                 text: "Restart…"
                 onTriggered: executable.exec("systemctl reboot")
             }

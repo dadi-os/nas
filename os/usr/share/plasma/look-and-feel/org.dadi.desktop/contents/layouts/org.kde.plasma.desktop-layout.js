@@ -3,53 +3,11 @@ var plasma = getApiVersion(1);
 var layout = {
     "desktops": [
         {
-            "applets": [
-                {
-                    "plugin": "org.dadi.widget.system",
-                    "geometry.x": 48,
-                    "geometry.y": 48,
-                    "geometry.width": 340,
-                    "geometry.height": 210,
-                    "config": { "/": { "immutability": "1" } }
-                },
-                {
-                    "plugin": "org.dadi.widget.memory",
-                    "geometry.x": 412,
-                    "geometry.y": 48,
-                    "geometry.width": 300,
-                    "geometry.height": 180,
-                    "config": { "/": { "immutability": "1" } }
-                },
-                {
-                    "plugin": "org.dadi.widget.agents",
-                    "geometry.x": 736,
-                    "geometry.y": 48,
-                    "geometry.width": 280,
-                    "geometry.height": 170,
-                    "config": { "/": { "immutability": "1" } }
-                },
-                {
-                    "plugin": "org.dadi.widget.timeline",
-                    "geometry.x": 48,
-                    "geometry.y": 290,
-                    "geometry.width": 340,
-                    "geometry.height": 220,
-                    "config": { "/": { "immutability": "1" } }
-                },
-                {
-                    "plugin": "org.dadi.widget.logs",
-                    "geometry.x": 412,
-                    "geometry.y": 290,
-                    "geometry.width": 380,
-                    "geometry.height": 160,
-                    "config": { "/": { "immutability": "1" } }
-                }
-            ],
+            "applets": [],
             "config": {
                 "/": {
-                    "ItemGeometriesHorizontal": "",
-                    "formfactor": "desktop",
-                    "immutability": "1",
+                    "formfactor": "0",
+                    "immutability": "0",
                     "lastScreen": "0",
                     "wallpaperplugin": "org.kde.image"
                 },
@@ -172,3 +130,27 @@ var layout = {
 };
 
 plasma.loadSerializedLayout(layout);
+
+var desks = desktops();
+if (desks.length < 1) {
+    throw "no desktop containment";
+}
+var desktop = desks[0];
+
+function place(plugin, x, y, w, h) {
+    var ids = desktop.widgetIds;
+    var i;
+    for (i = 0; i < ids.length; i++) {
+        var widget = desktop.widgetById(ids[i]);
+        if (widget && widget.type === plugin) {
+            widget.geometry = new QRectF(x, y, w, h);
+            return;
+        }
+    }
+    desktop.addWidget(plugin, x, y, w, h);
+}
+
+place("org.dadi.widget.agents", 48, 56, 860, 230);
+place("org.dadi.widget.memory", 928, 56, 860, 230);
+place("org.dadi.widget.timeline", 48, 306, 860, 500);
+place("org.dadi.widget.system", 928, 306, 420, 500);

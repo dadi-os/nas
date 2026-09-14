@@ -24,7 +24,7 @@ table inet filter {
 		udp dport { 5353, 5540 } accept
 		ip6 daddr ff00::/8 accept
 
-		# SSH for box admin (keys only).
+		# SSH for box admin (ankur, password or key).
 		tcp dport 22 accept
 
 		# Insurance: Ghar HTTP must not be reachable off loopback.

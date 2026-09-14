@@ -13,10 +13,11 @@ ApplicationWindow {
     title: "Preferences"
     color: "#fafaf7"
 
-    property string section: "dwar"
+    property string section: "access"
     property string toast: ""
 
     readonly property var sections: [
+        { id: "access", label: "Access" },
         { id: "dwar", label: "Dwar" },
         { id: "tunnel", label: "Tunnel" },
         { id: "desktop", label: "Desktop" },
@@ -127,12 +128,13 @@ ApplicationWindow {
 
             StackLayout {
                 anchors.fill: parent
-                anchors.margins: 24
+                anchors.margins: 20
                 currentIndex: win.sectionIndex()
 
+                AccessPane {
+                    onSaved: msg => win.showToast(msg)
+                }
                 ModulePane {
-                    moduleName: "dwar"
-                    showConfig: true
                     onSaved: msg => win.showToast(msg)
                 }
                 TunnelPane {

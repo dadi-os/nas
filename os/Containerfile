@@ -10,7 +10,7 @@ FROM caddy:2.9.1-alpine AS caddy
 FROM grafana/loki:3.4.2 AS loki
 FROM grafana/alloy:v1.7.1 AS alloy
 
-FROM quay.io/fedora/fedora-bootc:42
+FROM quay.io/fedora/fedora-bootc:44
 
 RUN dnf -y install \
     podman \
@@ -44,6 +44,8 @@ RUN dnf -y install \
     konsole \
     kscreen \
     qt6-qtdeclarative \
+    qt6-qtshadertools \
+    qt6-qttools \
     plymouth \
     plymouth-plugin-script \
     google-noto-sans-fonts \
@@ -55,6 +57,8 @@ RUN dnf -y install \
     wl-clipboard \
     nftables \
     tpm2-tools \
+    tpm2-tss \
+    cryptsetup \
     fido2-tools \
   && dnf clean all
 
@@ -93,7 +97,9 @@ COPY os/etc/ /etc/
 COPY os/usr/ /usr/
 COPY os/authorized_keys /usr/ssh/ankur-authorized-keys
 
-RUN systemd-sysusers
+RUN systemd-sysusers \
+  && usermod -aG video,render,input dadi \
+  && passwd -l dadi
 
 # Render Plymouth / SDDM / icon brand marks from SVG (Gujarati દાદી).
 RUN mkdir -p \
@@ -116,6 +122,11 @@ RUN mkdir -p \
        -o /usr/share/icons/hicolor/128x128/apps/dadi.png \
   && mkdir -p /usr/lib64/qt6/qml/org/dadi \
   && ln -sfn /usr/share/dadi/qml/org/dadi/Desktop /usr/lib64/qt6/qml/org/dadi/Desktop \
+  && for f in crop kawase_down kawase_up liquidglass; do \
+       qsb --qt6 --glsl "100 es,120,150" --hlsl 50 --msl 12 \
+         -o "/usr/share/dadi/qml/org/dadi/Desktop/shaders/${f}.frag.qsb" \
+         "/usr/share/dadi/qml/org/dadi/Desktop/shaders/${f}.frag"; \
+     done \
   && chmod 0755 /usr/bin/dadi-preferences \
        /usr/bin/dadi-add-device /usr/bin/dadi-provision-qr \
   && plymouth-set-default-theme dadi \
@@ -131,6 +142,8 @@ RUN chmod 0440 /etc/sudoers.d/ankur \
   && systemctl enable sshd.service \
   && systemctl enable dadi-seed.service \
   && systemctl enable dadi-home.service \
+  && systemctl enable dadi-tpm-enroll.service \
+  && systemctl enable dadi-inhibit-idle.service \
   && systemctl enable sddm.service \
   && systemctl set-default graphical.target \
   && systemctl enable cloudflared.service \

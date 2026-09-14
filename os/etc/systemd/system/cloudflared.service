@@ -2,6 +2,7 @@
 Description=Cloudflare tunnel to Headscale
 After=network-online.target headscale.service dadi-seed.service
 Wants=network-online.target headscale.service
+ConditionFileNotEmpty=/var/lib/dadi/cloudflared/token
 
 [Service]
 Type=simple

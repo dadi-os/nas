@@ -10,13 +10,13 @@ Item {
         Text {
             text: "Power"
             color: "#2c302a"
-            font.pixelSize: 22
+            font.pixelSize: 20
             font.weight: Font.DemiBold
         }
         Text {
-            text: "This box stays up with the lid closed. Sleep and suspend keys are ignored so mesh services keep running."
+            text: "The session is dadi with no lock screen. Lid close, idle, and suspend keys do not sleep the box. The panel stays on."
             color: "#6e7568"
-            font.pixelSize: 12
+            font.pixelSize: 13
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
@@ -45,21 +45,12 @@ Item {
                 }
                 Text {
                     width: parent.width
-                    text: "HandleLidSwitch=ignore\nHandleSuspendKey=ignore\nIdleAction=ignore"
+                    text: "Autologin dadi · Relogin=true\nkscreenlocker Autolock=false\nHandleLidSwitch=ignore\nsystemd-inhibit idle:sleep:lid"
                     color: "#2c302a"
-                    font.family: "Noto Sans Mono"
-                    font.pixelSize: 12
+                    font.pixelSize: 13
                     wrapMode: Text.Wrap
                 }
             }
-        }
-
-        Text {
-            text: "Use દાદી menu → Sleep Display to blank the panel without suspending compute."
-            color: "#a8af9f"
-            font.pixelSize: 11
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
         }
 
         Item { Layout.fillHeight: true }

@@ -1,0 +1,4 @@
+Glass.qml and shaders/ are adapted from jaxparrow07/liquidglass-kde-widgets
+(https://github.com/jaxparrow07/liquidglass-kde-widgets), GNU GPL v3.
+Tint, radius, and refraction defaults were changed for dadiOS bone/sage glass.
+The remaining org.dadi.Desktop QML (CrestFrame, Tokens, Http) is original dadiOS.

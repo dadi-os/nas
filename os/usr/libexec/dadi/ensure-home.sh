@@ -1,18 +1,32 @@
 #!/bin/bash
-# Create stateful home for ankur on first boot (bootc: /home is machine state).
+# Create stateful homes on first boot (bootc: /home is machine state).
+# dadi is the graphical session + agent user. ankur is SSH-only.
 set -euo pipefail
 
-HOME_DIR=/home/ankur
 SKEL=/etc/skel
 
-if [ ! -d "$HOME_DIR" ]; then
-  mkdir -p "$HOME_DIR"
+seed_home() {
+  local home="$1"
+  local user="$2"
+  mkdir -p "$home"
   if [ -d "$SKEL" ]; then
-    cp -a "$SKEL"/. "$HOME_DIR"/
+    local src
+    while IFS= read -r -d '' src; do
+      local rel="${src#"$SKEL"/}"
+      local dest="$home/$rel"
+      if [ -d "$src" ]; then
+        mkdir -p "$dest"
+        chown "$user:$user" "$dest"
+      elif [ ! -e "$dest" ]; then
+        mkdir -p "$(dirname "$dest")"
+        cp -a "$src" "$dest"
+        chown "$user:$user" "$dest"
+      fi
+    done < <(find "$SKEL" -mindepth 1 -print0)
   fi
-  chown -R ankur:ankur "$HOME_DIR"
-  chmod 0700 "$HOME_DIR"
-fi
+  chown "$user:$user" "$home"
+  chmod 0700 "$home"
+}
 
-# Always ensure ownership in case of partial first boot.
-chown ankur:ankur "$HOME_DIR"
+seed_home /var/lib/dadi dadi
+seed_home /home/ankur ankur

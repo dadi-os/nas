@@ -76,18 +76,18 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 12
+        spacing: 14
 
         Text {
             text: "Tunnel"
             color: "#2c302a"
-            font.pixelSize: 22
+            font.pixelSize: 20
             font.weight: Font.DemiBold
         }
         Text {
-            text: "Headscale control plane URL (embedded in device QR codes) and Cloudflare tunnel token."
+            text: "Headscale control plane URL (embedded in device QR codes) and Cloudflare tunnel token. cloudflared starts once the token is non-empty."
             color: "#6e7568"
-            font.pixelSize: 12
+            font.pixelSize: 13
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
@@ -107,10 +107,11 @@ Item {
         }
         TextField {
             Layout.fillWidth: true
+            Layout.preferredHeight: 40
             text: root.controlUrl
             onTextChanged: root.controlUrl = text
             font.family: "Noto Sans Mono"
-            font.pixelSize: 12
+            font.pixelSize: 13
             color: "#2c302a"
             background: Rectangle {
                 radius: 9
@@ -120,17 +121,19 @@ Item {
             }
         }
         Button {
-            text: "Save control URL"
+            Layout.preferredHeight: 40
+            Layout.preferredWidth: 180
             onClicked: root.saveControlUrl()
             background: Rectangle {
                 radius: 9
                 color: parent.down ? "#5c6b52" : "#8fa382"
             }
             contentItem: Text {
-                text: parent.text
+                text: "Save control URL"
                 color: "#fafaf7"
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
+                font.pixelSize: 13
             }
         }
 
@@ -170,17 +173,19 @@ Item {
         }
 
         Button {
-            text: "Save token"
+            Layout.preferredHeight: 40
+            Layout.preferredWidth: 160
             onClicked: root.saveToken()
             background: Rectangle {
                 radius: 9
                 color: parent.down ? "#5c6b52" : "#8fa382"
             }
             contentItem: Text {
-                text: parent.text
+                text: "Save token"
                 color: "#fafaf7"
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
+                font.pixelSize: 13
             }
         }
 

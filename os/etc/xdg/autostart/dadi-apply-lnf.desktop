@@ -1,9 +1,10 @@
 [Desktop Entry]
 Type=Application
 Name=Apply dadi desktop
-Comment=One-shot look-and-feel for dadiOS
+Comment=Look-and-feel and crest widget placement for dadiOS
 Exec=/usr/libexec/dadi/apply-desktop.sh
 X-KDE-autostart-condition=ksmserver
+X-KDE-autostart-phase=2
 OnlyShowIn=KDE;
 X-GNOME-Autostart-enabled=true
 NoDisplay=true

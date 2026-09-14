@@ -14,7 +14,7 @@ Item {
         Text {
             text: "Devices"
             color: "#2c302a"
-            font.pixelSize: 22
+            font.pixelSize: 20
             font.weight: Font.DemiBold
         }
         Text {

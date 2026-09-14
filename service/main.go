@@ -74,6 +74,8 @@ func main() {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	registerConfigRoutes(mux, state)
+	registerDwarSettingsRoutes(mux, state)
+	registerAccessRoutes(mux, state)
 	terminals.register(mux)
 	files.register(mux)
 	browsers.register(mux)

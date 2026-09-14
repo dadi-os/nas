@@ -48,4 +48,16 @@ QtObject {
         xhr.setRequestHeader("Content-Type", "application/json")
         xhr.send(JSON.stringify(obj))
     }
+
+    function putJson(url, obj, callback) {
+        const xhr = new XMLHttpRequest()
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return
+            callback(xhr.status, xhr.responseText)
+        }
+        xhr.open("PUT", url)
+        xhr.setRequestHeader("Content-Type", "application/json")
+        xhr.send(JSON.stringify(obj))
+    }
 }
