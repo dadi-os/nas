@@ -149,3 +149,47 @@ func TestRequestLogIncludesDuration(t *testing.T) {
 		t.Fatalf("status %d", rec.Code)
 	}
 }
+
+func TestPullUpdatesInvalidScope(t *testing.T) {
+	dir := t.TempDir()
+	s := stateConfig{dir: dir, runtime: "compose", composeDir: dir}
+	mux := http.NewServeMux()
+	registerConfigRoutes(mux, s)
+
+	req := httptest.NewRequest(http.MethodPost, "/pull_updates", strings.NewReader(`{"scope":"nope"}`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	}
+	var payload errorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Error.Type != CodeInvalidRequest {
+		t.Fatalf("type %s", payload.Error.Type)
+	}
+}
+
+func TestPullUpdatesComposeRejectsOS(t *testing.T) {
+	dir := t.TempDir()
+	s := stateConfig{dir: dir, runtime: "compose", composeDir: dir}
+	mux := http.NewServeMux()
+	registerConfigRoutes(mux, s)
+
+	for _, scope := range []string{"os", "all"} {
+		req := httptest.NewRequest(http.MethodPost, "/pull_updates", strings.NewReader(`{"scope":"`+scope+`"}`))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("scope %s status %d body %s", scope, rec.Code, rec.Body.String())
+		}
+		var payload errorResponse
+		if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.Error.Type != CodeInvalidRequest {
+			t.Fatalf("scope %s type %s", scope, payload.Error.Type)
+		}
+	}
+}

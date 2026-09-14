@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -238,6 +239,35 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
+	mux.HandleFunc("POST /pull_updates", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Scope string `json:"scope"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<12)).Decode(&req); err != nil {
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "invalid json body")
+			return
+		}
+		scope := strings.TrimSpace(req.Scope)
+		if scope != "modules" && scope != "os" && scope != "all" {
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "scope must be modules, os, or all")
+			return
+		}
+		rebootRequired, err := s.pullUpdates(scope)
+		if err != nil {
+			if strings.Contains(err.Error(), "not available under compose") {
+				writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, err.Error())
+				return
+			}
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":          "ok",
+			"scope":           scope,
+			"reboot_required": rebootRequired,
+		})
+	})
+
 	mux.HandleFunc("GET /cloudflared/token", func(w http.ResponseWriter, r *http.Request) {
 		body, err := os.ReadFile(s.cloudflaredTokenPath())
 		if err != nil {
@@ -381,6 +411,46 @@ func (s stateConfig) stackDown() error {
 		return s.composeCmd("down")
 	default:
 		return fmt.Errorf("unsupported runtime %q", s.runtime)
+	}
+}
+
+// pullUpdates applies module and/or OS updates. scope must be modules, os, or all.
+// Returns whether a reboot is required (bootc staged a new deployment). Does not reboot.
+func (s stateConfig) pullUpdates(scope string) (rebootRequired bool, err error) {
+	switch s.runtime {
+	case "compose":
+		if scope == "os" || scope == "all" {
+			return false, fmt.Errorf("bootc upgrade not available under compose")
+		}
+		if err := s.composeCmd("pull"); err != nil {
+			return false, err
+		}
+		return false, s.composeCmd("up", "-d")
+	case "podman":
+		if scope == "modules" || scope == "all" {
+			if err := runCmd("podman", "auto-update"); err != nil {
+				return false, err
+			}
+		}
+		if scope == "os" || scope == "all" {
+			out, runErr := exec.Command("bootc", "upgrade").CombinedOutput()
+			if runErr != nil {
+				return false, fmt.Errorf("bootc upgrade: %w (%s)", runErr, strings.TrimSpace(string(out)))
+			}
+			combined := string(out)
+			rebootRequired = strings.Contains(combined, "Queued for next boot") ||
+				strings.Contains(combined, "staged") ||
+				strings.Contains(combined, "Changes queued")
+			statusOut, statusErr := exec.Command("bootc", "status", "--json").CombinedOutput()
+			if statusErr == nil && strings.Contains(string(statusOut), `"staged"`) &&
+				!strings.Contains(string(statusOut), `"staged": null`) &&
+				!strings.Contains(string(statusOut), `"staged":null`) {
+				rebootRequired = true
+			}
+		}
+		return rebootRequired, nil
+	default:
+		return false, fmt.Errorf("unsupported runtime %q", s.runtime)
 	}
 }
 

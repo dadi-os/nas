@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Invoke grantable Dimaag registry tools. Sets DIMAAG_URL when unset.
+set -euo pipefail
+export DIMAAG_URL="${DIMAAG_URL:-http://dimaag.dadi}"
+CLI=""
+for candidate in \
+  /usr/libexec/dadi/dadi.mjs \
+  /opt/dadi/dimaag/cli/dadi.mjs; do
+  if [ -f "$candidate" ]; then
+    CLI="$candidate"
+    break
+  fi
+done
+if [ -z "$CLI" ]; then
+  echo "dadi: client not found under /usr/libexec/dadi or /opt/dadi" >&2
+  exit 1
+fi
+exec node "$CLI" "$@"

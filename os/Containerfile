@@ -118,7 +118,8 @@ RUN mkdir -p \
          "/usr/share/dadi/qml/org/dadi/Desktop/shaders/${f}.frag"; \
      done \
   && chmod 0755 /usr/bin/dadi-preferences \
-       /usr/bin/dadi-add-device /usr/bin/dadi-provision-qr \
+       /usr/bin/dadi-add-device /usr/bin/dadi-provision-qr /usr/bin/dadi \
+  && chmod 0755 /usr/libexec/dadi/dadi.mjs \
   && plymouth-set-default-theme dadi \
   && for k in /lib/modules/*; do \
        [ -d "$k" ] || continue; \

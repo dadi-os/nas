@@ -207,6 +207,19 @@ curl -sG 'http://nas.dadi/logs' \
   --data-urlencode 'q=timeout'
 ```
 
+### Updates
+
+`POST /pull_updates` with required body `{ "scope": "modules" | "os" | "all" }`:
+
+| Runtime | `modules` | `os` / `all` |
+| --- | --- | --- |
+| podman | `podman auto-update` | `bootc upgrade` (sets `reboot_required` when staged; does not reboot) |
+| compose | `compose pull` + `up -d` | `400 invalid_request` |
+
+Response: `{ "status": "ok", "scope": "...", "reboot_required": bool }`.
+
+On the appliance, `/usr/bin/dadi` talks to Dimaag (`DIMAAG_URL=http://dimaag.dadi`) and can run `nas_pull_updates` / other registry tools.
+
 ## Topology
 
 ### Production (host + app containers)
