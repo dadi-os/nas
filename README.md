@@ -34,7 +34,7 @@ Required on the control service (fail at startup if missing):
 
 | Variable | Meaning |
 | --- | --- |
-| `HEADSCALE_USER` | Headscale user for preauth keys |
+| `HEADSCALE_USER` | Headscale namespace for preauth keys (not a Linux login) |
 | `LOKI_URL` | Loki base URL for `GET /logs` |
 | `LISTEN_ADDR` | HTTP listen address |
 | `DADI_STATE_DIR` | Persistent state root |
@@ -123,8 +123,8 @@ Anonymous HTTP on `LISTEN_ADDR`. Nothing is persisted in Nas — **tmux is the r
 
 | Piece | Value |
 | --- | --- |
-| System user | `dadi` (created in the OS Containerfile; home `$DADI_STATE_DIR`; shell `/bin/bash`). Graphical session autologins as `dadi` with a locked password. Agents (tmux, Chromium) run as `dadi`. |
-| SSH user | `ankur` (`/home/ankur`). Password (set in Preferences → Access) or the baked authorized key. `dadi` cannot SSH. |
+| System user | `dadi` (home `$DADI_STATE_DIR`). SDDM autologins as `dadi` with no password (`passwd -d`). SSH `DenyUsers dadi`. Agents (tmux, Chromium) run as `dadi`. |
+| SSH users | Created in Preferences → Access (`POST /access/users`). Wheel + password. `dadi` cannot SSH. Keys live in that user's `~/.ssh/authorized_keys`. |
 | tmux socket | `/run/dadi/tmux.sock` on appliance (`tmpfiles.d`); under `$DADI_STATE_DIR/run` in Compose |
 | Default cwd | `$DADI_STATE_DIR` when terminal / glob / grep omit `cwd` |
 
@@ -132,8 +132,8 @@ On the appliance (`DADI_RUNTIME=podman`) Nas runs as root and launches every tmu
 
 | Method | Path | Body | Success | Errors |
 | --- | --- | --- | --- | --- |
-| `GET` | `/access` | — | `{ ssh_user, session_user, password_set, tpm }` | — |
-| `PUT` | `/access/ssh-password` | `{ "password": string }` (8–128 chars) | `{ status: ok }` | `invalid_request`, `forbidden` (compose), `internal_error` |
+| `GET` | `/access` | — | `{ session_user, users, tpm }` | `internal_error` |
+| `POST` | `/access/users` | `{ "username", "password" }` (password 8–128 chars) | `{ status: ok, username, created }` | `invalid_request`, `forbidden` (compose), `internal_error` |
 | `GET` | `/modules/dwar/settings` | — | `{ env, config }` (keys + config.toml fields) | `internal_error` |
 | `PUT` | `/modules/dwar/settings` | `{ env, config }` | `{ status: ok }` (writes files, restarts dwar) | `invalid_request`, `internal_error` |
 
@@ -250,7 +250,7 @@ CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes an
 3. Flash to USB; boot the target machine. **The first disk is wiped with no confirmation.**
 4. At the LUKS prompt (**first boot only**). `dadi-tpm-enroll` then seals the volume to TPM2 PCR 7. Later boots unlock without the passphrase unless Secure Boot policy changes (recovery passphrase is still the ISO secret).
 5. SDDM autologins as `dadi` into Plasma. There is no lock screen; lid close and idle do not sleep or show a greeter.
-6. Set the `ankur` SSH password in Preferences → Access (`PUT /access/ssh-password`). SSH as `ankur@<box>` with that password (keys in [`os/authorized_keys`](os/authorized_keys) still work). `dadi` is not allowed to SSH.
+6. Add an SSH user in Preferences → Access (`POST /access/users`). SSH as that user with the password you set. `dadi` is not allowed to SSH.
 7. Point a Cloudflare tunnel at Headscale; set the public control plane URL and paste the tunnel token via Preferences → Tunnel (`PUT /headscale/control-url`, `PUT /cloudflared/token`). `cloudflared.service` starts only when the token file is non-empty and restarts on reboot.
 8. Provision Hath clients: on the box open **Add Device** (dock / brand menu / Preferences → Devices), name the node, show the QR. Scan from Hath on the phone/laptop (`https://dadi.ardusa.dev` control URL is embedded in the bundle).
 

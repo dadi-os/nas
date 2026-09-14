@@ -298,7 +298,7 @@ services:
       target: dev
     environment:
       CONTROL_URL: http://localhost:8080
-      HEADSCALE_USER: ankur
+      HEADSCALE_USER: dadi
       LISTEN_ADDR: ":8080"
       LOKI_URL: http://loki:3100
       DADI_STATE_DIR: /var/lib/dadi

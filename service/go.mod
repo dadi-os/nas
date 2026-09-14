@@ -1,4 +1,4 @@
-module github.com/ankur-dadi/nas/service
+module github.com/dadi-os/nas/service
 
 go 1.23
 

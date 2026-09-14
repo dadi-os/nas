@@ -7,7 +7,7 @@ Wants=network-online.target headscale.service loki.service bootstrap.service
 [Service]
 Type=simple
 Environment=CONTROL_URL=https://dadi.ardusa.dev
-Environment=HEADSCALE_USER=ankur
+Environment=HEADSCALE_USER=dadi
 Environment=LISTEN_ADDR=127.0.0.1:8092
 Environment=LOKI_URL=http://127.0.0.1:3100
 Environment=DADI_STATE_DIR=/var/lib/dadi

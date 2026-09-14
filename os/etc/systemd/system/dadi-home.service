@@ -1,5 +1,5 @@
 [Unit]
-Description=Ensure dadi and ankur home directories exist
+Description=Ensure dadi home directory exists
 After=local-fs.target dadi-seed.service
 Before=sddm.service
 

@@ -2,5 +2,6 @@
 Autolock=false
 LockOnResume=false
 Timeout=0
-RequirePassword=false
+LockGrace=0
 LockOnStart=false
+RequirePassword=false

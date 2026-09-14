@@ -1,6 +1,6 @@
 #!/bin/bash
 # Create stateful homes on first boot (bootc: /home is machine state).
-# dadi is the graphical session + agent user. ankur is SSH-only.
+# dadi is the graphical session + agent user. SSH admins are created in Preferences.
 set -euo pipefail
 
 SKEL=/etc/skel
@@ -29,4 +29,15 @@ seed_home() {
 }
 
 seed_home /var/lib/dadi dadi
-seed_home /home/ankur ankur
+
+# Locked shadow (passwd -l) fails PAM account in SDDM autologin. SSH is DenyUsers dadi.
+if passwd -S dadi | awk '{exit !($2 == "L")}'; then
+  passwd -d dadi
+fi
+
+# Plasma writes ~/.config on first run and can restore Autolock. Re-pin every boot.
+install -d -o dadi -g dadi -m 0700 /var/lib/dadi/.config
+install -o dadi -g dadi -m 0600 /etc/xdg/kscreenlockerrc /var/lib/dadi/.config/kscreenlockerrc
+install -o dadi -g dadi -m 0600 /etc/xdg/powerdevilrc /var/lib/dadi/.config/powerdevilrc
+install -o dadi -g dadi -m 0600 /etc/xdg/powermanagementprofilesrc /var/lib/dadi/.config/powermanagementprofilesrc
+install -o dadi -g dadi -m 0600 /etc/xdg/ksmserverrc /var/lib/dadi/.config/ksmserverrc

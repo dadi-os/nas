@@ -1,0 +1,8 @@
+#%PAM-1.0
+# Autologin must succeed even when dadi has no password (SSH still DenyUsers dadi).
+# Fedora's default sddm-autologin uses account→system-auth, which rejects passwd -l.
+auth       required     pam_permit.so
+auth       required     pam_env.so
+account    required     pam_permit.so
+password   required     pam_deny.so
+session    include      sddm

@@ -1,0 +1,12 @@
+[Unit]
+Description=Hold Plasma screensaver inhibit
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/kde-inhibit --screenSaver sleep infinity
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

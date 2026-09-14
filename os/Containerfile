@@ -82,24 +82,14 @@ COPY --from=alloy /bin/alloy /usr/local/bin/alloy
 # video/render/input live in /usr/lib/group (nss-altfiles); shadow-utils only reads /etc/group.
 RUN grep -E '^(video|render|input):' /usr/lib/group >> /etc/group
 
-# /home is machine state — create the account without writing a home directory.
-RUN useradd \
-    --uid 1000 \
-    --groups wheel,video,render,input \
-    --home-dir /home/ankur \
-    --no-create-home \
-    --shell /bin/bash \
-    ankur
-
-RUN mkdir -p /usr/ssh /var/lib/headscale /var/lib/loki /var/lib/alloy
+RUN mkdir -p /var/lib/headscale /var/lib/loki /var/lib/alloy
 
 COPY os/etc/ /etc/
 COPY os/usr/ /usr/
-COPY os/authorized_keys /usr/ssh/ankur-authorized-keys
 
 RUN systemd-sysusers \
   && usermod -aG video,render,input dadi \
-  && passwd -l dadi
+  && passwd -d dadi
 
 # Render Plymouth / SDDM / icon brand marks from SVG (Gujarati દાદી).
 RUN mkdir -p \
@@ -135,10 +125,12 @@ RUN mkdir -p \
        dracut --force --kver "$(basename "$k")" || true; \
      done
 
-RUN chmod 0440 /etc/sudoers.d/ankur \
-  && chmod 0644 /usr/ssh/ankur-authorized-keys \
+RUN chmod 0440 /etc/sudoers.d/dadi-wheel \
   && chmod 0755 /usr/libexec/dadi/*.sh \
   && chmod 0755 /usr/share/dadi/bootstrap.sh \
+  && mkdir -p /etc/systemd/user/graphical-session.target.wants \
+  && ln -sfn /usr/lib/systemd/user/dadi-inhibit-screensaver.service \
+       /etc/systemd/user/graphical-session.target.wants/dadi-inhibit-screensaver.service \
   && systemctl enable sshd.service \
   && systemctl enable dadi-seed.service \
   && systemctl enable dadi-home.service \

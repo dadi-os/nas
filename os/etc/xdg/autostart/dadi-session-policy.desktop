@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=dadi session policy
+Comment=Keep kscreenlocker and PowerDevil from locking the appliance session
+Exec=/usr/libexec/dadi/session-policy.sh
+X-KDE-autostart-phase=0
+X-KDE-autostart-condition=ksmserver
+OnlyShowIn=KDE;
+NoDisplay=true

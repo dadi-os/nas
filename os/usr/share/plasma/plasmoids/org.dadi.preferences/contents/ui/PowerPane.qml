@@ -45,7 +45,7 @@ Item {
                 }
                 Text {
                     width: parent.width
-                    text: "Autologin dadi · Relogin=true\nkscreenlocker Autolock=false\nHandleLidSwitch=ignore\nsystemd-inhibit idle:sleep:lid"
+                    text: "Autologin dadi (no password). SSH users are created in Access. Relogin=true. kscreenlocker off. PowerDevil lid/idle = do nothing. kde-inhibit screensaver."
                     color: "#2c302a"
                     font.pixelSize: 13
                     wrapMode: Text.Wrap
