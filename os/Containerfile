@@ -141,6 +141,9 @@ RUN chmod 0440 /etc/sudoers.d/dadi-wheel \
   && systemctl mask plasmalogin.service \
   && systemctl enable --force sddm.service \
   && systemctl set-default graphical.target \
+  && systemctl mask tuned.service \
+  && systemctl mask clevis-luks-askpass.service \
+  && systemctl mask clevis-luks-askpass.path \
   && systemctl enable cloudflared.service \
   && systemctl enable headscale.service \
   && systemctl enable bootstrap.service \

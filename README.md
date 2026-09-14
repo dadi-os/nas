@@ -261,13 +261,13 @@ CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes an
 1. Set repo secret `DADIOS_LUKS_PASSPHRASE` (no quotes, `#`, or backslashes).
 2. Download all `dadiOS-amd64.iso.*` parts from the `dadiOS-latest` release and reassemble: `cat dadiOS-amd64.iso.* > dadiOS-amd64.iso`.
 3. Flash to USB; boot the target machine. **The first disk is wiped with no confirmation.**
-4. At the LUKS prompt (**first boot only**). `dadi-tpm-enroll` then seals the volume to TPM2 PCR 7. Later boots unlock without the passphrase unless Secure Boot policy changes (recovery passphrase is still the ISO secret).
+4. Kickstart writes `/var/lib/dadi/luks-enroll.key` (no trailing newline) and best-effort TPM-enrolls during `%post`. The volume key is a kernel logon key after unlock, so `systemd-cryptenroll` cannot read it from the keyring — that file is the enroll credential. First boot of the installed OS reseals to PCR 7 (so the seal matches disk boot, not the installer USB) and shreds the key. If `%post` enroll succeeded against PCR 7, that boot unlocks from the TPM; otherwise type the ISO passphrase once. Later boots unlock without it unless Secure Boot policy changes (recovery is still slot 0).
 5. SDDM (`sddm-wayland-plasma`, not Plasma Login Manager) autologins as `dadi` into Plasma. There is no lock screen; lid close and idle do not sleep or show a greeter.
 6. Add an SSH user in Preferences → Access (`POST /access/users`). SSH as that user with the password you set. `dadi` is not allowed to SSH.
 7. Point a Cloudflare tunnel at Headscale; set the public control plane URL and paste the tunnel token via Preferences → Tunnel (`PUT /headscale/control-url`, `PUT /cloudflared/token`). `cloudflared.service` starts only when the token file is non-empty and restarts on reboot.
 8. Provision Hath clients: on the box open **Add Device** (dock / brand menu / Preferences → Devices), name the node, show the QR. Scan from Hath on the phone/laptop (`https://dadi.ardusa.dev` control URL is embedded in the bundle).
 
-Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`. If a firmware/Secure Boot change forces the LUKS passphrase again, wipe the TPM slot (`systemd-cryptenroll --wipe-slot=tpm2 <luks-dev>`) and `systemctl start dadi-tpm-enroll` to reseal.
+Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`. If a firmware/Secure Boot change forces the LUKS passphrase again, write the ISO passphrase to `/var/lib/dadi/luks-enroll.key` with `printf '%s'` (no newline), `chmod 400`, and `systemctl start dadi-tpm-enroll` (the unit wipes the old TPM slot, reseals PCR 7, and shreds the key).
 
 ### Host firewall (nftables)
 
@@ -301,7 +301,7 @@ Plasma on the box only — Hath is for other devices. Visual system is **bone gl
 | Add Device | `dadi-add-device` → `plasmawindowed org.dadi.adddevice` (mint Nas `POST /provision` QR for Hath) |
 | Wallpaper | `Dadi` (`/usr/share/wallpapers/Dadi/`) |
 | Wake / lid | immutable `action/lock_screen=false`, `kscreenlockerrc`, PowerDevil profiles, `dadi-inhibit-idle.service`, `logind.conf.d/dadi-lid.conf` |
-| TPM | `dadi-tpm-enroll.service` → PCR 7 after first unlock |
+| TPM | `dadi-tpm-enroll.service` → PCR 7 via `/var/lib/dadi/luks-enroll.key` (shredded after seal; 45s cap; no TTY wait) |
 | Plymouth / SDDM | theme `dadi`; `sddm-wayland-plasma` greeter compositor; PAM `sddm-autologin` permits empty-password `dadi` |
 
 Glass rules: blur before tint; never translucent text; two opacities only (veil / sheet); no dark glass. Desktop widgets sample the wallpaper through Dual Kawase + refraction (adapted from [liquidglass-kde-widgets](https://github.com/jaxparrow07/liquidglass-kde-widgets), GPL-3). Layout is placed with `desktop.addWidget(plugin, x, y, w, h)` on first session and whenever `/usr/libexec/dadi/apply-desktop.sh` sees a new `LAYOUT_VERSION` (Preferences → Desktop → Reset layout).

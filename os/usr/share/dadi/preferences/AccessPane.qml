@@ -182,7 +182,7 @@ Item {
             text: tpmEnrolled
                   ? "TPM2 PCR 7 is enrolled. Reboots unlock the disk without typing the recovery passphrase."
                   : (tpmPresent
-                     ? "TPM is present but not enrolled yet. After the first LUKS passphrase, dadi-tpm-enroll seals the volume."
+                     ? "TPM is present but not enrolled yet. The installer enroll key is required; dadi-tpm-enroll seals PCR 7 then shreds it."
                      : "No TPM reported. The recovery passphrase is required at every boot.")
             color: "#6e7568"
             font.pixelSize: 13

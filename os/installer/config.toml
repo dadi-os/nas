@@ -18,5 +18,12 @@ echo "ignoredisk --only-use=$disk" > /tmp/disk-include.ks
 zerombr
 clearpart --all --initlabel --disklabel=gpt
 autopart --noswap --type=lvm --encrypted --passphrase=__LUKS_PASSPHRASE__
+%post --erroronfail --interpreter=/bin/bash
+set -euo pipefail
+mkdir -p /var/lib/dadi
+printf '%s' '__LUKS_PASSPHRASE__' > /var/lib/dadi/luks-enroll.key
+chmod 400 /var/lib/dadi/luks-enroll.key
+/usr/libexec/dadi/tpm-enroll.sh --keep-key || true
+%end
 reboot
 """

@@ -16,6 +16,7 @@ HealthCmd=pg_isready -U ghar -d ghar
 HealthInterval=2s
 HealthTimeout=5s
 HealthRetries=20
+Notify=healthy
 
 [Service]
 Restart=always

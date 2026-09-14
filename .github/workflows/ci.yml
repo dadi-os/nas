@@ -38,6 +38,21 @@ jobs:
           grep -q 'pam_permit.so' os/etc/pam.d/sddm-autologin
           grep -q 'Requires=dadi-home.service' os/etc/systemd/system/sddm.service.d/dadi.conf
 
+      - name: Failed-unit causes are gated
+        run: |
+          set -euo pipefail
+          grep -q '^Notify=healthy$' os/etc/containers/systemd/ghar-postgres.container
+          grep -q '^Notify=healthy$' os/etc/containers/systemd/yaad-postgres.container
+          grep -q '^Notify=healthy$' os/etc/containers/systemd/dimaag-postgres.container
+          grep -q 'systemctl mask tuned.service' os/Containerfile
+          grep -q 'systemctl mask clevis-luks-askpass.service' os/Containerfile
+          grep -q 'TimeoutStartSec=45' os/etc/systemd/system/dadi-tpm-enroll.service
+          grep -q -- '--unlock-key-file=' os/usr/libexec/dadi/tpm-enroll.sh
+          grep -q 'luks-enroll.key' os/usr/libexec/dadi/tpm-enroll.sh
+          grep -q "printf '%s' '__LUKS_PASSPHRASE__'" os/installer/config.toml
+          grep -q 'tpm-enroll.sh --keep-key' os/installer/config.toml
+          grep -q 'L+ /etc/systemd/system/default.target' os/etc/tmpfiles.d/dadi.conf
+
       - name: Build test image
         run: docker build -f service/Dockerfile --target test -t nas-service-test service/
 

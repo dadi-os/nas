@@ -1,5 +1,5 @@
 [Unit]
-Description=Enroll LUKS with TPM2 after first passphrase unlock
+Description=Enroll LUKS with TPM2 PCR 7 using the installer enroll key
 After=local-fs.target cryptsetup.target
 ConditionPathExists=|/dev/tpmrm0
 ConditionPathExists=|/dev/tpm0
@@ -8,6 +8,9 @@ ConditionPathExists=/etc/crypttab
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+StandardInput=null
+TimeoutStartSec=45
+KeyringMode=shared
 ExecStart=/usr/libexec/dadi/tpm-enroll.sh
 
 [Install]
