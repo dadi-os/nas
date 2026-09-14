@@ -64,6 +64,9 @@ func main() {
 		}
 		handleProvision(w, r, controlURL, userName)
 	})
+	mux.HandleFunc("GET /clients", func(w http.ResponseWriter, r *http.Request) {
+		handleListClients(w, r, userName)
+	})
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		handleStatus(w, r, started, state.runtime)
 	})
@@ -184,6 +187,92 @@ func mintDeviceKey(userID uint64) (string, error) {
 		return "", fmt.Errorf("preauthkey response missing key")
 	}
 	return key.Key, nil
+}
+
+type meshClient struct {
+	NodeName    string   `json:"node_name"`
+	Online      bool     `json:"online"`
+	LastSeen    *string  `json:"last_seen"`
+	IPAddresses []string `json:"ip_addresses"`
+}
+
+type headscaleNode struct {
+	Name        string          `json:"name"`
+	GivenName   string          `json:"givenName"`
+	Online      bool            `json:"online"`
+	LastSeen    json.RawMessage `json:"lastSeen"`
+	IPAddresses []string        `json:"ipAddresses"`
+}
+
+// handleListClients returns Headscale mesh nodes for the appliance user.
+func handleListClients(w http.ResponseWriter, r *http.Request, userName string) {
+	clients, err := listMeshClients(userName)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"clients": clients})
+}
+
+func listMeshClients(userName string) ([]meshClient, error) {
+	out, err := exec.Command("headscale", "nodes", "list", "--user", userName, "-o", "json").Output()
+	if err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+	nodes, err := parseHeadscaleNodes(out)
+	if err != nil {
+		return nil, err
+	}
+	clients := make([]meshClient, 0, len(nodes))
+	for _, node := range nodes {
+		name := strings.TrimSpace(node.GivenName)
+		if name == "" {
+			name = strings.TrimSpace(node.Name)
+		}
+		if name == "" {
+			continue
+		}
+		ips := node.IPAddresses
+		if ips == nil {
+			ips = []string{}
+		}
+		clients = append(clients, meshClient{
+			NodeName:    name,
+			Online:      node.Online,
+			LastSeen:    formatHeadscaleLastSeen(node.LastSeen),
+			IPAddresses: ips,
+		})
+	}
+	return clients, nil
+}
+
+func parseHeadscaleNodes(out []byte) ([]headscaleNode, error) {
+	var nodes []headscaleNode
+	if err := json.Unmarshal(out, &nodes); err == nil {
+		return nodes, nil
+	}
+	var wrapped struct {
+		Nodes []headscaleNode `json:"nodes"`
+	}
+	if err := json.Unmarshal(out, &wrapped); err != nil {
+		return nil, fmt.Errorf("parse nodes: %w", err)
+	}
+	return wrapped.Nodes, nil
+}
+
+func formatHeadscaleLastSeen(raw json.RawMessage) *string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var asString string
+	if err := json.Unmarshal(raw, &asString); err == nil {
+		asString = strings.TrimSpace(asString)
+		if asString == "" {
+			return nil
+		}
+		return &asString
+	}
+	return nil
 }
 
 type statusResponse struct {

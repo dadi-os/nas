@@ -193,3 +193,50 @@ func TestPullUpdatesComposeRejectsOS(t *testing.T) {
 		}
 	}
 }
+
+func TestParseHeadscaleNodesArray(t *testing.T) {
+	raw := []byte(`[
+		{"name":"os","givenName":"os","online":true,"lastSeen":"2026-01-02T03:04:05Z","ipAddresses":["100.64.0.1"]},
+		{"name":"phone","givenName":"ankur-phone","online":false,"lastSeen":null,"ipAddresses":[]}
+	]`)
+	nodes, err := parseHeadscaleNodes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("len %d", len(nodes))
+	}
+	clients := make([]meshClient, 0, len(nodes))
+	for _, node := range nodes {
+		name := strings.TrimSpace(node.GivenName)
+		if name == "" {
+			name = strings.TrimSpace(node.Name)
+		}
+		clients = append(clients, meshClient{
+			NodeName:    name,
+			Online:      node.Online,
+			LastSeen:    formatHeadscaleLastSeen(node.LastSeen),
+			IPAddresses: node.IPAddresses,
+		})
+	}
+	if clients[0].NodeName != "os" || !clients[0].Online || clients[0].LastSeen == nil {
+		t.Fatalf("client0 %+v", clients[0])
+	}
+	if clients[1].NodeName != "ankur-phone" || clients[1].Online || clients[1].LastSeen != nil {
+		t.Fatalf("client1 %+v", clients[1])
+	}
+}
+
+func TestParseHeadscaleNodesWrapped(t *testing.T) {
+	raw := []byte(`{"nodes":[{"name":"laptop","givenName":"","online":true,"lastSeen":"2026-01-01T00:00:00Z","ipAddresses":["100.64.0.2"]}]}`)
+	nodes, err := parseHeadscaleNodes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 || nodes[0].Name != "laptop" {
+		t.Fatalf("%+v", nodes)
+	}
+	if got := formatHeadscaleLastSeen(nodes[0].LastSeen); got == nil || *got != "2026-01-01T00:00:00Z" {
+		t.Fatalf("lastSeen %v", got)
+	}
+}
