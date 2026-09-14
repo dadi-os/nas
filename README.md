@@ -71,7 +71,7 @@ Tauri Hath (mesh / provisioning work) is separate: `cd ../hath && net/build.sh &
 
 | Workflow | When | What |
 | --- | --- | --- |
-| `ci.yml` | PR + push to `main` | Build `service` Dockerfile `--target test`; `go test` / `go vet` in that image (same Chromium/Xvfb/tmux as prod) |
+| `ci.yml` | PR + push to `main` | Build `service` Dockerfile `--target test`; `go test` / `go vet`; reject unqualified `Image=` in quadlets |
 | `cd.yml` | `os/**` or `service/**` on `main` (or dispatch) | Build/push `nas` image; build LUKS installer ISO; publish `dadiOS-*` releases |
 
 Concurrency cancels superseded CI runs on the same ref.

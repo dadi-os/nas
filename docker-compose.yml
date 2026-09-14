@@ -56,7 +56,7 @@ services:
     networks: [dadi]
 
   yaad-postgres:
-    image: pgvector/pgvector:pg18
+    image: docker.io/pgvector/pgvector:pg18
     environment:
       POSTGRES_USER: yaad
       POSTGRES_DB: yaad
@@ -115,7 +115,7 @@ services:
     networks: [dadi]
 
   dimaag-postgres:
-    image: postgres:18
+    image: docker.io/library/postgres:18
     environment:
       POSTGRES_USER: dimaag
       POSTGRES_DB: dimaag
@@ -174,7 +174,7 @@ services:
     networks: [dadi]
 
   ghar-postgres:
-    image: postgres:18
+    image: docker.io/library/postgres:18
     environment:
       POSTGRES_USER: ghar
       POSTGRES_DB: ghar

@@ -15,6 +15,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Quadlet images are fully qualified
+        run: |
+          set -euo pipefail
+          bad="$(grep -R --include='*.container' -h '^Image=' os/etc/containers/systemd \
+            | grep -vE '^Image=[a-z0-9.-]+\.[a-z0-9.-]+/' || true)"
+          if [ -n "$bad" ]; then
+            echo "Fedora Podman cannot resolve short names without a TTY:"
+            echo "$bad"
+            exit 1
+          fi
+
       - name: Build test image
         run: docker build -f service/Dockerfile --target test -t nas-service-test service/
 
