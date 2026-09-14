@@ -124,7 +124,7 @@ Anonymous HTTP on `LISTEN_ADDR`. Nothing is persisted in Nas — **tmux is the r
 | Piece | Value |
 | --- | --- |
 | System user | `dadi` (home `$DADI_STATE_DIR`). SDDM autologins as `dadi` with no password (`passwd -d`). SSH `DenyUsers dadi`. Agents (tmux, Chromium) run as `dadi`. |
-| SSH users | Created in Preferences → Access (`POST /access/users`). Wheel + password. `dadi` cannot SSH. Keys live in that user's `~/.ssh/authorized_keys`. |
+| SSH users | Created in Preferences → Access (`POST /access/users`). Wheel + password. `dadi` cannot SSH. Pubkey auth is off. |
 | tmux socket | `/run/dadi/tmux.sock` on appliance (`tmpfiles.d`); under `$DADI_STATE_DIR/run` in Compose |
 | Default cwd | `$DADI_STATE_DIR` when terminal / glob / grep omit `cwd` |
 
