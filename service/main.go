@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -397,6 +398,7 @@ func handleStatus(w http.ResponseWriter, _ *http.Request, started time.Time, run
 		}
 		services = append(services, serviceStatus{Name: t.name, Healthy: healthy})
 	}
+	services = append(services, serviceStatus{Name: "nas", Healthy: true})
 
 	disk, diskErr := readDisk(stateDir)
 	errs := []string{}
@@ -622,10 +624,24 @@ func parseLokiRange(body []byte, limit int) ([]logEntry, error) {
 				}
 			}
 			out = append(out, entry)
-			if len(out) >= limit {
-				return out, nil
-			}
 		}
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return logEntryTime(out[i]).After(logEntryTime(out[j]))
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
 	return out, nil
+}
+
+// logEntryTime parses an entry's time for newest-first ordering; zero if unparseable.
+func logEntryTime(entry logEntry) time.Time {
+	if t, err := time.Parse(time.RFC3339Nano, entry.Time); err == nil {
+		return t
+	}
+	if t, err := time.Parse(time.RFC3339, entry.Time); err == nil {
+		return t
+	}
+	return time.Time{}
 }

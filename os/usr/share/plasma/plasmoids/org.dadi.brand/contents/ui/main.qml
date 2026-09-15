@@ -23,6 +23,7 @@ PlasmoidItem {
         Text {
             id: mark
             anchors.centerIn: parent
+            anchors.verticalCenterOffset: Math.round(font.pixelSize * 0.2)
             text: "દાદી"
             color: "#141511"
             font.family: "Noto Sans Gujarati"

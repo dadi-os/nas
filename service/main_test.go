@@ -68,6 +68,37 @@ func TestParseLokiRangeJSON(t *testing.T) {
 	}
 }
 
+func TestParseLokiRangeNewestFirstAcrossStreams(t *testing.T) {
+	body := []byte(`{
+		"data": {
+			"result": [
+				{
+					"stream": {"service": "nas"},
+					"values": [
+						["1700000000000000000", "{\"time\":\"2024-01-01T00:00:00Z\",\"level\":\"error\",\"service\":\"nas\",\"msg\":\"older\"}"]
+					]
+				},
+				{
+					"stream": {"service": "dimaag"},
+					"values": [
+						["1700000002000000000", "{\"time\":\"2024-01-01T00:00:02Z\",\"level\":\"error\",\"service\":\"dimaag\",\"msg\":\"newer\"}"]
+					]
+				}
+			]
+		}
+	}`)
+	entries, err := parseLokiRange(body, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	if entries[0].Msg != "newer" || entries[1].Msg != "older" {
+		t.Fatalf("order %+v", entries)
+	}
+}
+
 func TestWriteErrorShape(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/x", nil)
 	rec := httptest.NewRecorder()

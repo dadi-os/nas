@@ -24,7 +24,7 @@ PlasmoidItem {
         property var errors: []
         property bool statusReachable: false
 
-        readonly property var moduleOrder: ["dwar", "yaad", "dimaag", "ghar", "chaavi"]
+        readonly property var moduleOrder: ["dwar", "yaad", "dimaag", "ghar", "chaavi", "nas"]
 
         function erredNames() {
             const names = {}
@@ -315,6 +315,12 @@ PlasmoidItem {
                                 height: parent.height
                                 radius: 3
                                 color: "#141511"
+                                Behavior on width {
+                                    NumberAnimation {
+                                        duration: Tokens.slowMs
+                                        easing.type: Easing.OutCubic
+                                    }
+                                }
                             }
                         }
                     }

@@ -153,7 +153,8 @@ RUN chmod 0440 /etc/sudoers.d/dadi-wheel \
   && systemctl enable nas.service \
   && systemctl enable caddy.service \
   && systemctl enable nftables.service \
-  && systemctl enable podman-auto-update.timer
+  && systemctl enable podman-auto-update.timer \
+  && ln -sfn /usr/share/zoneinfo/America/New_York /etc/localtime
 
 # Last occurrence wins in os-release parsers — brand as dadiOS without
 # changing ID (bootc-image-builder keys off ID=fedora for distro defs).
