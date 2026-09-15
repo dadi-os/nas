@@ -37,11 +37,11 @@ loki.process "normalize" {
 
   stage.drop {
     source     = "service"
-    expression = "^(alloy|loki|caddy|hath|.*-postgres|.*-migrate|headscale|tailscale|bootstrap)$"
+    expression = "^(alloy|loki|caddy|hath|.*-postgres|.*-migrate|headscale|tailscale|bootstrap|chaavi-vault)$"
   }
 
   stage.match {
-    selector = `{service=~"dimaag|yaad|dwar|nas|ghar"}`
+    selector = `{service=~"dimaag|yaad|dwar|nas|ghar|chaavi"}`
 
     stage.json {
       expressions = {

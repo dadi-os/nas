@@ -1,7 +1,7 @@
 [Unit]
 Description=Caddy reverse proxy for *.dadi
-After=dadi-seed.service dwar.service yaad.service dimaag.service ghar.service nas.service
-Wants=dadi-seed.service dwar.service yaad.service dimaag.service ghar.service nas.service
+After=dadi-seed.service dwar.service yaad.service dimaag.service ghar.service chaavi-vault.service chaavi.service nas.service
+Wants=dadi-seed.service dwar.service yaad.service dimaag.service ghar.service chaavi-vault.service chaavi.service nas.service
 
 [Service]
 Type=simple

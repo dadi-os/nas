@@ -1,0 +1,26 @@
+[Unit]
+After=dadi-seed.service
+Requires=dadi-seed.service
+
+[Container]
+Image=docker.io/vaultwarden/server:1.37.2-alpine
+ContainerName=chaavi-vault
+Network=dadi.network
+PublishPort=127.0.0.1:8086:80
+Volume=chaavi_vault.volume:/data
+Environment=DOMAIN=http://chaavi.dadi
+Environment=SIGNUPS_ALLOWED=true
+Environment=ROCKET_PORT=80
+HealthCmd=wget -qO- http://127.0.0.1/alive
+HealthInterval=2s
+HealthTimeout=5s
+HealthRetries=20
+Notify=healthy
+AutoUpdate=registry
+
+[Service]
+Restart=always
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

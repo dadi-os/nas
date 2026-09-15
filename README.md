@@ -2,7 +2,7 @@
 
 Nas is the OS and infrastructure layer for dadi. It owns topology — which services exist, how they are networked and named, how they start, and how logs are collected and queried. It is the composition layer: the only place the full system is written down.
 
-**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box UI is Plasma **bone glass** (leaf field, translucent panels, દાદી brand, crest widgets, Preferences). Hath is for other devices only. App modules (`dwar`, `yaad`, `dimaag`, `ghar`) stay as containers and update via `podman-auto-update` with no reboot.
+**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box UI is Plasma **bone glass** (leaf field, translucent panels, દાદી brand, crest widgets, Preferences). Hath is for other devices only. App modules (`dwar`, `yaad`, `dimaag`, `ghar`, `chaavi`) stay as containers and update via `podman-auto-update` with no reboot.
 
 ## Dependencies
 
@@ -49,13 +49,13 @@ Optional seed (written once into `/var/lib/dadi/headscale/control_url` when that
 
 After seed, Preferences → Tunnel (or `PUT /headscale/control-url`) is the sole source of truth. Provision fails until the file is non-empty.
 
-Module secrets live in sibling `../dwar/.env` in compose and under `DADI_STATE_DIR/modules/dwar/` on the appliance. Yaad/Dimaag Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar values.
+Module secrets live in sibling `../dwar/.env` and `../chaavi/.env` in compose, and under `DADI_STATE_DIR/modules/{dwar,chaavi}/` on the appliance. Chaavi’s `BW_CLIENTID`, `BW_CLIENTSECRET`, and `BW_PASSWORD` are Chaavi module env — not Dwar keys. `VAULT_URL` is set on the container (compose `environment` / quadlet `Environment`), not the env file. Vaultwarden stores the encrypted vault in the `chaavi_vault` volume. Yaad/Dimaag/Ghar Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar or Chaavi values.
 
 ## Local run
 
 Dev is **headless Compose** on a Mac — no Plasma, no Tauri, no Overmind. The module stack plus browser Hath come up together; open `http://hath.dadi`.
 
-One-time: `/etc/hosts` must resolve `*.dadi` (including `hath.dadi`) to localhost; Docker running; `../dwar/.env` present (copy from `.env.example` if missing). Then:
+One-time: `/etc/hosts` must resolve `*.dadi` (including `hath.dadi` and `chaavi.dadi`) to localhost; Docker running; `../dwar/.env` and `../chaavi/.env` present (copy from each repo’s `.env.example` if missing). Then:
 
 ```sh
 docker compose up --build
@@ -84,7 +84,7 @@ All dadi modules emit **one JSON object per line** on stdout. Dev Alloy scrapes 
 | --- | --- |
 | `time` | RFC3339 / RFC3339Nano UTC |
 | `level` | `debug` \| `info` \| `warn` \| `error` |
-| `service` | `nas` \| `dwar` \| `yaad` \| `dimaag` \| `hath` \| `ghar` |
+| `service` | `nas` \| `dwar` \| `yaad` \| `dimaag` \| `hath` \| `ghar` \| `chaavi` |
 | `msg` | Human message; may include `\n` for multi-line detail |
 | `code` | Stable error/event code when applicable |
 | `request_id` | Per-request correlation id |
@@ -234,7 +234,7 @@ On the appliance, `/usr/bin/dadi` talks to Dimaag (`DIMAAG_URL=http://dimaag.dad
 | `nas` | host systemd | control API on `127.0.0.1:8092` |
 | `loki` / `alloy` | host systemd | logs |
 | `sddm` + Plasma | host graphical | `sddm-wayland-plasma`; autologin `dadi`; no locker; bone glass desktop |
-| `dwar` / `yaad` / `dimaag` / `ghar` (+ postgres / migrate) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8084` (`ghar` uses `Network=host`, binds loopback) |
+| `dwar` / `yaad` / `dimaag` / `ghar` / `chaavi` (+ postgres / migrate / `chaavi-vault`) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8086` (`ghar` uses `Network=host`, binds loopback; Chaavi adapter `8085`, Vaultwarden `8086`) |
 
 ### Development (Mac Compose, headless)
 
@@ -242,7 +242,7 @@ On the appliance, `/usr/bin/dadi` talks to Dimaag (`DIMAAG_URL=http://dimaag.dad
 | --- | --- | --- |
 | `caddy` | `caddy:2-alpine` | host port 80; CORS for `Origin: http://hath.dadi` |
 | `hath` | `../hath` `dev` target (Vite) | `*:8080` → `http://hath.dadi` |
-| `dwar` / `yaad` / `dimaag` / `ghar` | sibling builds, `dev` target | `*:8080` (Matter does not work on Mac Docker) |
+| `dwar` / `yaad` / `dimaag` / `ghar` / `chaavi` | sibling builds, `dev` target (`chaavi-vault` is `vaultwarden/server:1.37.2-alpine`) | `*:8080` (Matter does not work on Mac Docker); Chaavi at `http://chaavi.dadi` |
 | `nas-service` | `./service` | host `8092` |
 | `loki` / `alloy` | official images | log pipeline |
 | `headscale` / `tailscale` | official images | mesh |
@@ -252,7 +252,7 @@ On the appliance, `/usr/bin/dadi` talks to Dimaag (`DIMAAG_URL=http://dimaag.dad
 | Development | Docker Compose on a Mac (headless) | `docker-compose.yml` |
 | Production | bootc host systemd + podman modules | units + quadlets under `/etc/containers/systemd/` |
 
-Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under test is browser Hath.
+Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under test is browser Hath. Chaavi is `http://chaavi.dadi`: Caddy sends `/v1*` and `/health` to the adapter; everything else (Bitwarden clients: `/api`, `/identity`, …) goes to Vaultwarden. Nas restart names are `chaavi` and `chaavi-vault` (Dimaag’s `restart-module` tool is updated in that repo).
 
 ### First install
 
@@ -265,7 +265,7 @@ CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes an
 5. SDDM (`sddm-wayland-plasma`, not Plasma Login Manager) autologins as `dadi` into Plasma. There is no lock screen; lid close and idle do not sleep or show a greeter.
 6. Add an SSH user in Preferences → Users (`POST /access/users`). SSH as that user with the password you set. `dadi` is not allowed to SSH.
 7. Open Preferences → Tunnel. Note the WAN address, create a DNS A record for your hostname pointing at it, then Save and publish `https://your-hostname`. Nas maps WAN 80/443 via UPnP, Caddy terminates TLS, and Headscale `server_url` is rewritten.
-8. Provision Hath clients: on the box open **Add Device** (dock / brand menu / Preferences → Devices), name the node, show the QR. Scan from Hath on the phone/laptop (the control URL is embedded in the bundle).
+8. Provision Hath clients: on the box open **Preferences → Devices**, name the node, show the QR. Scan from Hath on the phone/laptop (the control URL is embedded in the bundle). Node names must be unique.
 
 Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`. If a firmware/Secure Boot change forces the LUKS passphrase again, write the ISO passphrase to `/var/lib/dadi/luks-enroll.key` with `printf '%s'` (no newline), `chmod 400`, and `systemctl start dadi-tpm-enroll` (the unit wipes the old TPM slot, reseals PCR 7, and shreds the key).
 
@@ -295,10 +295,9 @@ Plasma on the box only — Hath is for other devices. Visual system is **bone gl
 | Surface | Where |
 | --- | --- |
 | Look-and-feel | `org.dadi.desktop` — translucent top bar (32px), floating dock, crest widgets |
-| Brand menu | plasmoid `org.dadi.brand` |
+| Brand | plasmoid `org.dadi.brand` — wordmark opens Preferences; right-click for about / power |
 | Widgets | `org.dadi.widget.{agents,memory,timeline,ghar,system}` — liquid glass (GPL-3 shaders from liquidglass-kde-widgets) + Hath data |
-| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (users / dwar / tunnel / devices → `DADI_STATE_DIR`) |
-| Add Device | `dadi-add-device` → `plasmawindowed org.dadi.adddevice` (mint Nas `POST /provision` QR for Hath) |
+| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (users / dwar / tunnel / devices → `DADI_STATE_DIR`; Devices mints `POST /provision` QR for Hath) |
 | Wallpaper | `Dadi` (`/usr/share/wallpapers/Dadi/`) |
 | Wake / lid | immutable `action/lock_screen=false`, `kscreenlockerrc`, PowerDevil profiles, `dadi-inhibit-idle.service`, `logind.conf.d/dadi-lid.conf` |
 | TPM | `dadi-tpm-enroll.service` → PCR 7 via `/var/lib/dadi/luks-enroll.key` (shredded after seal; 45s cap; no TTY wait) |
@@ -317,16 +316,17 @@ Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale i
 Add to `/etc/hosts`:
 
 ```
-127.0.0.1  dwar.dadi yaad.dadi dimaag.dadi ghar.dadi nas.dadi hath.dadi
+127.0.0.1  dwar.dadi yaad.dadi dimaag.dadi ghar.dadi chaavi.dadi nas.dadi hath.dadi
 ```
 
-Copy Dwar env if missing:
+Copy Dwar and Chaavi env if missing:
 
 ```sh
 cp ../dwar/.env.example ../dwar/.env
+cp ../chaavi/.env.example ../chaavi/.env
 ```
 
-Yaad, Dimaag, and Ghar need no `.env` — Nas injects fixed local Postgres credentials.
+Yaad, Dimaag, and Ghar need no `.env` — Nas injects fixed local Postgres credentials. Chaavi still needs `../chaavi/.env` (blank `BW_*` until set); `VAULT_URL` is injected by compose.
 
 Docker Desktop (or equivalent) must be running. No Overmind / tmux.
 

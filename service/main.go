@@ -321,6 +321,7 @@ func healthTargets(runtime string) []struct {
 			{name: "dimaag", url: "http://127.0.0.1:8083/health"},
 			{name: "dwar", url: "http://127.0.0.1:8081/health"},
 			{name: "ghar", url: "http://127.0.0.1:8084/health"},
+			{name: "chaavi", url: "http://127.0.0.1:8085/health"},
 		}
 	}
 	return []struct {
@@ -331,6 +332,7 @@ func healthTargets(runtime string) []struct {
 		{name: "dimaag", url: "http://dimaag:8080/health"},
 		{name: "dwar", url: "http://dwar:8080/health"},
 		{name: "ghar", url: "http://ghar:8080/health"},
+		{name: "chaavi", url: "http://chaavi:8080/health"},
 	}
 }
 
@@ -512,6 +514,7 @@ var jsonLogServices = map[string]struct{}{
 	"nas":    {},
 	"hath":   {},
 	"ghar":   {},
+	"chaavi": {},
 }
 
 func parseLokiRange(body []byte, limit int) ([]logEntry, error) {

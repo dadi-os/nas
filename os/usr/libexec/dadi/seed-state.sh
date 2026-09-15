@@ -36,7 +36,7 @@ while IFS= read -r -d '' src; do
   fi
 done < <(find "$SEED" -print0)
 
-mkdir -p "$STATE/caddy" "$STATE/modules/dwar" "$STATE/headscale"
+mkdir -p "$STATE/caddy" "$STATE/modules/dwar" "$STATE/modules/chaavi" "$STATE/headscale"
 
 # Control URL preference file (Preferences → Tunnel). Empty until set or seeded.
 if [ ! -f "$STATE/headscale/control_url" ]; then
@@ -65,6 +65,14 @@ ANTHROPIC_API_KEY=
 GEMINI_API_KEY=
 OPENAI_API_KEY=
 DEEPGRAM_API_KEY=
+EOF
+fi
+
+if [ ! -f "$STATE/modules/chaavi/.env" ]; then
+  cat >"$STATE/modules/chaavi/.env" <<'EOF'
+BW_CLIENTID=
+BW_CLIENTSECRET=
+BW_PASSWORD=
 EOF
 fi
 

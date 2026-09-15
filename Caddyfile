@@ -53,6 +53,19 @@ http://ghar.dadi {
 	}
 }
 
+http://chaavi.dadi {
+	import cors_hath
+	handle /v1* {
+		reverse_proxy chaavi:8080
+	}
+	handle /health {
+		reverse_proxy chaavi:8080
+	}
+	handle {
+		reverse_proxy chaavi-vault:80
+	}
+}
+
 http://nas.dadi {
 	import cors_hath
 	handle {

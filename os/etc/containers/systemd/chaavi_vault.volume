@@ -1,0 +1,4 @@
+# Vaultwarden encrypted vault data. Named volume so podman-auto-update
+# restarts keep the vault intact.
+[Volume]
+VolumeName=chaavi_vault

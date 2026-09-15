@@ -27,6 +27,19 @@ http://ghar.dadi {
 	reverse_proxy 127.0.0.1:8084
 }
 
+http://chaavi.dadi {
+	import mesh_only
+	handle /v1* {
+		reverse_proxy 127.0.0.1:8085
+	}
+	handle /health {
+		reverse_proxy 127.0.0.1:8085
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8086
+	}
+}
+
 http://nas.dadi {
 	import mesh_only
 	reverse_proxy 127.0.0.1:8092

@@ -1,0 +1,4 @@
+# Bitwarden CLI session/state for the Chaavi adapter.
+# Named volume so podman-auto-update restarts keep unlock state intact.
+[Volume]
+VolumeName=chaavi_bw

@@ -16,38 +16,43 @@ import (
 // errControlURLUnset means Preferences → Tunnel has no control plane URL yet.
 var errControlURLUnset = errors.New("control URL not set — configure in Preferences → Tunnel")
 
-// Only Dwar has user-editable secrets (provider keys). Yaad/Dimaag Postgres
-// credentials are baked into compose/quadlets — not Preferences/.env.
+// Dwar (provider keys) and Chaavi (BW_*) have user-editable secrets.
+// Yaad/Dimaag/Ghar Postgres credentials are baked into compose/quadlets.
 var moduleEnvNames = map[string]struct{}{
-	"dwar": {},
+	"dwar":   {},
+	"chaavi": {},
 }
 
 // ModuleUnit maps API name → systemd unit (prod / DADI_RUNTIME=podman).
 var moduleUnit = map[string]string{
-	"dwar":      "dwar",
-	"yaad":      "yaad",
-	"dimaag":    "dimaag",
-	"ghar":      "ghar",
-	"nas":       "nas.service",
-	"caddy":     "caddy.service",
-	"headscale": "headscale.service",
-	"loki":      "loki.service",
-	"alloy":     "alloy.service",
-	"tailscale": "dadi-tailscale.service",
+	"dwar":         "dwar",
+	"yaad":         "yaad",
+	"dimaag":       "dimaag",
+	"ghar":         "ghar",
+	"chaavi":       "chaavi",
+	"chaavi-vault": "chaavi-vault",
+	"nas":          "nas.service",
+	"caddy":        "caddy.service",
+	"headscale":    "headscale.service",
+	"loki":         "loki.service",
+	"alloy":        "alloy.service",
+	"tailscale":    "dadi-tailscale.service",
 }
 
 // ComposeService maps API name → docker compose service (dev). Empty = no-op.
 var composeService = map[string]string{
-	"dwar":      "dwar",
-	"yaad":      "yaad",
-	"dimaag":    "dimaag",
-	"ghar":      "ghar",
-	"nas":       "nas-service",
-	"caddy":     "caddy",
-	"headscale": "headscale",
-	"loki":      "loki",
-	"alloy":     "alloy",
-	"tailscale": "tailscale",
+	"dwar":         "dwar",
+	"yaad":         "yaad",
+	"dimaag":       "dimaag",
+	"ghar":         "ghar",
+	"chaavi":       "chaavi",
+	"chaavi-vault": "chaavi-vault",
+	"nas":          "nas-service",
+	"caddy":        "caddy",
+	"headscale":    "headscale",
+	"loki":         "loki",
+	"alloy":        "alloy",
+	"tailscale":    "tailscale",
 }
 
 type stateConfig struct {
@@ -381,9 +386,9 @@ func (s stateConfig) stackUp() error {
 	case "podman":
 		_ = hostSystemctl("start", "dadi-seed.service")
 		units := []string{
-			"yaad-postgres", "dimaag-postgres", "ghar-postgres", "headscale.service", "loki.service",
+			"yaad-postgres", "dimaag-postgres", "ghar-postgres", "chaavi-vault", "headscale.service", "loki.service",
 			"yaad-migrate", "dimaag-migrate", "ghar-migrate",
-			"yaad", "dimaag", "dwar", "ghar", "bootstrap.service",
+			"yaad", "dimaag", "dwar", "ghar", "chaavi", "bootstrap.service",
 			"nas.service", "caddy.service", "alloy.service",
 			"tailscaled.service", "dadi-tailscale.service",
 		}
@@ -405,9 +410,9 @@ func (s stateConfig) stackDown() error {
 	case "podman":
 		units := []string{
 			"dadi-tailscale.service", "caddy.service", "nas.service", "alloy.service",
-			"dwar", "yaad", "dimaag", "ghar", "bootstrap.service",
+			"dwar", "yaad", "dimaag", "ghar", "chaavi", "bootstrap.service",
 			"yaad-migrate", "dimaag-migrate", "ghar-migrate",
-			"yaad-postgres", "dimaag-postgres", "ghar-postgres", "headscale.service", "loki.service",
+			"yaad-postgres", "dimaag-postgres", "ghar-postgres", "chaavi-vault", "headscale.service", "loki.service",
 		}
 		for _, u := range units {
 			_ = hostSystemctl("stop", u)

@@ -1,20 +1,23 @@
 [Unit]
-After=dadi-seed.service dimaag-postgres.service dimaag-migrate.service
-Requires=dadi-seed.service dimaag-postgres.service
-Wants=dimaag-migrate.service
+After=dadi-seed.service chaavi-vault.service
+Requires=dadi-seed.service
+Wants=chaavi-vault.service
 
 [Container]
-Image=ghcr.io/dadi-os/dimaag:latest
-ContainerName=dimaag
+Image=ghcr.io/dadi-os/chaavi:latest
+ContainerName=chaavi
 Network=dadi.network
-PublishPort=127.0.0.1:8083:8080
+PublishPort=127.0.0.1:8085:8080
 AddHost=dwar.dadi:host-gateway
 AddHost=yaad.dadi:host-gateway
 AddHost=dimaag.dadi:host-gateway
 AddHost=ghar.dadi:host-gateway
 AddHost=chaavi.dadi:host-gateway
 AddHost=nas.dadi:host-gateway
-Environment=DATABASE_URL=postgres://dimaag:dimaag@dimaag-postgres:5432/dimaag
+Environment=VAULT_URL=http://chaavi-vault:80
+Environment=BITWARDENCLI_APPDATA_DIR=/var/lib/chaavi/bw
+EnvironmentFile=/var/lib/dadi/modules/chaavi/.env
+Volume=chaavi_bw.volume:/var/lib/chaavi/bw
 AutoUpdate=registry
 HealthCmd=node -e "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 HealthInterval=2s

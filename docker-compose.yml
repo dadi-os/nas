@@ -17,6 +17,7 @@ services:
           - yaad.dadi
           - dimaag.dadi
           - ghar.dadi
+          - chaavi.dadi
           - nas.dadi
           - hath.dadi
     depends_on:
@@ -27,6 +28,10 @@ services:
       dimaag:
         condition: service_healthy
       ghar:
+        condition: service_healthy
+      chaavi-vault:
+        condition: service_healthy
+      chaavi:
         condition: service_healthy
       nas-service:
         condition: service_healthy
@@ -234,6 +239,51 @@ services:
         condition: service_completed_successfully
     networks: [dadi]
 
+  chaavi-vault:
+    image: docker.io/vaultwarden/server:1.37.2-alpine
+    environment:
+      DOMAIN: http://chaavi.dadi
+      SIGNUPS_ALLOWED: "true"
+      ROCKET_PORT: "80"
+    volumes:
+      - chaavi_vault:/data
+    expose: ["80"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/alive"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    networks: [dadi]
+
+  chaavi:
+    build:
+      context: ../chaavi
+      target: dev
+    env_file: ../chaavi/.env
+    environment:
+      VAULT_URL: http://chaavi-vault:80
+      BITWARDENCLI_APPDATA_DIR: /var/lib/chaavi/bw
+    volumes:
+      - ../chaavi:/app
+      - /app/node_modules
+      - chaavi_bw:/var/lib/chaavi/bw
+    expose: ["8080"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    depends_on:
+      chaavi-vault:
+        condition: service_healthy
+    networks: [dadi]
+
   # Control plane. Published on the host so a device that has not yet joined
   # the mesh can still reach it (it cannot resolve *.dadi yet). Same reason
   # control_url lives in the provisioning bundle.
@@ -310,9 +360,10 @@ services:
       - ./headscale/config.yaml:/etc/headscale/config.yaml:ro
       - headscale_data:/var/lib/headscale
       - headscale_run:/var/run/headscale
-      # Dwar secrets/config only — Yaad/Dimaag Postgres is baked into this compose file.
+      # Dwar + Chaavi secrets — Yaad/Dimaag Postgres is baked into this compose file.
       - ../dwar/.env:/var/lib/dadi/modules/dwar/.env
       - ../dwar/config.toml:/var/lib/dadi/modules/dwar/config.toml
+      - ../chaavi/.env:/var/lib/dadi/modules/chaavi/.env
       - headscale_control_url:/var/lib/dadi/headscale
       - browsers_data:/var/lib/dadi/browsers
       - .:/nas:ro
@@ -388,6 +439,8 @@ volumes:
   dimaag_pg:
   ghar_pg:
   ghar_matter:
+  chaavi_vault:
+  chaavi_bw:
   headscale_data:
   headscale_run:
   tailscale_state:
