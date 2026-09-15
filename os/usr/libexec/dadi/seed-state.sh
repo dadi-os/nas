@@ -38,16 +38,6 @@ done < <(find "$SEED" -print0)
 
 mkdir -p "$STATE/caddy" "$STATE/modules/dwar" "$STATE/modules/chaavi" "$STATE/headscale"
 
-# Control URL preference file. Empty until set or seeded.
-if [ ! -f "$STATE/headscale/control_url" ]; then
-  : >"$STATE/headscale/control_url"
-  chmod 0600 "$STATE/headscale/control_url"
-fi
-if [ ! -s "$STATE/headscale/control_url" ] && [ -n "${CONTROL_URL:-}" ]; then
-  printf '%s\n' "$CONTROL_URL" >"$STATE/headscale/control_url"
-  chmod 0600 "$STATE/headscale/control_url"
-fi
-
 if [ ! -f "$STATE/headscale/config.yaml" ]; then
   cp /etc/headscale/config.yaml "$STATE/headscale/config.yaml"
   chmod 0600 "$STATE/headscale/config.yaml"

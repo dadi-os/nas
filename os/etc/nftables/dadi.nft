@@ -27,7 +27,10 @@ table inet filter {
 		# SSH for box admins provisioned in Preferences.
 		tcp dport 22 accept
 
-		# Public Headscale via Caddy (HTTPS) and Let's Encrypt HTTP-01.
+		# Public Headscale (direct :8080; UPnP maps WAN→LAN).
+		tcp dport 8080 accept
+
+		# Caddy (mesh *.dadi and optional imported vhosts).
 		tcp dport { 80, 443 } accept
 
 		# Insurance: Ghar HTTP must not be reachable off loopback.

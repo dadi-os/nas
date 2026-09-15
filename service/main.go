@@ -40,11 +40,6 @@ func main() {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
 	}
-	if err := state.seedControlURL(os.Getenv("CONTROL_URL")); err != nil {
-		slog.Error(err.Error(), "code", CodeConfigMissing)
-		os.Exit(1)
-	}
-
 	host, err := newHostRuntime(state)
 	if err != nil {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
@@ -58,7 +53,7 @@ func main() {
 	startMetricsSampler()
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /provision", func(w http.ResponseWriter, r *http.Request) {
-		controlURL, err := state.resolveControlURL()
+		controlURL, err := state.mintControlURL()
 		if err != nil {
 			writeError(w, r, http.StatusInternalServerError, CodeConfigMissing, err.Error())
 			return

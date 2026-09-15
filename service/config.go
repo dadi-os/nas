@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,9 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 )
-
-// errControlURLUnset means the Headscale control plane URL file is empty.
-var errControlURLUnset = errors.New("control URL not set — PUT /headscale/control-url")
 
 // Dwar (provider keys) and Chaavi (BW_*) have user-editable secrets.
 // Yaad/Dimaag/Ghar Postgres credentials are baked into compose/quadlets.
@@ -90,50 +86,6 @@ func (s stateConfig) moduleEnvPath(name string) string {
 
 func (s stateConfig) dwarConfigPath() string {
 	return filepath.Join(s.dir, "modules", "dwar", "config.toml")
-}
-
-func (s stateConfig) controlURLPath() string {
-	return filepath.Join(s.dir, "headscale", "control_url")
-}
-
-// seedControlURL writes CONTROL_URL into the preference file once when the
-// file is missing or empty. After that the file is the sole source of truth.
-func (s stateConfig) seedControlURL(envSeed string) error {
-	path := s.controlURLPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	body, err := os.ReadFile(path)
-	if err == nil && strings.TrimSpace(string(body)) != "" {
-		return nil
-	}
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	seed := strings.TrimSpace(envSeed)
-	if seed == "" {
-		if os.IsNotExist(err) {
-			return os.WriteFile(path, []byte{}, 0o600)
-		}
-		return nil
-	}
-	return os.WriteFile(path, []byte(seed+"\n"), 0o600)
-}
-
-// resolveControlURL reads the on-disk preference; empty or missing is an error.
-func (s stateConfig) resolveControlURL() (string, error) {
-	body, err := os.ReadFile(s.controlURLPath())
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", errControlURLUnset
-		}
-		return "", err
-	}
-	u := strings.TrimSpace(string(body))
-	if u == "" {
-		return "", errControlURLUnset
-	}
-	return u, nil
 }
 
 func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
@@ -271,63 +223,6 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 		})
 	})
 
-	mux.HandleFunc("GET /headscale/control-url", func(w http.ResponseWriter, r *http.Request) {
-		body, err := os.ReadFile(s.controlURLPath())
-		if err != nil {
-			if os.IsNotExist(err) {
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-				return
-			}
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte(strings.TrimSpace(string(body))))
-	})
-
-	mux.HandleFunc("PUT /headscale/control-url", func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<12))
-		if err != nil {
-			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "read body")
-			return
-		}
-		url := strings.TrimSpace(string(body))
-		if err := validateControlURL(s.runtime, url); err != nil {
-			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, err.Error())
-			return
-		}
-		path := s.controlURLPath()
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-			return
-		}
-		if err := os.WriteFile(path, []byte(url+"\n"), 0o600); err != nil {
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-			return
-		}
-		if s.runtime == "podman" {
-			if err := s.applyControlPlanePublish(url); err != nil {
-				slog.Error("publish control plane", "code", CodeInternal, "err", err)
-				writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-				return
-			}
-			st, err := s.loadPublishStatus()
-			if err != nil {
-				writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{
-				"status":      "ok",
-				"control_url": st.ControlURL,
-				"hostname":    st.Hostname,
-				"lan_ip":      st.LANIP,
-				"wan_ip":      st.WANIP,
-			})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
-
 	mux.HandleFunc("GET /headscale/publish", func(w http.ResponseWriter, r *http.Request) {
 		st, err := s.loadPublishStatus()
 		if err != nil {
@@ -338,15 +233,11 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 	})
 
 	mux.HandleFunc("POST /headscale/publish", func(w http.ResponseWriter, r *http.Request) {
-		if s.runtime != "podman" {
-			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "control plane publish is appliance-only")
-			return
-		}
-		if _, err := s.resolveControlURL(); err != nil {
-			writeError(w, r, http.StatusInternalServerError, CodeConfigMissing, err.Error())
-			return
-		}
-		if err := s.mapHeadscalePorts(); err != nil {
+		if _, err := s.mintControlURL(); err != nil {
+			if s.runtime != "podman" {
+				writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, err.Error())
+				return
+			}
 			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}

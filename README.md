@@ -42,13 +42,7 @@ Required on the control service (fail at startup if missing):
 | `DADI_RUNTIME` | `podman` or `compose` |
 | `DADI_COMPOSE_DIR` | Required when `DADI_RUNTIME=compose` |
 
-Optional seed (written once into `/var/lib/dadi/headscale/control_url` when that file is empty):
-
-| Variable | Meaning |
-| --- | --- |
-| `CONTROL_URL` | Initial public Headscale URL for device provision bundles |
-
-After seed, the appliance file behind `GET /headscale/control-url` is the source of truth. Provision fails until the file is non-empty. Hath does not edit it.
+`POST /provision` mints `control_url` at issue time: compose uses `http://localhost:8080`; the appliance uses `http://<wan>:8080` from the public IPv4 (UPnP maps 8080; Headscale `server_url` is rewritten). There is no stored control-URL preference and no Cloudflare tunnel token.
 
 Module secrets live in sibling `../dwar/.env` and `../chaavi/.env` in compose, and under `DADI_STATE_DIR/modules/{dwar,chaavi}/` on the appliance. Chaavi’s `BW_CLIENTID`, `BW_CLIENTSECRET`, and `BW_PASSWORD` are Chaavi module env — not Dwar keys. `VAULT_URL` is set on the container (compose `environment` / quadlet `Environment`), not the env file. Vaultwarden stores the encrypted vault in the `chaavi_vault` volume. Yaad/Dimaag/Ghar Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar or Chaavi values.
 
@@ -265,14 +259,14 @@ CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes an
 4. Kickstart writes `/var/lib/dadi/luks-enroll.key` (no trailing newline) and best-effort TPM-enrolls during `%post`. The volume key is a kernel logon key after unlock, so `systemd-cryptenroll` cannot read it from the keyring — that file is the enroll credential. First boot of the installed OS reseals to PCR 7 (so the seal matches disk boot, not the installer USB) and shreds the key. If `%post` enroll succeeded against PCR 7, that boot unlocks from the TPM; otherwise type the ISO passphrase once. Later boots unlock without it unless Secure Boot policy changes (recovery is still slot 0).
 5. SDDM (`sddm-wayland-plasma`, not Plasma Login Manager) autologins as `dadi` into Plasma. There is no lock screen; lid close and idle do not sleep or show a greeter.
 6. Add an SSH user in Preferences → Users (`POST /access/users`). SSH as that user with the password you set. `dadi` is not allowed to SSH.
-7. Public Headscale URL lives on the box (`CONTROL_URL` at seed, then `GET /headscale/control-url`). Hath does not edit it. Note WAN/LAN from `GET /headscale/publish` if you still publish 443 via UPnP.
-8. Provision Hath clients: on the box open **Preferences → Devices**, name the node, show the QR. Scan from Hath on the phone/laptop (the control URL is embedded in the bundle). Node names must be unique.
+7. Headscale is published on the WAN (`GET /headscale/publish`). The setup QR embeds that live `http://<wan>:8080` URL — not a domain and not a LAN address.
+8. Provision Hath clients: on the box open **Preferences → Devices**, name the node, show the QR. Scan from Hath on the phone/laptop. Node names must be unique. Re-provision after a WAN change.
 
 Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`. If a firmware/Secure Boot change forces the LUKS passphrase again, write the ISO passphrase to `/var/lib/dadi/luks-enroll.key` with `printf '%s'` (no newline), `chmod 400`, and `systemctl start dadi-tpm-enroll` (the unit wipes the old TPM slot, reseals PCR 7, and shreds the key).
 
 ### Host firewall (nftables)
 
-Ruleset: `/etc/nftables/dadi.nft` (loaded by `nftables.service`). Default-deny input except loopback, Tailscale (`tailscale0`), SSH, HTTP/HTTPS for public Headscale (TCP 80/443), Matter on the LAN (UDP 5353 / 5540 + IPv6 multicast), and container DNS (UDP/TCP 53 from `podman*` / `cni-podman*` to aardvark-dns). ICMPv6 is accepted so neighbor discovery works. Ghar's HTTP port `8084` is explicitly dropped off-loopback; the process also binds `127.0.0.1` only. Caddy aborts `*.dadi` vhosts from non-mesh, non-loopback, non-podman (`10.88.0.0/16`, `10.89.0.0/16`) source IPs.
+Ruleset: `/etc/nftables/dadi.nft` (loaded by `nftables.service`). Default-deny input except loopback, Tailscale (`tailscale0`), SSH, public Headscale (TCP 8080), Caddy HTTP/HTTPS (TCP 80/443), Matter on the LAN (UDP 5353 / 5540 + IPv6 multicast), and container DNS (UDP/TCP 53 from `podman*` / `cni-podman*` to aardvark-dns). ICMPv6 is accepted so neighbor discovery works. Ghar's HTTP port `8084` is explicitly dropped off-loopback; the process also binds `127.0.0.1` only. Caddy aborts `*.dadi` vhosts from non-mesh, non-loopback, non-podman (`10.88.0.0/16`, `10.89.0.0/16`) source IPs.
 
 ## Desktop (dadiOS)
 
@@ -308,7 +302,7 @@ Glass rules: blur before tint; never translucent text; two opacities only (veil 
 
 ## Mesh
 
-Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale is `localhost:8080`; production clients use the `https://` URL on the appliance (`GET /headscale/control-url`). Host/sidecar hostname `os` should be the first node so MagicDNS extra records match `100.64.0.1`.
+Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale is `localhost:8080`; production clients use `http://<wan>:8080` minted at provision. Host/sidecar hostname `os` should be the first node so MagicDNS extra records match `100.64.0.1`.
 
 | Method | Path | Body | Success | Errors |
 | --- | --- | --- | --- | --- |

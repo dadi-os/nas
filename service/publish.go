@@ -1,7 +1,7 @@
 package main
 
 import (
-	"errors"
+	"bytes"
 	"fmt"
 	"net"
 	"net/url"
@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 )
+
+const composeControlURL = "http://localhost:8080"
 
 const etcHeadscaleConfig = "/etc/headscale/config.yaml"
 
@@ -29,42 +31,14 @@ func controlHostname(controlURL string) (string, error) {
 	}
 	host := u.Hostname()
 	if host == "" {
-		return "", fmt.Errorf("control URL has no hostname")
-	}
-	if net.ParseIP(host) != nil {
-		return "", fmt.Errorf("control URL must be a hostname, not an IP")
+		return "", fmt.Errorf("control URL has no host")
 	}
 	return host, nil
 }
 
-// validateControlURL enforces https on the appliance; compose may use http for local Headscale.
-func validateControlURL(runtime, raw string) error {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return fmt.Errorf("control URL is required")
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("parse control URL: %w", err)
-	}
-	switch u.Scheme {
-	case "https":
-	case "http":
-		if runtime == "podman" {
-			return fmt.Errorf("control URL must be https on the appliance")
-		}
-	default:
-		return fmt.Errorf("control URL must be http(s)")
-	}
-	if _, err := controlHostname(raw); err != nil {
-		return err
-	}
-	return nil
-}
-
-// caddyHeadscaleSnippet is the public HTTPS vhost Caddy imports for Headscale.
-func caddyHeadscaleSnippet(host string) string {
-	return fmt.Sprintf("https://%s {\n\treverse_proxy 127.0.0.1:8080\n}\n", host)
+// applianceControlURL is the public Headscale URL minted from the current WAN IPv4.
+func applianceControlURL(wan string) string {
+	return "http://" + wan + ":8080"
 }
 
 // applyServerURL sets Headscale server_url in a config.yaml body.
@@ -96,11 +70,6 @@ func parseUPnPExternalIP(out string) (string, error) {
 	return "", fmt.Errorf("UPnP output has no external IPv4")
 }
 
-// caddySnippetPath is the imported Caddyfile fragment for the public Headscale vhost.
-func (s stateConfig) caddySnippetPath() string {
-	return filepath.Join(s.dir, "caddy", "headscale.caddy")
-}
-
 // headscaleConfigPath is the writable Headscale config under DADI_STATE_DIR.
 func (s stateConfig) headscaleConfigPath() string {
 	return filepath.Join(s.dir, "headscale", "config.yaml")
@@ -114,106 +83,123 @@ type publishStatus struct {
 	WANIP      string `json:"wan_ip,omitempty"`
 }
 
-// loadPublishStatus returns the configured control URL and, on the appliance, live LAN/WAN IPs.
-// When no control URL is set yet, ControlURL is empty and LAN/WAN are still filled on podman.
-func (s stateConfig) loadPublishStatus() (publishStatus, error) {
-	st := publishStatus{}
-	url, err := s.resolveControlURL()
-	if err != nil {
-		if !errors.Is(err, errControlURLUnset) {
-			return st, err
-		}
-	} else {
-		st.ControlURL = url
-		host, herr := controlHostname(url)
-		if herr != nil {
-			return st, herr
-		}
-		st.Hostname = host
-	}
+// mintControlURL returns the Headscale URL Hath should dial. Compose uses
+// loopback. The appliance discovers WAN, maps TCP 8080 via UPnP, and sets
+// Headscale server_url to http://<wan>:8080.
+func (s stateConfig) mintControlURL() (string, error) {
 	if s.runtime != "podman" {
-		return st, nil
+		return composeControlURL, nil
+	}
+	wan, err := publicIPv4()
+	if err != nil {
+		return "", err
+	}
+	url := applianceControlURL(wan)
+	if err := s.applyControlPlanePublish(url); err != nil {
+		return "", err
+	}
+	return url, nil
+}
+
+// loadPublishStatus returns the live control URL. Compose is localhost;
+// the appliance reports the current WAN-derived http://<wan>:8080 plus LAN/WAN IPs.
+func (s stateConfig) loadPublishStatus() (publishStatus, error) {
+	if s.runtime != "podman" {
+		return publishStatus{
+			ControlURL: composeControlURL,
+			Hostname:   "localhost",
+		}, nil
 	}
 	lan, err := lanIPv4()
 	if err != nil {
-		return st, err
+		return publishStatus{}, err
 	}
-	st.LANIP = lan
-	wan, err := upnpExternalIP()
+	wan, err := publicIPv4()
 	if err != nil {
-		return st, err
+		return publishStatus{}, err
 	}
-	st.WANIP = wan
-	return st, nil
+	url := applianceControlURL(wan)
+	host, err := controlHostname(url)
+	if err != nil {
+		return publishStatus{}, err
+	}
+	return publishStatus{
+		ControlURL: url,
+		Hostname:   host,
+		LANIP:      lan,
+		WANIP:      wan,
+	}, nil
 }
 
-// applyControlPlanePublish maps 80/443 via UPnP, then writes Caddy + Headscale and reloads them.
+// applyControlPlanePublish maps Headscale 8080 via UPnP and updates server_url.
 func (s stateConfig) applyControlPlanePublish(controlURL string) error {
-	host, err := controlHostname(controlURL)
-	if err != nil {
+	if _, err := controlHostname(controlURL); err != nil {
 		return err
 	}
 	if err := s.mapHeadscalePorts(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(s.caddySnippetPath()), 0o700); err != nil {
+	headscaleChanged, err := s.writeHeadscaleServerURL(controlURL)
+	if err != nil {
 		return err
 	}
-	snippet := caddyHeadscaleSnippet(host)
-	if err := os.WriteFile(s.caddySnippetPath(), []byte(snippet), 0o644); err != nil {
-		return fmt.Errorf("write caddy snippet: %w", err)
-	}
-	if err := s.writeHeadscaleServerURL(controlURL); err != nil {
-		return err
-	}
-	if err := runCmd("systemctl", "restart", "caddy.service"); err != nil {
-		return fmt.Errorf("restart caddy: %w", err)
-	}
-	if err := runCmd("systemctl", "restart", "headscale.service"); err != nil {
-		return fmt.Errorf("restart headscale: %w", err)
+	if headscaleChanged {
+		if err := runCmd("systemctl", "restart", "headscale.service"); err != nil {
+			return fmt.Errorf("restart headscale: %w", err)
+		}
 	}
 	return nil
 }
 
 // writeHeadscaleServerURL updates server_url in the state Headscale config (seeding from /etc when absent).
-func (s stateConfig) writeHeadscaleServerURL(controlURL string) error {
+func (s stateConfig) writeHeadscaleServerURL(controlURL string) (bool, error) {
 	path := s.headscaleConfigPath()
 	body, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return fmt.Errorf("read headscale config: %w", err)
+			return false, fmt.Errorf("read headscale config: %w", err)
 		}
 		body, err = os.ReadFile(etcHeadscaleConfig)
 		if err != nil {
-			return fmt.Errorf("read %s: %w", etcHeadscaleConfig, err)
+			return false, fmt.Errorf("read %s: %w", etcHeadscaleConfig, err)
 		}
 	}
 	updated, err := applyServerURL(body, controlURL)
 	if err != nil {
-		return err
+		return false, err
+	}
+	if bytes.Equal(body, updated) {
+		return false, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
+		return false, err
 	}
 	if err := os.WriteFile(path, updated, 0o600); err != nil {
-		return fmt.Errorf("write headscale config: %w", err)
+		return false, fmt.Errorf("write headscale config: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
-// mapHeadscalePorts adds UPnP TCP mappings for 80 and 443 to this host's LAN address.
+// mapHeadscalePorts adds a UPnP TCP mapping for Headscale (8080) to this host.
 func (s stateConfig) mapHeadscalePorts() error {
 	lan, err := lanIPv4()
 	if err != nil {
 		return err
 	}
-	if err := upnpcAdd(lan, 443, "dadi-headscale-https"); err != nil {
-		return err
+	return upnpcAdd(lan, 8080, "dadi-headscale")
+}
+
+// publicIPv4 returns the WAN IPv4 as seen from the public internet.
+func publicIPv4() (string, error) {
+	out, err := exec.Command("curl", "-4", "-fsS", "--max-time", "8", "https://ifconfig.me").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("public IPv4: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
-	if err := upnpcAdd(lan, 80, "dadi-headscale-http"); err != nil {
-		return err
+	ip := strings.TrimSpace(string(out))
+	if net.ParseIP(ip) == nil || net.ParseIP(ip).To4() == nil {
+		return "", fmt.Errorf("public IPv4: not an IPv4 address: %q", ip)
 	}
-	return nil
+	return ip, nil
 }
 
 // lanIPv4 returns the IPv4 used as the source toward the public internet.
@@ -223,15 +209,6 @@ func lanIPv4() (string, error) {
 		return "", fmt.Errorf("ip route get: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
 	return parseRouteSrcIPv4(string(out))
-}
-
-// upnpExternalIP returns the WAN IPv4 reported by the local IGD via upnpc.
-func upnpExternalIP() (string, error) {
-	out, err := exec.Command("upnpc", "-s").CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("upnpc -s: %w (%s)", err, strings.TrimSpace(string(out)))
-	}
-	return parseUPnPExternalIP(string(out))
 }
 
 // upnpcAdd maps an external TCP port to lan:port through the IGD.
