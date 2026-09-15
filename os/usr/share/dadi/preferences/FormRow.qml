@@ -7,19 +7,20 @@ ColumnLayout {
     property string label: ""
     property string hint: ""
     property alias text: field.text
+    property bool editable: true
     property bool secret: false
     Layout.fillWidth: true
     spacing: 6
 
     Text {
         text: root.label
-        color: "#2c302a"
+        color: "#141511"
         font.pixelSize: 13
         visible: root.label !== ""
     }
     Text {
         text: root.hint
-        color: "#6e7568"
+        color: "#8a8e87"
         font.pixelSize: 12
         wrapMode: Text.WordWrap
         Layout.fillWidth: true
@@ -29,13 +30,20 @@ ColumnLayout {
         id: field
         Layout.fillWidth: true
         Layout.preferredHeight: 40
+        leftPadding: 12
+        rightPadding: 12
         echoMode: root.secret ? TextInput.Password : TextInput.Normal
         font.pixelSize: 13
-        color: "#2c302a"
+        color: "#141511"
+        selectByMouse: true
+        enabled: root.editable
+        hoverEnabled: true
+        palette.highlight: "#141511"
+        palette.highlightedText: "#ffffff"
         background: Rectangle {
-            radius: 9
-            color: "#f7f9f4"
-            border.color: field.activeFocus ? "#8fa382" : "#b9c9ab"
+            radius: 10
+            color: root.editable ? "#ffffffcc" : "#14151108"
+            border.color: field.activeFocus ? "#141511" : "#14151122"
             border.width: 1
         }
     }

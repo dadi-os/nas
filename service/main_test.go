@@ -220,3 +220,18 @@ func TestParseHeadscaleNodesRejectsObject(t *testing.T) {
 		t.Fatal("expected error for non-array JSON")
 	}
 }
+
+func TestDiskStatusFromStatfs(t *testing.T) {
+	full := diskStatusFromStatfs(26497024, 0)
+	if full.UsedPercent != 100 {
+		t.Fatalf("composefs-full: %v", full.UsedPercent)
+	}
+	half := diskStatusFromStatfs(1000, 500)
+	if half.UsedPercent != 50 {
+		t.Fatalf("half: %v", half.UsedPercent)
+	}
+	over := diskStatusFromStatfs(100, 120)
+	if over.UsedPercent != 0 || over.FreeBytes != 120 {
+		t.Fatalf("avail>total: %+v", over)
+	}
+}

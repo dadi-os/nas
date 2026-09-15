@@ -1,24 +1,35 @@
 {
 	admin off
-	auto_https off
+}
+
+(mesh_only) {
+	@wan not remote_ip 127.0.0.1/32 ::1/128 100.64.0.0/10 fd7a:115c:a1e0::/48
+	abort @wan
 }
 
 http://dwar.dadi {
+	import mesh_only
 	reverse_proxy 127.0.0.1:8081
 }
 
 http://yaad.dadi {
+	import mesh_only
 	reverse_proxy 127.0.0.1:8082
 }
 
 http://dimaag.dadi {
+	import mesh_only
 	reverse_proxy 127.0.0.1:8083
 }
 
 http://ghar.dadi {
+	import mesh_only
 	reverse_proxy 127.0.0.1:8084
 }
 
 http://nas.dadi {
+	import mesh_only
 	reverse_proxy 127.0.0.1:8092
 }
+
+import /var/lib/dadi/caddy/headscale.caddy

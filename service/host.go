@@ -134,7 +134,7 @@ func (h *hostRuntime) writeProtectedPrefixes() []string {
 	if runtime.GOOS == "darwin" {
 		prefixes = append(prefixes, "/System", "/Library")
 	}
-	for _, rel := range []string{"modules", "cloudflared", "headscale", "browsers", "run"} {
+	for _, rel := range []string{"modules", "caddy", "headscale", "browsers", "run"} {
 		prefixes = append(prefixes, filepath.Join(h.stateDir, rel))
 	}
 	return prefixes

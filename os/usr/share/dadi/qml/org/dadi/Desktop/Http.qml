@@ -49,6 +49,20 @@ QtObject {
         xhr.send(JSON.stringify(obj))
     }
 
+    /**
+     * del issues DELETE url and invokes callback(status, responseText).
+     */
+    function del(url, callback) {
+        const xhr = new XMLHttpRequest()
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return
+            callback(xhr.status, xhr.responseText)
+        }
+        xhr.open("DELETE", url)
+        xhr.send()
+    }
+
     function putJson(url, obj, callback) {
         const xhr = new XMLHttpRequest()
         xhr.onreadystatechange = function () {

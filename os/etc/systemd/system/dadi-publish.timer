@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh Headscale UPnP port mappings
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

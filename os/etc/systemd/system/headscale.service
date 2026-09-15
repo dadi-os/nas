@@ -1,12 +1,12 @@
 [Unit]
 Description=Headscale control server
-After=network-online.target
-Wants=network-online.target
+After=network-online.target dadi-seed.service
+Wants=network-online.target dadi-seed.service
 
 [Service]
 Type=simple
 ExecStartPre=/usr/bin/mkdir -p /var/lib/headscale /run/headscale
-ExecStart=/usr/local/bin/headscale serve
+ExecStart=/usr/local/bin/headscale serve -c /var/lib/dadi/headscale/config.yaml
 Restart=always
 RestartSec=2
 

@@ -27,6 +27,9 @@ table inet filter {
 		# SSH for box admins provisioned in Preferences.
 		tcp dport 22 accept
 
+		# Public Headscale via Caddy (HTTPS) and Let's Encrypt HTTP-01.
+		tcp dport { 80, 443 } accept
+
 		# Insurance: Ghar HTTP must not be reachable off loopback.
 		# Loopback traffic already accepted above; this never matches lo.
 		tcp dport 8084 drop

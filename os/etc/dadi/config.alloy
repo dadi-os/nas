@@ -32,7 +32,7 @@ loki.process "normalize" {
 
   stage.drop {
     source     = "service"
-    expression = "^(alloy|loki|.*-postgres|headscale|tailscale|bootstrap|cloudflared|yaad-migrate|dimaag-migrate|ghar-migrate)$"
+    expression = "^(alloy|loki|.*-postgres|headscale|tailscale|bootstrap|dadi-publish|yaad-migrate|dimaag-migrate|ghar-migrate)$"
   }
 
   stage.match {

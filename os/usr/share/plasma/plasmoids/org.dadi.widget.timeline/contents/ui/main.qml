@@ -22,7 +22,6 @@ PlasmoidItem {
         property var days: []
         property var plans: []
         property string weekTitle: ""
-        property string err: ""
 
         function startOfDay(d) {
             const x = new Date(d)
@@ -51,17 +50,34 @@ PlasmoidItem {
             return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getMonth()]
         }
 
+        function weekdayLetter(d) {
+            return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][(d.getDay() + 6) % 7]
+        }
+
         function formatWeekTitle(start) {
             const end = addDays(start, 6)
             if (start.getMonth() === end.getMonth())
-                return monthShort(start) + " " + start.getDate() + "–" + end.getDate() + ", " + start.getFullYear()
-            return monthShort(start) + " " + start.getDate() + " – " + monthShort(end) + " " + end.getDate() + ", " + end.getFullYear()
+                return monthShort(start) + " " + start.getDate() + "–" + end.getDate()
+            return monthShort(start) + " " + start.getDate() + " – " + monthShort(end) + " " + end.getDate()
         }
 
         function planStatus(plan) {
             if (plan.detail && plan.detail.status)
                 return plan.detail.status
             return "confirmed"
+        }
+
+        function formatTime(iso) {
+            const d = new Date(iso)
+            let h = d.getHours()
+            const m = d.getMinutes()
+            const ap = h >= 12 ? "PM" : "AM"
+            h = h % 12
+            if (h === 0)
+                h = 12
+            if (m === 0)
+                return String(h) + " " + ap
+            return h + ":" + (m < 10 ? "0" : "") + m + " " + ap
         }
 
         function plansForDay(day) {
@@ -82,16 +98,21 @@ PlasmoidItem {
             return out
         }
 
-        function chipColor(status) {
-            if (status === "tentative")
-                return "#8fa38222"
-            return "#8fa38228"
-        }
-
-        function chipText(status) {
-            if (status === "tentative")
-                return "#7e9270"
-            return "#2c302a"
+        function fail(xhr) {
+            if (xhr.status === 0) {
+                frame.status = "yaad unreachable"
+                return
+            }
+            let type = ""
+            try {
+                const data = JSON.parse(xhr.responseText)
+                if (data.error && data.error.type)
+                    type = data.error.type
+            } catch (e) {
+                frame.status = "yaad " + xhr.status
+                return
+            }
+            frame.status = type !== "" ? type : ("yaad " + xhr.status)
         }
 
         function refresh() {
@@ -109,19 +130,23 @@ PlasmoidItem {
                 if (xhr.readyState !== XMLHttpRequest.DONE)
                     return
                 if (xhr.status !== 200) {
-                    frame.err = "yaad unreachable"
+                    frame.fail(xhr)
+                    frame.kicker = ""
                     frame.plans = []
                     return
                 }
                 try {
                     const data = JSON.parse(xhr.responseText)
                     frame.plans = data.nodes || []
-                    frame.err = ""
+                    frame.status = ""
+                    const n = frame.plans.length
+                    frame.kicker = n === 0 ? frame.weekTitle : (n + (n === 1 ? " plan" : " plans"))
                 } catch (e) {
-                    frame.err = "bad query"
+                    frame.status = "bad query"
+                    frame.kicker = ""
                 }
             }
-            xhr.open("POST", Tokens.yaadBase + "/v1/query")
+            xhr.open("POST", Tokens.yaadBase + "/query")
             xhr.setRequestHeader("Content-Type", "application/json")
             xhr.send(JSON.stringify({
                 kind: "plan",
@@ -139,81 +164,89 @@ PlasmoidItem {
             onTriggered: frame.refresh()
         }
 
-        ColumnLayout {
+        RowLayout {
             anchors.fill: parent
-            spacing: 10
+            spacing: 0
 
-            Text {
-                text: frame.weekTitle
-                color: "#b0b8a6"
-                font.pixelSize: 11
-            }
+            Repeater {
+                model: frame.days
+                Item {
+                    required property var modelData
+                    required property int index
+                    readonly property bool today: frame.sameDay(modelData, frame.startOfDay(new Date()))
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
 
-            Text {
-                visible: frame.err !== ""
-                text: frame.err
-                color: "#6e7568"
-                font.pixelSize: 13
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                spacing: 6
-
-                Repeater {
-                    model: frame.days
                     Rectangle {
-                        required property var modelData
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        radius: 8
-                        color: frame.sameDay(modelData, frame.startOfDay(new Date())) ? "#8fa38228" : "transparent"
+                        visible: index > 0
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: 1
+                        color: "#141511"
+                        opacity: 0.06
+                    }
 
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 6
-                            spacing: 4
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 10
+                        anchors.topMargin: 4
+                        anchors.bottomMargin: 8
+                        spacing: 10
 
-                            Text {
-                                text: modelData.getDate()
-                                color: frame.sameDay(modelData, frame.startOfDay(new Date())) ? "#5c6b52" : "#b0b8a6"
-                                font.pixelSize: 12
-                                font.weight: frame.sameDay(modelData, frame.startOfDay(new Date())) ? Font.Medium : Font.Normal
+                        Text {
+                            text: frame.weekdayLetter(modelData)
+                            color: today ? "#141511" : "#8a8e87"
+                            font.pixelSize: 11
+                            font.weight: Font.Medium
+                        }
+
+                        Item {
+                            width: 32
+                            height: 32
+
+                            Rectangle {
+                                visible: today
+                                anchors.fill: parent
+                                radius: width / 2
+                                color: "#141511"
                             }
 
-                            Repeater {
-                                model: frame.plansForDay(modelData).slice(0, 4)
-                                Rectangle {
-                                    required property var modelData
-                                    Layout.fillWidth: true
-                                    implicitHeight: chipText.height + 8
-                                    radius: 5
-                                    color: frame.chipColor(frame.planStatus(modelData))
+                            Text {
+                                anchors.centerIn: parent
+                                text: modelData.getDate()
+                                color: today ? "#ffffff" : "#141511"
+                                font.pixelSize: 16
+                                font.weight: Font.DemiBold
+                            }
+                        }
 
-                                    Text {
-                                        id: chipText
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        anchors.margins: 5
-                                        text: modelData.title || modelData.name || "plan"
-                                        color: frame.chipText(frame.planStatus(modelData))
-                                        font.pixelSize: 9
-                                        elide: Text.ElideRight
-                                    }
+                        Repeater {
+                            model: frame.plansForDay(modelData).slice(0, 5)
+                            Column {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                Text {
+                                    text: frame.formatTime(modelData.occurred_at)
+                                    color: "#8a8e87"
+                                    font.pixelSize: 11
+                                }
+                                Text {
+                                    width: parent.width
+                                    text: modelData.title || "plan"
+                                    color: "#141511"
+                                    font.pixelSize: 13
+                                    font.weight: Font.Medium
+                                    elide: Text.ElideRight
+                                    wrapMode: Text.NoWrap
                                 }
                             }
-
-                            Text {
-                                visible: frame.plansForDay(modelData).length > 4
-                                text: "+" + (frame.plansForDay(modelData).length - 4)
-                                color: "#6e7568"
-                                font.pixelSize: 9
-                            }
-
-                            Item { Layout.fillHeight: true }
                         }
+
+                        Item { Layout.fillHeight: true }
                     }
                 }
             }

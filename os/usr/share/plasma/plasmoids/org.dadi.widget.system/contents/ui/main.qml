@@ -19,14 +19,13 @@ PlasmoidItem {
         Layout.preferredWidth: 420
         Layout.preferredHeight: 500
 
-        property var status: ({})
+        property var statusPayload: ({})
         property var errors: []
-        property string err: ""
 
-        readonly property var serviceOrder: ["nas", "dimaag", "yaad", "dwar", "hath"]
+        readonly property var serviceOrder: ["nas", "dimaag", "yaad", "ghar", "dwar", "hath"]
 
         function services() {
-            const raw = frame.status.services || []
+            const raw = frame.statusPayload.services || []
             const byName = {}
             for (let i = 0; i < raw.length; i++)
                 byName[raw[i].name] = raw[i].healthy
@@ -54,16 +53,14 @@ PlasmoidItem {
         }
 
         function meters() {
-            const s = frame.status
+            const s = frame.statusPayload
             const rows = []
             if (s.cpu)
                 rows.push({ key: "cpu", label: "cpu", pct: pct(s.cpu.used_percent) })
             if (s.memory && s.memory.total_bytes > 0)
                 rows.push({ key: "ram", label: "ram", pct: pct(s.memory.used_percent) })
-            if (s.disk && s.disk.total_bytes > 0) {
-                const used = (1 - s.disk.free_bytes / s.disk.total_bytes) * 100
-                rows.push({ key: "disk", label: "disk", pct: pct(used) })
-            }
+            if (s.disk && s.disk.total_bytes > 0)
+                rows.push({ key: "disk", label: "disk", pct: pct(s.disk.used_percent) })
             return rows
         }
 
@@ -80,14 +77,14 @@ PlasmoidItem {
                 if (st.readyState !== XMLHttpRequest.DONE)
                     return
                 if (st.status !== 200) {
-                    frame.err = "nas unreachable"
+                    frame.status = st.status === 0 ? "nas unreachable" : ("nas " + st.status)
                     return
                 }
                 try {
-                    frame.status = JSON.parse(st.responseText)
-                    frame.err = ""
+                    frame.statusPayload = JSON.parse(st.responseText)
+                    frame.status = ""
                 } catch (e) {
-                    frame.err = "bad status"
+                    frame.status = "bad status"
                 }
             }
             st.open("GET", Tokens.nasBase + "/status")
@@ -124,68 +121,47 @@ PlasmoidItem {
 
         ColumnLayout {
             anchors.fill: parent
-            spacing: 10
-
-            Text {
-                visible: frame.err !== ""
-                text: frame.err
-                color: "#6e7568"
-                font.pixelSize: 13
-            }
-
-            Flow {
-                Layout.fillWidth: true
-                spacing: 6
-                visible: frame.err === "" && (frame.errors.length > 0)
-                Repeater {
-                    model: frame.services()
-                    Rectangle {
-                        required property var modelData
-                        implicitHeight: 20
-                        implicitWidth: chipLabel.width + 18
-                        radius: 5
-                        color: modelData.ok ? "transparent" : "#f7f0ed"
-                        Row {
-                            anchors.centerIn: parent
-                            spacing: 5
-                            Rectangle {
-                                width: 6
-                                height: 6
-                                radius: 3
-                                anchors.verticalCenter: parent.verticalCenter
-                                color: modelData.ok ? "#8fa382" : "#9a5a4e"
-                            }
-                            Text {
-                                id: chipLabel
-                                text: modelData.name
-                                color: modelData.ok ? "#b0b8a6" : "#9a5a4e"
-                                font.pixelSize: 10
-                            }
-                        }
-                    }
-                }
-            }
+            spacing: 14
 
             ColumnLayout {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
-                spacing: 8
-                visible: frame.err === ""
+                spacing: 10
+                visible: frame.status === ""
+
+                Repeater {
+                    model: frame.services()
+                    RowLayout {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Text {
+                            text: modelData.name
+                            color: "#141511"
+                            font.pixelSize: 14
+                            Layout.fillWidth: true
+                        }
+                        Text {
+                            text: modelData.ok ? "✓" : "✕"
+                            color: modelData.ok ? "#141511" : "#c45c4a"
+                            font.pixelSize: 16
+                            font.weight: Font.DemiBold
+                        }
+                    }
+                }
 
                 ColumnLayout {
                     visible: frame.errors.length > 0
                     Layout.fillWidth: true
+                    Layout.topMargin: 8
                     spacing: 6
                     Text {
-                        text: frame.errors.length + " ERROR" + (frame.errors.length === 1 ? "" : "S") + " · 1H"
-                        color: "#9a5a4e"
-                        font.pixelSize: 10
-                        font.letterSpacing: 1.5
-                        font.weight: Font.Medium
+                        text: frame.errors.length + (frame.errors.length === 1 ? " error" : " errors") + " · 1h"
+                        color: "#c45c4a"
+                        font.pixelSize: 12
                     }
                     Text {
                         text: frame.latestTitle()
-                        color: "#2c302a"
+                        color: "#141511"
                         font.pixelSize: 13
                         wrapMode: Text.WordWrap
                         maximumLineCount: 4
@@ -194,47 +170,55 @@ PlasmoidItem {
                     }
                     Text {
                         text: (frame.errors[0] && frame.errors[0].service) ? frame.errors[0].service : ""
-                        color: "#6e7568"
-                        font.pixelSize: 11
+                        color: "#8a8e87"
+                        font.pixelSize: 12
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
                 }
-
-                Repeater {
-                    model: frame.errors.length === 0 ? frame.services() : []
-                    RowLayout {
-                        required property var modelData
-                        Layout.fillWidth: true
-                        Text {
-                            text: modelData.name
-                            color: "#2c302a"
-                            font.pixelSize: 13
-                            Layout.fillWidth: true
-                        }
-                        Text {
-                            text: modelData.ok ? "reachable" : "unreachable"
-                            color: modelData.ok ? "#6e7568" : "#9a5a4e"
-                            font.pixelSize: 12
-                        }
-                    }
-                }
-
-                Item { Layout.fillHeight: true }
             }
 
-            RowLayout {
+            Item { Layout.fillHeight: true }
+
+            ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 12
-                visible: frame.err === ""
+                spacing: 10
+                visible: frame.status === ""
                 Repeater {
                     model: frame.meters()
-                    Text {
+                    ColumnLayout {
                         required property var modelData
-                        text: modelData.label + " " + (modelData.pct === null ? "—" : modelData.pct + "%")
-                        color: "#b0b8a6"
-                        font.pixelSize: 10
-                        font.family: "Noto Sans Mono"
+                        Layout.fillWidth: true
+                        spacing: 4
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                text: modelData.label
+                                color: "#8a8e87"
+                                font.pixelSize: 11
+                                font.letterSpacing: 1.2
+                                font.capitalization: Font.AllUppercase
+                            }
+                            Item { Layout.fillWidth: true }
+                            Text {
+                                text: modelData.pct === null ? "—" : modelData.pct + "%"
+                                color: "#141511"
+                                font.pixelSize: 12
+                                font.family: "Noto Sans Mono"
+                            }
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 5
+                            radius: 3
+                            color: "#14151114"
+                            Rectangle {
+                                width: parent.width * ((modelData.pct === null ? 0 : modelData.pct) / 100)
+                                height: parent.height
+                                radius: 3
+                                color: "#141511"
+                            }
+                        }
                     }
                 }
             }

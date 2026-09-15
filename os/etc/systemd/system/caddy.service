@@ -1,10 +1,12 @@
 [Unit]
 Description=Caddy reverse proxy for *.dadi
-After=dwar.service yaad.service dimaag.service ghar.service nas.service
-Wants=dwar.service yaad.service dimaag.service ghar.service nas.service
+After=dadi-seed.service dwar.service yaad.service dimaag.service ghar.service nas.service
+Wants=dadi-seed.service dwar.service yaad.service dimaag.service ghar.service nas.service
 
 [Service]
 Type=simple
+Environment=XDG_DATA_HOME=/var/lib
+ExecStartPre=/usr/bin/mkdir -p /var/lib/caddy
 ExecStart=/usr/local/bin/caddy run --config /etc/dadi/Caddyfile --adapter caddyfile
 Restart=always
 RestartSec=2

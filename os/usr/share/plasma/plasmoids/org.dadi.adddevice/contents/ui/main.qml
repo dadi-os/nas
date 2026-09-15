@@ -6,6 +6,7 @@ import QtQuick.Layouts
 import org.kde.plasma.plasmoid
 import org.kde.plasma.core as PlasmaCore
 import org.kde.plasma.plasma5support as Plasma5Support
+import org.dadi.Desktop
 
 PlasmoidItem {
     id: root
@@ -14,13 +15,12 @@ PlasmoidItem {
     toolTipMainText: "Add Device"
     Plasmoid.backgroundHints: PlasmaCore.Types.NoBackground
 
-    fullRepresentation: Rectangle {
+    fullRepresentation: Item {
         id: win
-        Layout.minimumWidth: 380
-        Layout.minimumHeight: 520
-        Layout.preferredWidth: 420
-        Layout.preferredHeight: 580
-        color: "#fafaf7"
+        Layout.minimumWidth: 760
+        Layout.minimumHeight: 420
+        Layout.preferredWidth: 820
+        Layout.preferredHeight: 460
 
         property string nodeName: ""
         property string bundle: ""
@@ -28,6 +28,8 @@ PlasmoidItem {
         property string status: ""
         property bool busy: false
         property bool copied: false
+
+        FrostShell { anchors.fill: parent }
 
         Plasma5Support.DataSource {
             id: executable
@@ -82,7 +84,7 @@ PlasmoidItem {
                     status = "Bad response"
                 }
             }
-            xhr.open("POST", "http://127.0.0.1:8092/provision")
+            xhr.open("POST", Tokens.nasBase + "/provision")
             xhr.setRequestHeader("Content-Type", "application/json")
             xhr.send(JSON.stringify({ node_name: name }))
         }
@@ -109,101 +111,121 @@ PlasmoidItem {
             })
         }
 
-        ColumnLayout {
+        RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 24
-            anchors.rightMargin: 24
-            anchors.topMargin: 20
-            anchors.bottomMargin: 20
-            spacing: 12
+            anchors.leftMargin: 28
+            anchors.rightMargin: 28
+            anchors.topMargin: 24
+            anchors.bottomMargin: 24
+            spacing: 32
 
-            Text {
-                text: "Add device"
-                color: "#2c302a"
-                font.pixelSize: 20
-                font.weight: Font.DemiBold
-            }
-            Text {
-                text: "Name the Hath, then scan the QR. Single-use, about an hour."
-                color: "#6e7568"
-                font.pixelSize: 13
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
+            ColumnLayout {
+                Layout.preferredWidth: 280
+                Layout.maximumWidth: 320
+                Layout.fillHeight: true
+                spacing: 12
 
-            Text {
-                text: "Name"
-                color: "#2c302a"
-                font.pixelSize: 13
-            }
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 40
-                radius: 9
-                color: "#f7f9f4"
-                border.color: nameField.activeFocus ? "#8fa382" : "#b9c9ab"
-                border.width: 1
-
-                TextInput {
-                    id: nameField
-                    anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 12
-                    verticalAlignment: Text.AlignVCenter
-                    text: win.nodeName
-                    onTextChanged: win.nodeName = text
-                    color: "#2c302a"
+                Text {
+                    text: "Add device"
+                    color: "#141511"
+                    font.pixelSize: 22
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: -0.3
+                }
+                Text {
+                    text: "Name the Hath, then scan the QR. Single-use, about an hour."
+                    color: "#8a8e87"
                     font.pixelSize: 13
-                    selectByMouse: true
-                    clip: true
-                    Keys.onReturnPressed: win.mint()
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
                 }
 
                 Text {
-                    anchors.fill: parent
-                    anchors.leftMargin: 12
-                    text: "phone"
-                    color: "#b0b8a6"
+                    text: "Name"
+                    color: "#141511"
                     font.pixelSize: 13
-                    verticalAlignment: Text.AlignVCenter
-                    visible: nameField.text.length === 0 && !nameField.activeFocus
+                    Layout.topMargin: 8
                 }
-            }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 40
+                    radius: 10
+                    color: "#ffffffcc"
+                    border.color: nameField.activeFocus ? "#141511" : "#14151122"
+                    border.width: 1
 
-            Button {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 40
-                enabled: !win.busy && win.nodeName.trim().length > 0
-                onClicked: win.mint()
-                background: Rectangle {
-                    radius: 9
-                    color: parent.down ? "#5c6b52" : (parent.enabled ? "#8fa382" : "#d5ddcb")
+                    TextInput {
+                        id: nameField
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        verticalAlignment: Text.AlignVCenter
+                        text: win.nodeName
+                        onTextChanged: win.nodeName = text
+                        color: "#141511"
+                        font.pixelSize: 13
+                        selectByMouse: true
+                        clip: true
+                        Keys.onReturnPressed: win.mint()
+                    }
+
+                    Text {
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        text: "phone"
+                        color: "#8a8e87"
+                        font.pixelSize: 13
+                        verticalAlignment: Text.AlignVCenter
+                        visible: nameField.text.length === 0 && !nameField.activeFocus
+                    }
                 }
-                contentItem: Text {
+
+                DadiButton {
+                    Layout.fillWidth: true
                     text: win.busy ? "Creating…" : "Create setup code"
-                    color: "#fafaf7"
-                    font.pixelSize: 13
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+                    enabled: !win.busy && win.nodeName.trim().length > 0
+                    onClicked: win.mint()
                 }
+
+                DadiButton {
+                    Layout.fillWidth: true
+                    kind: "ghost"
+                    visible: win.bundle !== ""
+                    text: win.copied ? "Copied" : "Copy setup code"
+                    onClicked: win.copyBundle()
+                }
+
+                Text {
+                    text: win.status
+                    color: "#c45c4a"
+                    font.pixelSize: 12
+                    visible: win.status !== ""
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                }
+
+                Item { Layout.fillHeight: true }
             }
 
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                Layout.minimumWidth: 300
 
                 Rectangle {
+                    id: qrPlate
+                    readonly property int side: Math.min(parent.width, parent.height)
+                    width: side
+                    height: side
                     anchors.centerIn: parent
-                    width: Math.min(parent.width, parent.height, 220)
-                    height: width
-                    radius: 12
-                    color: "#f7f9f4"
-                    border.color: "#b9c9ab"
+                    radius: 16
+                    color: "#ffffff"
+                    border.color: "#14151114"
                     border.width: 1
 
                     Image {
                         anchors.fill: parent
-                        anchors.margins: 10
+                        anchors.margins: 16
                         source: win.qrPath
                         fillMode: Image.PreserveAspectFit
                         visible: win.qrPath !== ""
@@ -213,33 +235,11 @@ PlasmoidItem {
                     Text {
                         anchors.centerIn: parent
                         visible: win.qrPath === ""
-                        text: win.busy ? "…" : "QR"
-                        color: "#b0b8a6"
+                        text: win.busy ? "Creating…" : "QR appears here"
+                        color: "#8a8e87"
                         font.pixelSize: 13
                     }
                 }
-            }
-
-            Button {
-                Layout.alignment: Qt.AlignHCenter
-                visible: win.bundle !== ""
-                flat: true
-                onClicked: win.copyBundle()
-                contentItem: Text {
-                    text: win.copied ? "Copied" : "Copy setup code"
-                    color: "#5c6b52"
-                    font.pixelSize: 13
-                    horizontalAlignment: Text.AlignHCenter
-                }
-            }
-
-            Text {
-                text: win.status
-                color: "#b56b5c"
-                font.pixelSize: 12
-                visible: win.status !== ""
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
             }
         }
     }

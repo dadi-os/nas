@@ -313,7 +313,6 @@ services:
       # Dwar secrets/config only — Yaad/Dimaag Postgres is baked into this compose file.
       - ../dwar/.env:/var/lib/dadi/modules/dwar/.env
       - ../dwar/config.toml:/var/lib/dadi/modules/dwar/config.toml
-      - cloudflared_data:/var/lib/dadi/cloudflared
       - headscale_control_url:/var/lib/dadi/headscale
       - browsers_data:/var/lib/dadi/browsers
       - .:/nas:ro
@@ -393,7 +392,6 @@ volumes:
   headscale_run:
   tailscale_state:
   bootstrap:
-  cloudflared_data:
   headscale_control_url:
   browsers_data:
   alloy_data:

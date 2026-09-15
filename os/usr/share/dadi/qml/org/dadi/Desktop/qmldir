@@ -3,3 +3,5 @@ singleton Tokens 1.0 Tokens.qml
 Http 1.0 Http.qml
 Glass 1.0 Glass.qml
 CrestFrame 1.0 CrestFrame.qml
+DadiButton 1.0 DadiButton.qml
+FrostShell 1.0 FrostShell.qml

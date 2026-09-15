@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply dadi Plasma look-and-feel
+After=plasma-plasmashell.service
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/dadi/apply-desktop.sh
+
+[Install]
+WantedBy=plasma-workspace.target

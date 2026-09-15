@@ -124,7 +124,7 @@ Anonymous HTTP on `LISTEN_ADDR`. Nothing is persisted in Nas — **tmux is the r
 | Piece | Value |
 | --- | --- |
 | System user | `dadi` (home `$DADI_STATE_DIR`). SDDM autologins as `dadi` with no password (`passwd -d`). SSH `DenyUsers dadi`. Agents (tmux, Chromium) run as `dadi`. |
-| SSH users | Created in Preferences → Access (`POST /access/users`). Wheel + password. `dadi` cannot SSH. Pubkey auth is off. |
+| SSH users | Created in Preferences → Users (`POST /access/users`). Wheel + password. `dadi` cannot SSH. Installer `setup` is hidden and denied. Pubkey auth is off. |
 | tmux socket | `/run/dadi/tmux.sock` on appliance (`tmpfiles.d`); under `$DADI_STATE_DIR/run` in Compose |
 | Default cwd | `$DADI_STATE_DIR` when terminal / glob / grep omit `cwd` |
 
@@ -134,12 +134,13 @@ On the appliance (`DADI_RUNTIME=podman`) Nas runs as root and launches every tmu
 | --- | --- | --- | --- | --- |
 | `GET` | `/access` | — | `{ session_user, users, tpm }` | `internal_error` |
 | `POST` | `/access/users` | `{ "username", "password" }` (password 8–128 chars) | `{ status: ok, username, created }` | `invalid_request`, `forbidden` (compose), `internal_error` |
+| `DELETE` | `/access/users/{username}` | — | `{ status: ok, username }` | `invalid_request`, `not_found`, `forbidden` (compose), `internal_error` |
 | `GET` | `/modules/dwar/settings` | — | `{ env, config }` (keys + config.toml fields) | `internal_error` |
 | `PUT` | `/modules/dwar/settings` | `{ env, config }` | `{ status: ok }` (writes files, restarts dwar) | `invalid_request`, `internal_error` |
 
-`tpm` is `{ present, enrolled, pcrs?, device? }` from `/var/lib/dadi/tpm.json` after `dadi-tpm-enroll`. Remote reboot: TPM unlocks LUKS, systemd starts enabled units (`nas`, `cloudflared` once the token file is non-empty, mesh, SDDM autologin).
+`tpm` is `{ present, enrolled, pcrs?, device? }` from `/var/lib/dadi/tpm.json` after `dadi-tpm-enroll`. Remote reboot: TPM unlocks LUKS, systemd starts enabled units (`nas`, mesh, SDDM autologin).
 
-There is **no project sandbox folder**. Agents may read any absolute path. **Writes** are denied under OS and dadiOS runtime trees (symlinks resolved before the check): `/usr`, `/boot`, `/etc`, `/lib`, `/lib64`, `/bin`, `/sbin`, `/root`, `/var/lib/containers`, and under `$DADI_STATE_DIR`: `modules`, `cloudflared`, `headscale`, `browsers`, `run`. Darwin also denies `/System` and `/Library`. Terminals are not path-jailed — the FS API is the write gate; shell power is bounded by the `dadi` OS user.
+There is **no project sandbox folder**. Agents may read any absolute path. **Writes** are denied under OS and dadiOS runtime trees (symlinks resolved before the check): `/usr`, `/boot`, `/etc`, `/lib`, `/lib64`, `/bin`, `/sbin`, `/root`, `/var/lib/containers`, and under `$DADI_STATE_DIR`: `modules`, `caddy`, `headscale`, `browsers`, `run`. Darwin also denies `/System` and `/Library`. Terminals are not path-jailed — the FS API is the write gate; shell power is bounded by the `dadi` OS user.
 
 ### Terminals
 
@@ -229,10 +230,9 @@ On the appliance, `/usr/bin/dadi` talks to Dimaag (`DIMAAG_URL=http://dimaag.dad
 | `headscale` | host systemd | control plane; `:8080` |
 | `bootstrap` | host oneshot | Headscale user + host mesh auth key |
 | `tailscaled` + `dadi-tailscale` | host | mesh node `os` → MagicDNS `os.dadi` |
-| `caddy` | host systemd | `:80`, Host-header → localhost app ports |
+| `caddy` | host systemd | `:80` mesh Host-header; `:443` public Headscale |
 | `nas` | host systemd | control API on `127.0.0.1:8092` |
 | `loki` / `alloy` | host systemd | logs |
-| `cloudflared` | host systemd | tunnel to Headscale |
 | `sddm` + Plasma | host graphical | `sddm-wayland-plasma`; autologin `dadi`; no locker; bone glass desktop |
 | `dwar` / `yaad` / `dimaag` / `ghar` (+ postgres / migrate) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8084` (`ghar` uses `Network=host`, binds loopback) |
 
@@ -263,15 +263,15 @@ CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes an
 3. Flash to USB; boot the target machine. **The first disk is wiped with no confirmation.**
 4. Kickstart writes `/var/lib/dadi/luks-enroll.key` (no trailing newline) and best-effort TPM-enrolls during `%post`. The volume key is a kernel logon key after unlock, so `systemd-cryptenroll` cannot read it from the keyring — that file is the enroll credential. First boot of the installed OS reseals to PCR 7 (so the seal matches disk boot, not the installer USB) and shreds the key. If `%post` enroll succeeded against PCR 7, that boot unlocks from the TPM; otherwise type the ISO passphrase once. Later boots unlock without it unless Secure Boot policy changes (recovery is still slot 0).
 5. SDDM (`sddm-wayland-plasma`, not Plasma Login Manager) autologins as `dadi` into Plasma. There is no lock screen; lid close and idle do not sleep or show a greeter.
-6. Add an SSH user in Preferences → Access (`POST /access/users`). SSH as that user with the password you set. `dadi` is not allowed to SSH.
-7. Point a Cloudflare tunnel at Headscale; set the public control plane URL and paste the tunnel token via Preferences → Tunnel (`PUT /headscale/control-url`, `PUT /cloudflared/token`). `cloudflared.service` starts only when the token file is non-empty and restarts on reboot.
-8. Provision Hath clients: on the box open **Add Device** (dock / brand menu / Preferences → Devices), name the node, show the QR. Scan from Hath on the phone/laptop (`https://dadi.ardusa.dev` control URL is embedded in the bundle).
+6. Add an SSH user in Preferences → Users (`POST /access/users`). SSH as that user with the password you set. `dadi` is not allowed to SSH.
+7. Open Preferences → Tunnel. Note the WAN address, create a DNS A record for your hostname pointing at it, then Save and publish `https://your-hostname`. Nas maps WAN 80/443 via UPnP, Caddy terminates TLS, and Headscale `server_url` is rewritten.
+8. Provision Hath clients: on the box open **Add Device** (dock / brand menu / Preferences → Devices), name the node, show the QR. Scan from Hath on the phone/laptop (the control URL is embedded in the bundle).
 
 Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`. If a firmware/Secure Boot change forces the LUKS passphrase again, write the ISO passphrase to `/var/lib/dadi/luks-enroll.key` with `printf '%s'` (no newline), `chmod 400`, and `systemctl start dadi-tpm-enroll` (the unit wipes the old TPM slot, reseals PCR 7, and shreds the key).
 
 ### Host firewall (nftables)
 
-Ruleset: `/etc/nftables/dadi.nft` (loaded by `nftables.service`). Default-deny input except loopback, Tailscale (`tailscale0`), SSH, Matter on the LAN (UDP 5353 / 5540 + IPv6 multicast), and container DNS (UDP/TCP 53 from `podman*` / `cni-podman*` to aardvark-dns). ICMPv6 is accepted so neighbor discovery works. Ghar's HTTP port `8084` is explicitly dropped off-loopback; the process also binds `127.0.0.1` only.
+Ruleset: `/etc/nftables/dadi.nft` (loaded by `nftables.service`). Default-deny input except loopback, Tailscale (`tailscale0`), SSH, HTTP/HTTPS for public Headscale (TCP 80/443), Matter on the LAN (UDP 5353 / 5540 + IPv6 multicast), and container DNS (UDP/TCP 53 from `podman*` / `cni-podman*` to aardvark-dns). ICMPv6 is accepted so neighbor discovery works. Ghar's HTTP port `8084` is explicitly dropped off-loopback; the process also binds `127.0.0.1` only. Caddy aborts `*.dadi` vhosts from non-mesh source IPs.
 
 ## Desktop (dadiOS)
 
@@ -296,19 +296,19 @@ Plasma on the box only — Hath is for other devices. Visual system is **bone gl
 | --- | --- |
 | Look-and-feel | `org.dadi.desktop` — translucent top bar (32px), floating dock, crest widgets |
 | Brand menu | plasmoid `org.dadi.brand` |
-| Widgets | `org.dadi.widget.{agents,memory,timeline,system}` — liquid glass (GPL-3 shaders from liquidglass-kde-widgets) + Hath data |
-| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (access / dwar / tunnel / devices → `DADI_STATE_DIR`) |
+| Widgets | `org.dadi.widget.{agents,memory,timeline,ghar,system}` — liquid glass (GPL-3 shaders from liquidglass-kde-widgets) + Hath data |
+| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (users / dwar / tunnel / devices → `DADI_STATE_DIR`) |
 | Add Device | `dadi-add-device` → `plasmawindowed org.dadi.adddevice` (mint Nas `POST /provision` QR for Hath) |
 | Wallpaper | `Dadi` (`/usr/share/wallpapers/Dadi/`) |
 | Wake / lid | immutable `action/lock_screen=false`, `kscreenlockerrc`, PowerDevil profiles, `dadi-inhibit-idle.service`, `logind.conf.d/dadi-lid.conf` |
 | TPM | `dadi-tpm-enroll.service` → PCR 7 via `/var/lib/dadi/luks-enroll.key` (shredded after seal; 45s cap; no TTY wait) |
 | Plymouth / SDDM | theme `dadi`; `sddm-wayland-plasma` greeter compositor; PAM `sddm-autologin` permits empty-password `dadi` |
 
-Glass rules: blur before tint; never translucent text; two opacities only (veil / sheet); no dark glass. Desktop widgets sample the wallpaper through Dual Kawase + refraction (adapted from [liquidglass-kde-widgets](https://github.com/jaxparrow07/liquidglass-kde-widgets), GPL-3). Layout is placed with `desktop.addWidget(plugin, x, y, w, h)` on first session and whenever `/usr/libexec/dadi/apply-desktop.sh` sees a new `LAYOUT_VERSION` (Preferences → Desktop → Reset layout).
+Glass rules: blur before tint; never translucent text; two opacities only (veil / sheet); no dark glass. Desktop widgets sample the wallpaper through Dual Kawase + refraction (adapted from [liquidglass-kde-widgets](https://github.com/jaxparrow07/liquidglass-kde-widgets), GPL-3). Layout is applied by `dadi-apply-desktop.service` after `plasma-plasmashell` (and whenever `/usr/libexec/dadi/apply-desktop.sh` sees a new `LAYOUT_VERSION`, or Preferences → Desktop → Reset layout).
 
 ## Mesh
 
-Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale is `localhost:8080`; prod clients use `https://dadi.ardusa.dev`. Host/sidecar hostname `os` should be the first node so MagicDNS extra records match `100.64.0.1`.
+Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale is `localhost:8080`; production clients use the `https://` URL from Preferences → Tunnel. Host/sidecar hostname `os` should be the first node so MagicDNS extra records match `100.64.0.1`.
 
 `GET /status` returns `"errors": []` under Docker — searchable errors live at `GET /logs`.
 

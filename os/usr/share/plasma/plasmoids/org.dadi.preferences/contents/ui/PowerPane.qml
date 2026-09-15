@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 Item {
@@ -9,48 +8,24 @@ Item {
 
         Text {
             text: "Power"
-            color: "#2c302a"
-            font.pixelSize: 20
+            color: "#141511"
+            font.pixelSize: 22
             font.weight: Font.DemiBold
+            font.letterSpacing: -0.3
         }
         Text {
             text: "The session is dadi with no lock screen. Lid close, idle, and suspend keys do not sleep the box. The panel stays on."
-            color: "#6e7568"
+            color: "#8a8e87"
             font.pixelSize: 13
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
-
-        Rectangle {
+        Text {
+            text: "Autologin is dadi with no password. SSH users live under Users. The locker is off; PowerDevil lid and idle do nothing."
+            color: "#141511"
+            font.pixelSize: 13
+            wrapMode: Text.WordWrap
             Layout.fillWidth: true
-            radius: 12
-            color: "#f7f9f4"
-            border.color: "#b9c9ab"
-            border.width: 1
-            implicitHeight: col.height + 28
-
-            Column {
-                id: col
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.margins: 14
-                spacing: 8
-
-                Text {
-                    text: "POLICY"
-                    color: "#5c6b52"
-                    font.pixelSize: 10
-                    font.letterSpacing: 2
-                }
-                Text {
-                    width: parent.width
-                    text: "Autologin dadi (no password). SSH users are created in Access. Relogin=true. kscreenlocker off. PowerDevil lid/idle = do nothing. kde-inhibit screensaver."
-                    color: "#2c302a"
-                    font.pixelSize: 13
-                    wrapMode: Text.Wrap
-                }
-            }
         }
 
         Item { Layout.fillHeight: true }

@@ -25,7 +25,6 @@ PlasmoidItem {
         property real contentMinY: 0
         property real contentMaxX: 0
         property real contentMaxY: 0
-        property string err: ""
 
         function leafCount(node) {
             if (!node.children || node.children.length === 0)
@@ -42,6 +41,17 @@ PlasmoidItem {
             const lanes = agent.running || {}
             if (lanes.reasoning || lanes.conversation)
                 return "running"
+            return "idle"
+        }
+
+        function captionOf(agent) {
+            if (!agent.active)
+                return "dormant"
+            const lanes = agent.running || {}
+            if (lanes.reasoning)
+                return "reasoning"
+            if (lanes.conversation)
+                return "talking"
             return "idle"
         }
 
@@ -78,6 +88,7 @@ PlasmoidItem {
                     id: agent.id,
                     name: agent.name,
                     visual: visualOf(agent),
+                    caption: captionOf(agent),
                     children: []
                 }
                 for (let i = 0; i < kids.length; i++)
@@ -106,6 +117,7 @@ PlasmoidItem {
                     id: node.id,
                     name: node.name,
                     visual: node.visual,
+                    caption: node.caption,
                     isRoot: depth === 0,
                     x: x,
                     y: y
@@ -127,7 +139,8 @@ PlasmoidItem {
                 if (xhr.readyState !== XMLHttpRequest.DONE)
                     return
                 if (xhr.status !== 200) {
-                    frame.err = "dimaag unreachable"
+                    frame.status = xhr.status === 0 ? "dimaag unreachable" : ("dimaag " + xhr.status)
+                    frame.kicker = ""
                     frame.nodes = []
                     frame.links = []
                     return
@@ -137,21 +150,25 @@ PlasmoidItem {
                     const list = Array.isArray(data) ? data : (data.agents || [])
                     const tree = frame.buildTree(list)
                     if (!tree) {
-                        frame.err = "no root agent"
+                        frame.status = "no root agent"
+                        frame.kicker = ""
                         frame.nodes = []
                         frame.links = []
                         return
                     }
-                    const laid = frame.layoutTree(tree, 72, 64)
+                    const laid = frame.layoutTree(tree, 140, 96)
                     let minX = Infinity
                     let maxX = -Infinity
                     let minY = Infinity
                     let maxY = -Infinity
+                    let running = 0
                     for (let i = 0; i < laid.nodes.length; i++) {
                         minX = Math.min(minX, laid.nodes[i].x)
                         maxX = Math.max(maxX, laid.nodes[i].x)
                         minY = Math.min(minY, laid.nodes[i].y)
                         maxY = Math.max(maxY, laid.nodes[i].y)
+                        if (laid.nodes[i].visual === "running")
+                            running += 1
                     }
                     frame.contentMinX = minX
                     frame.contentMinY = minY
@@ -159,9 +176,12 @@ PlasmoidItem {
                     frame.contentMaxY = maxY
                     frame.nodes = laid.nodes
                     frame.links = laid.links
-                    frame.err = ""
+                    frame.status = ""
+                    const n = laid.nodes.length
+                    frame.kicker = n === 1 ? "" : (n + " agents" + (running > 0 ? " · " + running + " running" : ""))
                 } catch (e) {
-                    frame.err = "bad agents payload"
+                    frame.status = "bad agents payload"
+                    frame.kicker = ""
                 }
             }
             xhr.open("GET", Tokens.dimaagBase + "/agents")
@@ -181,8 +201,8 @@ PlasmoidItem {
 
             Text {
                 anchors.centerIn: parent
-                visible: frame.err !== "" || frame.nodes.length === 0
-                text: frame.err !== "" ? frame.err : "Loading agents…"
+                visible: frame.status !== "" || frame.nodes.length === 0
+                text: frame.status !== "" ? frame.status : "Loading agents…"
                 color: "#b0b8a6"
                 font.pixelSize: 13
             }
@@ -190,15 +210,12 @@ PlasmoidItem {
             Item {
                 id: treeView
                 anchors.fill: parent
-                visible: frame.err === "" && frame.nodes.length > 0
+                visible: frame.status === "" && frame.nodes.length > 0
 
-                readonly property real pad: 36
                 readonly property real contentW: Math.max(frame.contentMaxX - frame.contentMinX, 0)
                 readonly property real contentH: Math.max(frame.contentMaxY - frame.contentMinY, 0)
-                readonly property real viewW: Math.max(contentW + pad * 2, 200)
-                readonly property real viewH: Math.max(contentH + pad * 2 + 24, 150)
-                readonly property real originX: (width - viewW) / 2 + pad - frame.contentMinX
-                readonly property real originY: (height - viewH) / 2 + pad - frame.contentMinY
+                readonly property real originX: width / 2 - (frame.contentMinX + contentW / 2)
+                readonly property real originY: height / 2 - (frame.contentMinY + contentH / 2)
 
                 Repeater {
                     model: frame.links
@@ -216,10 +233,11 @@ PlasmoidItem {
                     AgentDot {
                         required property var modelData
                         x: treeView.originX + modelData.x - width / 2
-                        y: treeView.originY + modelData.y - height / 2
+                        y: treeView.originY + modelData.y - anchorY
                         visual: modelData.visual
                         isRoot: modelData.isRoot
                         label: modelData.name
+                        caption: modelData.caption
                     }
                 }
             }

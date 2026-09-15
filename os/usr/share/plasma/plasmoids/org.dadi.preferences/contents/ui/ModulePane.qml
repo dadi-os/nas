@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import org.dadi.Desktop
 
 Item {
     id: root
@@ -165,11 +166,20 @@ Item {
     onVisibleChanged: if (visible) load()
 
     Flickable {
+        id: flick
         anchors.fill: parent
         contentWidth: width
         contentHeight: col.height
         clip: true
         boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollBar {
+            policy: ScrollBar.AsNeeded
+            contentItem: Rectangle {
+                implicitWidth: 6
+                radius: 3
+                color: "#14151133"
+            }
+        }
 
         ColumnLayout {
             id: col
@@ -178,43 +188,44 @@ Item {
 
             Text {
                 text: "Dwar"
-                color: "#2c302a"
-                font.pixelSize: 20
+                color: "#141511"
+                font.pixelSize: 22
                 font.weight: Font.DemiBold
+                font.letterSpacing: -0.3
             }
             Text {
                 text: "Provider keys and model routing. Saving restarts dwar."
-                color: "#6e7568"
+                color: "#8a8e87"
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
 
-            Text { text: "KEYS"; color: "#5c6b52"; font.pixelSize: 10; font.letterSpacing: 2; Layout.topMargin: 4 }
+            Text { text: "Keys"; color: "#8a8e87"; font.pixelSize: 12; Layout.topMargin: 4 }
             FormRow { id: anthropic; label: "Anthropic"; secret: true }
             FormRow { id: gemini; label: "Gemini"; secret: true }
             FormRow { id: openai; label: "OpenAI"; secret: true }
             FormRow { id: deepgram; label: "Deepgram"; secret: true }
 
-            Text { text: "REASONING"; color: "#5c6b52"; font.pixelSize: 10; font.letterSpacing: 2; Layout.topMargin: 8 }
+            Text { text: "Reasoning"; color: "#8a8e87"; font.pixelSize: 12; Layout.topMargin: 8 }
             FormRow { id: reasonProvider; label: "Provider" }
             FormRow { id: reasonModel; label: "Model" }
             FormRow { id: reasonTokens; label: "Max tokens" }
             FormRow { id: reasonThink; label: "Thinking budget" }
 
-            Text { text: "CONVERSATION"; color: "#5c6b52"; font.pixelSize: 10; font.letterSpacing: 2; Layout.topMargin: 8 }
+            Text { text: "Conversation"; color: "#8a8e87"; font.pixelSize: 12; Layout.topMargin: 8 }
             FormRow { id: convProvider; label: "Provider" }
             FormRow { id: convModel; label: "Model" }
             FormRow { id: convTokens; label: "Max tokens" }
 
-            Text { text: "EMBED"; color: "#5c6b52"; font.pixelSize: 10; font.letterSpacing: 2; Layout.topMargin: 8 }
+            Text { text: "Embed"; color: "#8a8e87"; font.pixelSize: 12; Layout.topMargin: 8 }
             FormRow { id: embedProvider; label: "Provider" }
             FormRow { id: embedModel; label: "Model" }
             FormRow { id: embedDim; label: "Dimensions" }
             FormRow { id: embedBatch; label: "Max batch size" }
             FormRow { id: embedLen; label: "Max text length" }
 
-            Text { text: "IMAGE DESCRIBE"; color: "#5c6b52"; font.pixelSize: 10; font.letterSpacing: 2; Layout.topMargin: 8 }
+            Text { text: "Image describe"; color: "#8a8e87"; font.pixelSize: 12; Layout.topMargin: 8 }
             FormRow { id: descProvider; label: "Provider" }
             FormRow { id: descModel; label: "Model" }
             FormRow { id: descTokens; label: "Max tokens" }
@@ -222,44 +233,33 @@ Item {
             FormRow { id: descPrompt; label: "Max prompt length" }
             FormRow { id: descTypes; label: "Allowed media types"; hint: "Comma-separated MIME types" }
 
-            Text { text: "IMAGE CREATE"; color: "#5c6b52"; font.pixelSize: 10; font.letterSpacing: 2; Layout.topMargin: 8 }
+            Text { text: "Image create"; color: "#8a8e87"; font.pixelSize: 12; Layout.topMargin: 8 }
             FormRow { id: createProvider; label: "Provider" }
             FormRow { id: createModel; label: "Model" }
             FormRow { id: createPrompt; label: "Max prompt length" }
 
-            Text { text: "SPEECH"; color: "#5c6b52"; font.pixelSize: 10; font.letterSpacing: 2; Layout.topMargin: 8 }
+            Text { text: "Speech"; color: "#8a8e87"; font.pixelSize: 12; Layout.topMargin: 8 }
             FormRow { id: speechProvider; label: "Provider" }
             FormRow { id: speechModel; label: "Model" }
             FormRow { id: speechLang; label: "Language" }
             FormRow { id: speechBytes; label: "Max bytes" }
             FormRow { id: speechTypes; label: "Allowed media types"; hint: "Comma-separated MIME types" }
 
-            Text { text: "RETRY"; color: "#5c6b52"; font.pixelSize: 10; font.letterSpacing: 2; Layout.topMargin: 8 }
+            Text { text: "Retry"; color: "#8a8e87"; font.pixelSize: 12; Layout.topMargin: 8 }
             FormRow { id: retryAttempts; label: "Attempts" }
             FormRow { id: retryBackoff; label: "Backoff seconds"; hint: "Comma-separated" }
             FormRow { id: retryTimeout; label: "Timeout seconds" }
 
-            Button {
-                Layout.preferredHeight: 40
-                Layout.preferredWidth: 160
+            DadiButton {
+                text: "Save"
                 Layout.topMargin: 8
+                Layout.alignment: Qt.AlignLeft
                 onClicked: root.save()
-                background: Rectangle {
-                    radius: 9
-                    color: parent.down ? "#5c6b52" : "#8fa382"
-                }
-                contentItem: Text {
-                    text: "Save"
-                    color: "#fafaf7"
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    font.pixelSize: 13
-                }
             }
 
             Text {
                 text: status
-                color: "#b56b5c"
+                color: "#c45c4a"
                 font.pixelSize: 12
                 visible: status !== ""
                 wrapMode: Text.WordWrap

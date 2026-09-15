@@ -33,6 +33,9 @@ func TestValidateSSHUsername(t *testing.T) {
 	if err := validateSSHUsername("root"); !errors.Is(err, errSSHReserved) {
 		t.Fatalf("root: %v", err)
 	}
+	if err := validateSSHUsername("setup"); !errors.Is(err, errSSHReserved) {
+		t.Fatalf("setup: %v", err)
+	}
 	if err := validateSSHUsername("systemd-foo"); !errors.Is(err, errSSHReserved) {
 		t.Fatalf("systemd: %v", err)
 	}
@@ -58,6 +61,7 @@ func TestSSHAdminNamesFromPasswd(t *testing.T) {
 		"root:x:0:0:root:/root:/bin/bash\n" +
 		"dadi:x:1000:1000:dadi:/var/lib/dadi:/bin/bash\n" +
 		"alice:x:1001:1001:alice:/home/alice:/bin/bash\n" +
+		"setup:x:1003:1003:setup:/home/setup:/bin/bash\n" +
 		"bob:x:1002:1002:bob:/home/bob:/bin/bash\n" +
 		"nobody:x:65534:65534:nobody:/:/sbin/nologin\n"
 	got := sshAdminNamesFromPasswd(out)

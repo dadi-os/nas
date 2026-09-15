@@ -20,6 +20,7 @@ Notify=healthy
 
 [Service]
 Restart=always
+TimeoutStartSec=180
 
 [Install]
 WantedBy=multi-user.target

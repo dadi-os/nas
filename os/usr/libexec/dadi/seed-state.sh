@@ -36,12 +36,7 @@ while IFS= read -r -d '' src; do
   fi
 done < <(find "$SEED" -print0)
 
-mkdir -p "$STATE/cloudflared" "$STATE/modules/dwar" "$STATE/headscale"
-
-# Ensure cloudflared token file exists (may be empty until set via Nas).
-if [ ! -f "$STATE/cloudflared/token" ]; then
-  : >"$STATE/cloudflared/token"
-fi
+mkdir -p "$STATE/caddy" "$STATE/modules/dwar" "$STATE/headscale"
 
 # Control URL preference file (Preferences → Tunnel). Empty until set or seeded.
 if [ ! -f "$STATE/headscale/control_url" ]; then
@@ -51,6 +46,16 @@ fi
 if [ ! -s "$STATE/headscale/control_url" ] && [ -n "${CONTROL_URL:-}" ]; then
   printf '%s\n' "$CONTROL_URL" >"$STATE/headscale/control_url"
   chmod 0600 "$STATE/headscale/control_url"
+fi
+
+if [ ! -f "$STATE/headscale/config.yaml" ]; then
+  cp /etc/headscale/config.yaml "$STATE/headscale/config.yaml"
+  chmod 0600 "$STATE/headscale/config.yaml"
+fi
+
+if [ ! -f "$STATE/caddy/headscale.caddy" ]; then
+  printf '%s\n' "# unpublished" >"$STATE/caddy/headscale.caddy"
+  chmod 0644 "$STATE/caddy/headscale.caddy"
 fi
 
 # Ensure dwar .env exists (blank keys until set via Preferences).
@@ -63,4 +68,4 @@ DEEPGRAM_API_KEY=
 EOF
 fi
 
-chmod -R u+rwX,go-rwx "$STATE/modules" "$STATE/cloudflared" "$STATE/headscale" 2>/dev/null || true
+chmod -R u+rwX,go-rwx "$STATE/modules" "$STATE/caddy" "$STATE/headscale" 2>/dev/null || true

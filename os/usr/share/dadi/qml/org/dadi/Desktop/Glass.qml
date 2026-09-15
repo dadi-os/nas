@@ -542,5 +542,7 @@ Item {
         color: glass.tint
         opacity: glass.fallbackOpacity
         radius: glass.radius
+        border.color: "#ffffff"
+        border.width: 1
     }
 }

@@ -1,0 +1,8 @@
+[Unit]
+Description=Refresh Headscale UPnP port mappings
+After=nas.service network-online.target
+Wants=nas.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/dadi/publish-headscale.sh

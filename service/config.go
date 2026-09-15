@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +13,9 @@ import (
 	"strings"
 )
 
+// errControlURLUnset means Preferences → Tunnel has no control plane URL yet.
+var errControlURLUnset = errors.New("control URL not set — configure in Preferences → Tunnel")
+
 // Only Dwar has user-editable secrets (provider keys). Yaad/Dimaag Postgres
 // credentials are baked into compose/quadlets — not Preferences/.env.
 var moduleEnvNames = map[string]struct{}{
@@ -20,32 +24,30 @@ var moduleEnvNames = map[string]struct{}{
 
 // ModuleUnit maps API name → systemd unit (prod / DADI_RUNTIME=podman).
 var moduleUnit = map[string]string{
-	"dwar":        "dwar",
-	"yaad":        "yaad",
-	"dimaag":      "dimaag",
-	"ghar":        "ghar",
-	"nas":         "nas.service",
-	"caddy":       "caddy.service",
-	"headscale":   "headscale.service",
-	"cloudflared": "cloudflared.service",
-	"loki":        "loki.service",
-	"alloy":       "alloy.service",
-	"tailscale":   "dadi-tailscale.service",
+	"dwar":      "dwar",
+	"yaad":      "yaad",
+	"dimaag":    "dimaag",
+	"ghar":      "ghar",
+	"nas":       "nas.service",
+	"caddy":     "caddy.service",
+	"headscale": "headscale.service",
+	"loki":      "loki.service",
+	"alloy":     "alloy.service",
+	"tailscale": "dadi-tailscale.service",
 }
 
 // ComposeService maps API name → docker compose service (dev). Empty = no-op.
 var composeService = map[string]string{
-	"dwar":        "dwar",
-	"yaad":        "yaad",
-	"dimaag":      "dimaag",
-	"ghar":        "ghar",
-	"nas":         "nas-service",
-	"caddy":       "caddy",
-	"headscale":   "headscale",
-	"cloudflared": "",
-	"loki":        "loki",
-	"alloy":       "alloy",
-	"tailscale":   "tailscale",
+	"dwar":      "dwar",
+	"yaad":      "yaad",
+	"dimaag":    "dimaag",
+	"ghar":      "ghar",
+	"nas":       "nas-service",
+	"caddy":     "caddy",
+	"headscale": "headscale",
+	"loki":      "loki",
+	"alloy":     "alloy",
+	"tailscale": "tailscale",
 }
 
 type stateConfig struct {
@@ -85,10 +87,6 @@ func (s stateConfig) dwarConfigPath() string {
 	return filepath.Join(s.dir, "modules", "dwar", "config.toml")
 }
 
-func (s stateConfig) cloudflaredTokenPath() string {
-	return filepath.Join(s.dir, "cloudflared", "token")
-}
-
 func (s stateConfig) controlURLPath() string {
 	return filepath.Join(s.dir, "headscale", "control_url")
 }
@@ -122,13 +120,13 @@ func (s stateConfig) resolveControlURL() (string, error) {
 	body, err := os.ReadFile(s.controlURLPath())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("control URL not set — configure in Preferences → Tunnel")
+			return "", errControlURLUnset
 		}
 		return "", err
 	}
 	u := strings.TrimSpace(string(body))
 	if u == "" {
-		return "", fmt.Errorf("control URL not set — configure in Preferences → Tunnel")
+		return "", errControlURLUnset
 	}
 	return u, nil
 }
@@ -268,44 +266,6 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 		})
 	})
 
-	mux.HandleFunc("GET /cloudflared/token", func(w http.ResponseWriter, r *http.Request) {
-		body, err := os.ReadFile(s.cloudflaredTokenPath())
-		if err != nil {
-			if os.IsNotExist(err) {
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-				return
-			}
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write(body)
-	})
-
-	mux.HandleFunc("PUT /cloudflared/token", func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
-		if err != nil {
-			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "read body")
-			return
-		}
-		path := s.cloudflaredTokenPath()
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-			return
-		}
-		token := strings.TrimSpace(string(body))
-		if err := os.WriteFile(path, []byte(token+"\n"), 0o600); err != nil {
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-			return
-		}
-		if err := s.restartModule("cloudflared"); err != nil {
-			slog.Error("restart cloudflared after token write", "code", CodeInternal, "err", err)
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, "wrote token but restart failed: "+err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
-
 	mux.HandleFunc("GET /headscale/control-url", func(w http.ResponseWriter, r *http.Request) {
 		body, err := os.ReadFile(s.controlURLPath())
 		if err != nil {
@@ -327,12 +287,8 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 			return
 		}
 		url := strings.TrimSpace(string(body))
-		if url == "" {
-			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "control URL is required")
-			return
-		}
-		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "control URL must be http(s)")
+		if err := validateControlURL(s.runtime, url); err != nil {
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, err.Error())
 			return
 		}
 		path := s.controlURLPath()
@@ -344,7 +300,57 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
 		}
+		if s.runtime == "podman" {
+			if err := s.applyControlPlanePublish(url); err != nil {
+				slog.Error("publish control plane", "code", CodeInternal, "err", err)
+				writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+				return
+			}
+			st, err := s.loadPublishStatus()
+			if err != nil {
+				writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status":      "ok",
+				"control_url": st.ControlURL,
+				"hostname":    st.Hostname,
+				"lan_ip":      st.LANIP,
+				"wan_ip":      st.WANIP,
+			})
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+
+	mux.HandleFunc("GET /headscale/publish", func(w http.ResponseWriter, r *http.Request) {
+		st, err := s.loadPublishStatus()
+		if err != nil {
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, st)
+	})
+
+	mux.HandleFunc("POST /headscale/publish", func(w http.ResponseWriter, r *http.Request) {
+		if s.runtime != "podman" {
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "control plane publish is appliance-only")
+			return
+		}
+		if _, err := s.resolveControlURL(); err != nil {
+			writeError(w, r, http.StatusInternalServerError, CodeConfigMissing, err.Error())
+			return
+		}
+		if err := s.mapHeadscalePorts(); err != nil {
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+			return
+		}
+		st, err := s.loadPublishStatus()
+		if err != nil {
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, st)
 	})
 }
 
@@ -379,7 +385,7 @@ func (s stateConfig) stackUp() error {
 			"yaad-migrate", "dimaag-migrate", "ghar-migrate",
 			"yaad", "dimaag", "dwar", "ghar", "bootstrap.service",
 			"nas.service", "caddy.service", "alloy.service",
-			"tailscaled.service", "dadi-tailscale.service", "cloudflared.service",
+			"tailscaled.service", "dadi-tailscale.service",
 		}
 		for _, u := range units {
 			if err := hostSystemctl("start", u); err != nil {
@@ -398,7 +404,7 @@ func (s stateConfig) stackDown() error {
 	switch s.runtime {
 	case "podman":
 		units := []string{
-			"cloudflared.service", "dadi-tailscale.service", "caddy.service", "nas.service", "alloy.service",
+			"dadi-tailscale.service", "caddy.service", "nas.service", "alloy.service",
 			"dwar", "yaad", "dimaag", "ghar", "bootstrap.service",
 			"yaad-migrate", "dimaag-migrate", "ghar-migrate",
 			"yaad-postgres", "dimaag-postgres", "ghar-postgres", "headscale.service", "loki.service",

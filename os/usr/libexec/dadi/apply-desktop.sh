@@ -2,8 +2,9 @@
 # Apply dadi look-and-feel and place crest widgets. Re-runs when LAYOUT_VERSION changes.
 set -euo pipefail
 
-LAYOUT_VERSION=2
+LAYOUT_VERSION=4
 FLAG="${XDG_CONFIG_HOME:-$HOME/.config}/dadi/lnf-version"
+LAYOUT=/usr/share/plasma/look-and-feel/org.dadi.desktop/contents/layouts/org.kde.plasma.desktop-layout.js
 FORCE=0
 if [ "${1:-}" = "--force" ]; then
   FORCE=1
@@ -15,8 +16,8 @@ fi
 
 wait_plasmashell() {
   local i
-  for i in $(seq 1 40); do
-    if qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript 'print("ok")' >/dev/null 2>&1; then
+  for i in $(seq 1 120); do
+    if busctl --user call org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell evaluateScript s 'print("ok")' >/dev/null 2>&1; then
       return 0
     fi
     sleep 0.5
@@ -26,8 +27,6 @@ wait_plasmashell() {
 }
 
 wait_plasmashell
-lookandfeeltool -a org.dadi.desktop --resetLayout
-qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript \
-  "$(cat /usr/share/dadi/plasma/place-widgets.js)"
+busctl --user call org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell evaluateScript s "$(cat "$LAYOUT")" >/dev/null
 mkdir -p "$(dirname "$FLAG")"
 printf '%s\n' "$LAYOUT_VERSION" > "$FLAG"

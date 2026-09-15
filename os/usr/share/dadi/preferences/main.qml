@@ -2,22 +2,23 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
+import org.dadi.Desktop
 
 ApplicationWindow {
     id: win
-    width: 920
-    height: 640
-    minimumWidth: 720
-    minimumHeight: 480
+    width: 1120
+    height: 780
+    minimumWidth: 960
+    minimumHeight: 620
     visible: true
     title: "Preferences"
-    color: "#fafaf7"
+    color: "#fbfbfa"
 
-    property string section: "access"
+    property string section: "users"
     property string toast: ""
 
     readonly property var sections: [
-        { id: "access", label: "Access" },
+        { id: "users", label: "Users" },
         { id: "dwar", label: "Dwar" },
         { id: "tunnel", label: "Tunnel" },
         { id: "desktop", label: "Desktop" },
@@ -47,38 +48,29 @@ ApplicationWindow {
         anchors.fill: parent
         spacing: 0
 
-        Rectangle {
+        Item {
             Layout.preferredWidth: 200
             Layout.fillHeight: true
-            color: "#f7f9f4"
 
             Rectangle {
                 anchors.right: parent.right
                 width: 1
                 height: parent.height
-                color: "#e4ebdc"
+                color: "#14151118"
             }
 
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 16
-                spacing: 6
+                spacing: 4
 
                 Text {
                     text: "દાદી"
-                    color: "#7e9270"
+                    color: "#141511"
                     font.family: "Noto Sans Gujarati"
-                    font.pixelSize: 28
+                    font.pixelSize: 26
                     font.weight: Font.Medium
-                    Layout.bottomMargin: 12
-                }
-
-                Text {
-                    text: "PREFERENCES"
-                    color: "#a8af9f"
-                    font.pixelSize: 10
-                    font.letterSpacing: 2.5
-                    Layout.bottomMargin: 8
+                    Layout.bottomMargin: 16
                 }
 
                 Repeater {
@@ -87,23 +79,20 @@ ApplicationWindow {
                         id: row
                         required property var modelData
                         Layout.fillWidth: true
-                        height: 34
-
+                        height: 36
                         readonly property bool active: win.section === modelData.id
 
                         Rectangle {
                             anchors.fill: parent
-                            radius: 9
-                            color: row.active ? "#8fa38228" : "transparent"
-                            border.color: row.active ? "#b9c9ab" : "transparent"
-                            border.width: 1
+                            radius: 10
+                            color: row.active ? "#14151112" : "transparent"
                         }
 
                         Text {
                             anchors.fill: parent
-                            anchors.leftMargin: 10
+                            anchors.leftMargin: 12
                             text: row.modelData.label
-                            color: row.active ? "#5c6b52" : "#6e7568"
+                            color: "#141511"
                             font.pixelSize: 13
                             font.weight: row.active ? Font.DemiBold : Font.Normal
                             verticalAlignment: Text.AlignVCenter
@@ -121,14 +110,13 @@ ApplicationWindow {
             }
         }
 
-        Rectangle {
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: "#fafaf7"
 
             StackLayout {
                 anchors.fill: parent
-                anchors.margins: 20
+                anchors.margins: 24
                 currentIndex: win.sectionIndex()
 
                 AccessPane {
@@ -153,13 +141,13 @@ ApplicationWindow {
         visible: win.toast !== ""
         width: toastText.width + 28
         height: toastText.height + 16
-        radius: 9
-        color: "#8fa382"
+        radius: 10
+        color: "#141511"
         Text {
             id: toastText
             anchors.centerIn: parent
             text: win.toast
-            color: "#fafaf7"
+            color: "#ffffff"
             font.pixelSize: 12
         }
     }

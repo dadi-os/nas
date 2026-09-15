@@ -1,0 +1,14 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "KPlugin": {
+        "Authors": [{"Name": "dadi"}],
+        "Category": "System Information",
+        "Description": "Ghar rooms and Matter devices",
+        "Icon": "dadi",
+        "Id": "org.dadi.widget.ghar",
+        "License": "MIT",
+        "Name": "Ghar",
+        "Version": "1.0"
+    }
+}

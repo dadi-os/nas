@@ -5,73 +5,75 @@ Item {
     property string visual: "idle"
     property bool isRoot: false
     property string label: ""
+    property string caption: "idle"
 
-    readonly property real core: {
-        if (visual === "dormant")
-            return 4.5
-        if (isRoot)
-            return 8
-        if (visual === "running")
-            return 7
-        return 6.5
+    readonly property real disc: isRoot ? 22 : 16
+    readonly property real anchorY: disc / 2 + 2
+
+    width: 132
+    height: 76
+    scale: hover.hovered ? 1.05 : 1
+
+    Behavior on scale {
+        NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
     }
 
-    width: 72
-    height: 40
+    HoverHandler { id: hover }
 
-    Rectangle {
-        id: halo
-        visible: root.visual === "running"
+    Column {
         anchors.horizontalCenter: parent.horizontalCenter
-        y: 2
-        width: root.core * 3.4
-        height: width
-        radius: width / 2
-        color: "#8fa38238"
+        spacing: 7
+        width: parent.width
 
-        SequentialAnimation on opacity {
-            running: halo.visible
-            loops: Animation.Infinite
-            NumberAnimation { from: 0.35; to: 0.85; duration: 900 }
-            NumberAnimation { from: 0.85; to: 0.35; duration: 900 }
-        }
-    }
+        Item {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: root.disc + 10
+            height: root.disc + 4
 
-    Rectangle {
-        id: dot
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: 2 + (halo.visible ? (halo.height - width) / 2 : 4)
-        width: root.core * 2
-        height: width
-        radius: width / 2
-        color: {
-            if (root.visual === "running")
-                return "#8fa382"
-            if (root.visual === "dormant")
-                return "transparent"
-            if (root.isRoot)
-                return "#8fa38222"
-            return "#fafaf7"
-        }
-        border.width: root.visual === "dormant" ? 1 : (root.isRoot ? 1.35 : 1)
-        border.color: {
-            if (root.visual === "running")
-                return "#5c6b52"
-            if (root.visual === "dormant")
-                return "#b9c9ab8c"
-            return "#8fa382b3"
-        }
-    }
+            Rectangle {
+                visible: root.visual === "running"
+                anchors.centerIn: parent
+                width: root.disc + 10
+                height: width
+                radius: width / 2
+                color: "#14151118"
+                SequentialAnimation on scale {
+                    running: root.visual === "running"
+                    loops: Animation.Infinite
+                    NumberAnimation { from: 0.9; to: 1.12; duration: 1200; easing.type: Easing.InOutSine }
+                    NumberAnimation { from: 1.12; to: 0.9; duration: 1200; easing.type: Easing.InOutSine }
+                }
+            }
 
-    Text {
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: dot.bottom
-        anchors.topMargin: 3
-        text: root.label
-        color: root.visual === "dormant" ? "#b0b8a6" : (root.isRoot ? "#5c6b52" : "#6e7568")
-        font.pixelSize: 8
-        elide: Text.ElideRight
-        width: 70
-        horizontalAlignment: Text.AlignHCenter
+            Rectangle {
+                anchors.centerIn: parent
+                width: root.disc
+                height: width
+                radius: width / 2
+                color: root.visual === "dormant" ? "transparent" : "#141511"
+                border.width: root.visual === "dormant" ? 1.5 : 0
+                border.color: "#14151155"
+            }
+        }
+
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width
+            text: root.label
+            color: root.visual === "dormant" ? "#8a8e87" : "#141511"
+            font.pixelSize: 15
+            font.weight: Font.DemiBold
+            elide: Text.ElideRight
+            horizontalAlignment: Text.AlignHCenter
+        }
+
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width
+            text: root.caption
+            color: "#8a8e87"
+            font.pixelSize: 12
+            horizontalAlignment: Text.AlignHCenter
+        }
     }
 }

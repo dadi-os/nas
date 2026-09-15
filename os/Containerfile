@@ -57,6 +57,7 @@ RUN dnf -y install \
     ImageMagick \
     wl-clipboard \
     nftables \
+    miniupnpc \
     tpm2-tools \
     tpm2-tss \
     cryptsetup \
@@ -68,11 +69,6 @@ RUN curl -fsSL https://pkgs.tailscale.com/stable/fedora/tailscale.repo \
       -o /etc/yum.repos.d/tailscale.repo \
   && dnf -y install tailscale \
   && dnf clean all
-
-# Cloudflare tunnel binary (not in Fedora repos).
-RUN curl -fsSL -o /usr/local/bin/cloudflared \
-      https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
-  && chmod 0755 /usr/local/bin/cloudflared
 
 COPY --from=nas-build /nas /usr/local/bin/nas
 COPY --from=headscale /ko-app/headscale /usr/local/bin/headscale
@@ -131,8 +127,11 @@ RUN chmod 0440 /etc/sudoers.d/dadi-wheel \
   && chmod 0755 /usr/libexec/dadi/*.sh \
   && chmod 0755 /usr/share/dadi/bootstrap.sh \
   && mkdir -p /etc/systemd/user/graphical-session.target.wants \
+       /etc/systemd/user/plasma-workspace.target.wants \
   && ln -sfn /usr/lib/systemd/user/dadi-inhibit-screensaver.service \
        /etc/systemd/user/graphical-session.target.wants/dadi-inhibit-screensaver.service \
+  && ln -sfn /usr/lib/systemd/user/dadi-apply-desktop.service \
+       /etc/systemd/user/plasma-workspace.target.wants/dadi-apply-desktop.service \
   && systemctl enable sshd.service \
   && systemctl enable dadi-seed.service \
   && systemctl enable dadi-home.service \
@@ -144,7 +143,7 @@ RUN chmod 0440 /etc/sudoers.d/dadi-wheel \
   && systemctl mask tuned.service \
   && systemctl mask clevis-luks-askpass.service \
   && systemctl mask clevis-luks-askpass.path \
-  && systemctl enable cloudflared.service \
+  && systemctl enable dadi-publish.timer \
   && systemctl enable headscale.service \
   && systemctl enable bootstrap.service \
   && systemctl enable tailscaled.service \

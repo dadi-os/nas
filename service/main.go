@@ -68,7 +68,7 @@ func main() {
 		handleListClients(w, r, userName)
 	})
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
-		handleStatus(w, r, started, state.runtime)
+		handleStatus(w, r, started, state.runtime, state.dir)
 	})
 	mux.HandleFunc("GET /logs", func(w http.ResponseWriter, r *http.Request) {
 		handleLogs(w, r, lokiURL)
@@ -279,8 +279,33 @@ type serviceStatus struct {
 }
 
 type diskStatus struct {
-	FreeBytes  uint64 `json:"free_bytes"`
-	TotalBytes uint64 `json:"total_bytes"`
+	FreeBytes   uint64  `json:"free_bytes"`
+	TotalBytes  uint64  `json:"total_bytes"`
+	UsedPercent float64 `json:"used_percent"`
+}
+
+// diskStatusFromStatfs builds a disk meter from block counts. free may exceed
+// total on some filesystems; used is then 0.
+func diskStatusFromStatfs(total, free uint64) diskStatus {
+	used := uint64(0)
+	if total > free {
+		used = total - free
+	}
+	pct := 0.0
+	if total > 0 {
+		pct = float64(used) / float64(total) * 100
+	}
+	return diskStatus{FreeBytes: free, TotalBytes: total, UsedPercent: pct}
+}
+
+// readDisk reports usage of the filesystem that holds path. Ostree's `/` is a
+// packed composefs with no free space; DADI_STATE_DIR lives on the writable volume.
+func readDisk(path string) (diskStatus, error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(path, &st); err != nil {
+		return diskStatus{}, fmt.Errorf("statfs %s: %w", path, err)
+	}
+	return diskStatusFromStatfs(st.Blocks*uint64(st.Bsize), st.Bavail*uint64(st.Bsize)), nil
 }
 
 func healthTargets(runtime string) []struct {
@@ -309,7 +334,7 @@ func healthTargets(runtime string) []struct {
 	}
 }
 
-func handleStatus(w http.ResponseWriter, _ *http.Request, started time.Time, runtime string) {
+func handleStatus(w http.ResponseWriter, _ *http.Request, started time.Time, runtime, stateDir string) {
 	targets := healthTargets(runtime)
 	services := make([]serviceStatus, 0, len(targets))
 	client := &http.Client{Timeout: 2 * time.Second}
@@ -323,11 +348,10 @@ func handleStatus(w http.ResponseWriter, _ *http.Request, started time.Time, run
 		services = append(services, serviceStatus{Name: t.name, Healthy: healthy})
 	}
 
-	disk := diskStatus{}
-	var st syscall.Statfs_t
-	if err := syscall.Statfs("/", &st); err == nil {
-		disk.TotalBytes = st.Blocks * uint64(st.Bsize)
-		disk.FreeBytes = st.Bavail * uint64(st.Bsize)
+	disk, diskErr := readDisk(stateDir)
+	errs := []string{}
+	if diskErr != nil {
+		errs = append(errs, diskErr.Error())
 	}
 
 	m := currentMetrics()
@@ -338,7 +362,7 @@ func handleStatus(w http.ResponseWriter, _ *http.Request, started time.Time, run
 		CPU:           m.CPU,
 		Memory:        m.Memory,
 		GPU:           m.GPU,
-		Errors:        []string{},
+		Errors:        errs,
 	})
 }
 

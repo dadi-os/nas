@@ -12,8 +12,8 @@ Shape {
     preferredRendererType: Shape.CurveRenderer
 
     ShapePath {
-        strokeWidth: 0.9
-        strokeColor: "#b9c9ab"
+        strokeWidth: 1
+        strokeColor: "#14151126"
         fillColor: "transparent"
         capStyle: ShapePath.RoundCap
         PathMove { x: root.x1; y: root.y1 }

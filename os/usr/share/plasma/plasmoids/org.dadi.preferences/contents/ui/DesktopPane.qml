@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import org.dadi.Desktop
 
 Item {
     id: root
@@ -14,36 +15,26 @@ Item {
 
         Text {
             text: "Desktop"
-            color: "#2c302a"
-            font.pixelSize: 20
+            color: "#141511"
+            font.pixelSize: 22
             font.weight: Font.DemiBold
+            font.letterSpacing: -0.3
         }
         Text {
-            text: "Field wallpaper, bone glass widgets (agents, memory, timeline, system), translucent top bar, floating dock. Icons stay off."
-            color: "#6e7568"
+            text: "Glass widgets, translucent top bar, floating dock. Icons stay off."
+            color: "#8a8e87"
             font.pixelSize: 13
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
 
-        Button {
-            Layout.preferredHeight: 40
-            Layout.preferredWidth: 180
+        DadiButton {
+            text: "Reset layout"
+            Layout.alignment: Qt.AlignLeft
             onClicked: {
                 if (root.runner)
                     root.runner.exec("/usr/libexec/dadi/apply-desktop.sh --force")
                 root.toast("Desktop layout reset")
-            }
-            background: Rectangle {
-                radius: 9
-                color: parent.down ? "#5c6b52" : "#8fa382"
-            }
-            contentItem: Text {
-                text: "Reset layout"
-                color: "#fafaf7"
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                font.pixelSize: 13
             }
         }
 

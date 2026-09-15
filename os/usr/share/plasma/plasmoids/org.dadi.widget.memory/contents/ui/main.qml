@@ -23,8 +23,24 @@ PlasmoidItem {
         property int memories: -1
         property int places: -1
         property int plans: -1
-        property string err: ""
         property int pending: 0
+
+        function fail(xhr) {
+            if (xhr.status === 0) {
+                frame.status = "yaad unreachable"
+                return
+            }
+            let type = ""
+            try {
+                const data = JSON.parse(xhr.responseText)
+                if (data.error && data.error.type)
+                    type = data.error.type
+            } catch (e) {
+                frame.status = "yaad " + xhr.status
+                return
+            }
+            frame.status = type !== "" ? type : ("yaad " + xhr.status)
+        }
 
         function countKind(kind, assign) {
             const xhr = new XMLHttpRequest()
@@ -33,29 +49,24 @@ PlasmoidItem {
                     return
                 frame.pending = Math.max(0, frame.pending - 1)
                 if (xhr.status !== 200) {
-                    frame.err = "yaad unreachable"
+                    frame.fail(xhr)
                     return
                 }
                 try {
                     const data = JSON.parse(xhr.responseText)
-                    const n = (data.nodes || []).length
-                    assign(n)
-                    if (frame.pending === 0 && frame.err === "yaad unreachable")
-                        return
-                    if (xhr.status === 200 && frame.pending === 0)
-                        frame.err = ""
+                    assign((data.nodes || []).length)
                 } catch (e) {
-                    frame.err = "bad query"
+                    frame.status = "bad query"
                 }
             }
-            xhr.open("POST", Tokens.yaadBase + "/v1/query")
+            xhr.open("POST", Tokens.yaadBase + "/query")
             xhr.setRequestHeader("Content-Type", "application/json")
-            xhr.send(JSON.stringify({ kind: kind, limit: 500, offset: 0 }))
+            xhr.send(JSON.stringify({ kind: kind, limit: 200, offset: 0 }))
         }
 
         function refresh() {
             frame.pending = 4
-            frame.err = ""
+            frame.status = ""
             countKind("person", function (n) { frame.people = n })
             countKind("memory", function (n) { frame.memories = n })
             countKind("place", function (n) { frame.places = n })
@@ -65,8 +76,8 @@ PlasmoidItem {
         function fmt(n) {
             if (n < 0)
                 return "—"
-            if (n >= 500)
-                return "500+"
+            if (n >= 200)
+                return "200+"
             return String(n)
         }
 
@@ -100,42 +111,34 @@ PlasmoidItem {
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
                         width: 1
-                        height: parent.height * 0.55
-                        color: "#b9c9ab"
-                        opacity: 0.7
+                        height: parent.height * 0.5
+                        color: "#14151114"
+                        opacity: 0.55
                     }
 
                     Column {
                         anchors.centerIn: parent
-                        spacing: 8
+                        spacing: 10
 
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: frame.err !== "" ? "—" : modelData.value
-                            color: "#2c302a"
-                            font.pixelSize: 26
+                            text: modelData.value
+                            color: "#141511"
+                            font.pixelSize: 32
                             font.weight: Font.Medium
+                            font.letterSpacing: -0.8
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: modelData.label
-                            color: "#5c6b52"
+                            color: "#8a8e87"
                             font.pixelSize: 10
-                            font.letterSpacing: 2
+                            font.letterSpacing: 2.2
                             font.weight: Font.Medium
                         }
                     }
                 }
             }
-        }
-
-        Text {
-            anchors.centerIn: parent
-            visible: frame.err !== ""
-            text: frame.err
-            color: "#6e7568"
-            font.pixelSize: 13
-            z: 2
         }
     }
 }

@@ -30,7 +30,10 @@ var (
 	reservedSSHUsers = map[string]struct{}{
 		"dadi": {}, "root": {}, "nobody": {}, "nfsnobody": {},
 		"daemon": {}, "bin": {}, "sys": {}, "sync": {}, "mail": {},
-		"ftp": {}, "sshd": {}, "halt": {}, "shutdown": {},
+		"ftp": {}, "sshd": {}, "halt": {}, "shutdown": {}, "setup": {},
+	}
+	hiddenSSHUsers = map[string]struct{}{
+		"setup": {},
 	}
 )
 
@@ -57,7 +60,7 @@ type sshUserRequest struct {
 	Password string `json:"password"`
 }
 
-// registerAccessRoutes exposes appliance SSH user provisioning and TPM status.
+// registerAccessRoutes exposes appliance SSH user management and TPM status.
 func registerAccessRoutes(mux *http.ServeMux, s stateConfig) {
 	mux.HandleFunc("GET /access", func(w http.ResponseWriter, r *http.Request) {
 		users := []accessUser{}
@@ -106,9 +109,36 @@ func registerAccessRoutes(mux *http.ServeMux, s stateConfig) {
 			"created":  created,
 		})
 	})
+
+	mux.HandleFunc("DELETE /access/users/{username}", func(w http.ResponseWriter, r *http.Request) {
+		if s.runtime != "podman" {
+			writeError(w, r, http.StatusForbidden, CodeForbidden, "SSH users are appliance-only")
+			return
+		}
+		username := r.PathValue("username")
+		if err := removeSSHUser(username); err != nil {
+			if errors.Is(err, errSSHNotFound) {
+				writeError(w, r, http.StatusNotFound, CodeNotFound, err.Error())
+				return
+			}
+			if isValidateErr(err) {
+				writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, err.Error())
+				return
+			}
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":   "ok",
+			"username": strings.TrimSpace(username),
+		})
+	})
 }
 
-var errSSHReserved = errors.New("username is reserved")
+var (
+	errSSHReserved = errors.New("username is reserved")
+	errSSHNotFound = errors.New("user not found")
+)
 
 // isValidateErr reports whether err is a client-facing username or password rejection.
 func isValidateErr(err error) bool {
@@ -186,6 +216,9 @@ func sshAdminNamesFromPasswd(out string) []string {
 			continue
 		}
 		if rec.name == sessionUser {
+			continue
+		}
+		if _, hidden := hiddenSSHUsers[rec.name]; hidden {
 			continue
 		}
 		if !isSSHAdminUID(rec.uid) {
@@ -275,6 +308,29 @@ func provisionSSHUser(username, password string) (created bool, err error) {
 		return created, err
 	}
 	return created, nil
+}
+
+// removeSSHUser deletes an appliance SSH login and rewrites AllowUsers.
+func removeSSHUser(username string) error {
+	username = strings.TrimSpace(username)
+	if err := validateSSHUsername(username); err != nil {
+		return err
+	}
+	rec, exists, err := lookupPasswd(username)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return errSSHNotFound
+	}
+	if rec.name == sessionUser || !isSSHAdminUID(rec.uid) {
+		return errSSHReserved
+	}
+	cmd := exec.Command("userdel", "--remove", username)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("userdel: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return syncSSHAllowUsers()
 }
 
 // setSSHPassword sets username's password via passwd --stdin.

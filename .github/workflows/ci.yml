@@ -44,6 +44,13 @@ jobs:
           grep -q '^Notify=healthy$' os/etc/containers/systemd/ghar-postgres.container
           grep -q '^Notify=healthy$' os/etc/containers/systemd/yaad-postgres.container
           grep -q '^Notify=healthy$' os/etc/containers/systemd/dimaag-postgres.container
+          grep -q '^TimeoutStartSec=180$' os/etc/containers/systemd/ghar-postgres.container
+          grep -q '^TimeoutStartSec=180$' os/etc/containers/systemd/yaad-postgres.container
+          grep -q '^TimeoutStartSec=180$' os/etc/containers/systemd/dimaag-postgres.container
+          grep -q 'dadi-apply-desktop.service' os/Containerfile
+          grep -q 'seq 1 120' os/usr/libexec/dadi/apply-desktop.sh
+          grep -q 'busctl --user' os/usr/libexec/dadi/apply-desktop.sh
+          grep -q 'org.kde.plasma.desktop-layout.js' os/usr/libexec/dadi/apply-desktop.sh
           grep -q 'systemctl mask tuned.service' os/Containerfile
           grep -q 'systemctl mask clevis-luks-askpass.service' os/Containerfile
           grep -q 'TimeoutStartSec=45' os/etc/systemd/system/dadi-tpm-enroll.service

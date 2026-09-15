@@ -9,12 +9,13 @@ QtObject {
     readonly property color sageDeep: "#5c6b52"
     readonly property color sageLine: "#b9c9ab"
     readonly property color sageFaint: "#8fa38222"
-    readonly property color ink: "#2c302a"
-    readonly property color inkMuted: "#6e7568"
+    readonly property color ink: "#141511"
+    readonly property color inkMuted: "#8a8e87"
     readonly property color inkGhost: "#b0b8a6"
-    readonly property color rule: "#e4ebdc"
-    readonly property real radiusControl: 9
-    readonly property real radiusWindow: 12
+    readonly property color fail: "#c45c4a"
+    readonly property color rule: "#14151118"
+    readonly property real radiusControl: 10
+    readonly property real radiusWindow: 16
     readonly property real radiusDock: 24
     readonly property real veilOpacity: 0.62
     readonly property real sheetOpacity: 0.78
@@ -25,4 +26,5 @@ QtObject {
     readonly property string nasBase: "http://127.0.0.1:8092"
     readonly property string yaadBase: "http://127.0.0.1:8082"
     readonly property string dimaagBase: "http://127.0.0.1:8083"
+    readonly property string gharBase: "http://127.0.0.1:8084"
 }

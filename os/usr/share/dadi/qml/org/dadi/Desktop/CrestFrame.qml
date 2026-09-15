@@ -5,8 +5,10 @@ Item {
     id: root
 
     property string title: ""
+    property string kicker: ""
+    property string status: ""
     default property alias content: body.data
-    property real frameRadius: 16
+    property real frameRadius: 22
 
     implicitWidth: 320
     implicitHeight: 220
@@ -14,103 +16,70 @@ Item {
     Glass {
         id: glass
         anchors.fill: parent
-        anchors.margins: 2
         radius: root.frameRadius
-        tint: "#fafaf7"
-        tintAlpha: 0.38
-        blurRadius: 24
-        fallbackOpacity: 0.62
+        tint: "#ffffff"
+        tintAlpha: 0.22
+        blurRadius: 36
+        fallbackOpacity: 0.55
+        refractScale: 28
+        chromaStrength: 0.06
     }
 
     Rectangle {
         anchors.fill: parent
-        anchors.margins: 2
         radius: root.frameRadius
         color: "transparent"
-        border.color: "#b9c9ab"
+        border.color: "#ffffff"
         border.width: 1
-        opacity: 0.55
+        opacity: 0.38
         z: 1
     }
 
-    Item {
-        id: crest
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: -10
-        z: 2
-        width: crestRow.width + 28
-        height: 28
+    RowLayout {
+        id: header
+        z: 3
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.leftMargin: 20
+        anchors.rightMargin: 20
+        anchors.topMargin: 16
+        spacing: 10
 
-        Rectangle {
-            anchors.centerIn: parent
-            width: parent.width + 24
-            height: parent.height + 16
-            radius: width / 2
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: "#fafaf7" }
-                GradientStop { position: 0.55; color: "#fafaf7cc" }
-                GradientStop { position: 1.0; color: "transparent" }
-            }
+        Text {
+            text: root.title
+            color: "#141511"
+            font.pixelSize: 15
+            font.weight: Font.DemiBold
+            font.letterSpacing: -0.2
         }
 
-        Row {
-            id: crestRow
-            anchors.centerIn: parent
-            spacing: 8
+        Item { Layout.fillWidth: true }
 
-            Rectangle {
-                width: 5
-                height: 5
-                rotation: 45
-                anchors.verticalCenter: parent.verticalCenter
-                color: "#8fa38255"
-                border.color: "#b9c9ab"
-                border.width: 1
-            }
+        Text {
+            visible: root.kicker !== ""
+            text: root.kicker
+            color: "#8a8e87"
+            font.pixelSize: 12
+        }
 
-            Rectangle {
-                radius: 3
-                border.color: "#a8b89c"
-                border.width: 1
-                width: titleText.width + 18
-                height: titleText.height + 8
-                gradient: Gradient {
-                    GradientStop { position: 0.0; color: "#fffef9" }
-                    GradientStop { position: 0.5; color: "#fafaf7" }
-                    GradientStop { position: 1.0; color: "#f7f9f4" }
-                }
-
-                Text {
-                    id: titleText
-                    anchors.centerIn: parent
-                    text: root.title
-                    color: "#5c6b52"
-                    font.pixelSize: 10
-                    font.weight: Font.Medium
-                    font.letterSpacing: 2.4
-                    font.capitalization: Font.AllUppercase
-                }
-            }
-
-            Rectangle {
-                width: 5
-                height: 5
-                rotation: 45
-                anchors.verticalCenter: parent.verticalCenter
-                color: "#8fa38255"
-                border.color: "#b9c9ab"
-                border.width: 1
-            }
+        Text {
+            visible: root.status !== ""
+            text: root.status
+            color: "#c45c4a"
+            font.pixelSize: 12
+            elide: Text.ElideRight
+            Layout.maximumWidth: header.width * 0.4
         }
     }
 
     Item {
         id: body
         anchors.fill: parent
-        anchors.topMargin: 22
-        anchors.leftMargin: 14
-        anchors.rightMargin: 14
-        anchors.bottomMargin: 12
+        anchors.topMargin: 44
+        anchors.leftMargin: 18
+        anchors.rightMargin: 18
+        anchors.bottomMargin: 16
         clip: true
         z: 3
     }

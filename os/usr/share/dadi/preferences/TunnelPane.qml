@@ -1,28 +1,19 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import org.dadi.Desktop
 
 Item {
     id: root
     signal saved(string message)
 
-    property string token: ""
     property string controlUrl: ""
+    property string wanIp: ""
+    property string lanIp: ""
     property string status: ""
 
     function load() {
-        const tokenXhr = new XMLHttpRequest()
-        tokenXhr.onreadystatechange = function () {
-            if (tokenXhr.readyState !== XMLHttpRequest.DONE)
-                return
-            if (tokenXhr.status === 200)
-                token = tokenXhr.responseText
-            else
-                status = "Failed to load token"
-        }
-        tokenXhr.open("GET", "http://127.0.0.1:8092/cloudflared/token")
-        tokenXhr.send()
-
+        status = ""
         const urlXhr = new XMLHttpRequest()
         urlXhr.onreadystatechange = function () {
             if (urlXhr.readyState !== XMLHttpRequest.DONE)
@@ -34,38 +25,56 @@ Item {
         }
         urlXhr.open("GET", "http://127.0.0.1:8092/headscale/control-url")
         urlXhr.send()
-    }
 
-    function saveToken() {
-        status = "Saving token…"
-        const xhr = new XMLHttpRequest()
-        xhr.onreadystatechange = function () {
-            if (xhr.readyState !== XMLHttpRequest.DONE)
+        const pubXhr = new XMLHttpRequest()
+        pubXhr.onreadystatechange = function () {
+            if (pubXhr.readyState !== XMLHttpRequest.DONE)
                 return
-            if (xhr.status !== 200) {
-                status = "Token save failed (" + xhr.status + ")"
+            if (pubXhr.status !== 200) {
+                if (status === "")
+                    status = "Failed to load WAN/LAN"
                 return
             }
-            status = ""
-            root.saved("tunnel token saved · cloudflared restarted")
+            try {
+                const st = JSON.parse(pubXhr.responseText)
+                wanIp = st.wan_ip || ""
+                lanIp = st.lan_ip || ""
+            } catch (e) {
+                if (status === "")
+                    status = "Failed to parse publish status"
+            }
         }
-        xhr.open("PUT", "http://127.0.0.1:8092/cloudflared/token")
-        xhr.setRequestHeader("Content-Type", "text/plain; charset=utf-8")
-        xhr.send(token)
+        pubXhr.open("GET", "http://127.0.0.1:8092/headscale/publish")
+        pubXhr.send()
     }
 
     function saveControlUrl() {
-        status = "Saving control URL…"
+        status = "Publishing…"
         const xhr = new XMLHttpRequest()
         xhr.onreadystatechange = function () {
             if (xhr.readyState !== XMLHttpRequest.DONE)
                 return
             if (xhr.status !== 200) {
-                status = "Control URL save failed (" + xhr.status + ")"
+                status = "Publish failed (" + xhr.status + ")"
+                try {
+                    const payload = JSON.parse(xhr.responseText)
+                    if (payload.error && payload.error.message)
+                        status = payload.error.message
+                } catch (e) {
+                    status = "Publish failed (" + xhr.status + ")"
+                }
                 return
             }
             status = ""
-            root.saved("control URL saved · used in device provision bundles")
+            try {
+                const st = JSON.parse(xhr.responseText)
+                wanIp = st.wan_ip || wanIp
+                lanIp = st.lan_ip || lanIp
+            } catch (e) {
+                status = "Published, but the response was not JSON"
+            }
+            root.saved("control plane published · UPnP mapped 80/443")
+            load()
         }
         xhr.open("PUT", "http://127.0.0.1:8092/headscale/control-url")
         xhr.setRequestHeader("Content-Type", "text/plain; charset=utf-8")
@@ -80,13 +89,14 @@ Item {
 
         Text {
             text: "Tunnel"
-            color: "#2c302a"
-            font.pixelSize: 20
+            color: "#141511"
+            font.pixelSize: 22
             font.weight: Font.DemiBold
+            font.letterSpacing: -0.3
         }
         Text {
-            text: "Headscale control plane URL (embedded in device QR codes) and Cloudflare tunnel token. cloudflared starts once the token is non-empty."
-            color: "#6e7568"
+            text: "Public Headscale URL Hath dials to join dadiMesh. Saving maps ports 80 and 443 on the router via UPnP and serves HTTPS on this box. Point the hostname’s DNS A record at the WAN address."
+            color: "#8a8e87"
             font.pixelSize: 13
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
@@ -94,13 +104,13 @@ Item {
 
         Text {
             text: "Control plane URL"
-            color: "#2c302a"
+            color: "#141511"
             font.pixelSize: 13
             font.weight: Font.DemiBold
         }
         Text {
-            text: "Public Headscale URL clients dial when joining dadiMesh (e.g. https://dadi.ardusa.dev)."
-            color: "#6e7568"
+            text: "https://hostname — Let’s Encrypt needs this name to resolve to the WAN IP below."
+            color: "#8a8e87"
             font.pixelSize: 12
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
@@ -108,92 +118,42 @@ Item {
         TextField {
             Layout.fillWidth: true
             Layout.preferredHeight: 40
+            leftPadding: 12
+            rightPadding: 12
             text: root.controlUrl
             onTextChanged: root.controlUrl = text
             font.family: "Noto Sans Mono"
             font.pixelSize: 13
-            color: "#2c302a"
+            color: "#141511"
+            selectByMouse: true
             background: Rectangle {
-                radius: 9
-                color: "#f7f9f4"
-                border.color: "#b9c9ab"
+                radius: 10
+                color: "#ffffffcc"
+                border.color: parent.activeFocus ? "#141511" : "#14151122"
                 border.width: 1
             }
         }
-        Button {
-            Layout.preferredHeight: 40
-            Layout.preferredWidth: 180
+        DadiButton {
+            text: "Save and publish"
+            Layout.alignment: Qt.AlignLeft
             onClicked: root.saveControlUrl()
-            background: Rectangle {
-                radius: 9
-                color: parent.down ? "#5c6b52" : "#8fa382"
-            }
-            contentItem: Text {
-                text: "Save control URL"
-                color: "#fafaf7"
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                font.pixelSize: 13
-            }
         }
 
         Text {
-            text: "Cloudflare tunnel token"
-            color: "#2c302a"
+            visible: root.wanIp !== "" || root.lanIp !== ""
+            text: (root.wanIp !== "" ? ("WAN " + root.wanIp) : "") + (root.lanIp !== "" ? ("  ·  LAN " + root.lanIp) : "")
+            color: "#141511"
             font.pixelSize: 13
-            font.weight: Font.DemiBold
-            Layout.topMargin: 8
-        }
-        Text {
-            text: "Stored under /var/lib/dadi/cloudflared."
-            color: "#6e7568"
-            font.pixelSize: 12
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-
-        ScrollView {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            TextArea {
-                width: parent.availableWidth
-                wrapMode: TextEdit.Wrap
-                text: root.token
-                onTextChanged: root.token = text
-                font.family: "Noto Sans Mono"
-                font.pixelSize: 12
-                color: "#2c302a"
-                background: Rectangle {
-                    radius: 9
-                    color: "#f7f9f4"
-                    border.color: "#b9c9ab"
-                    border.width: 1
-                }
-            }
-        }
-
-        Button {
-            Layout.preferredHeight: 40
-            Layout.preferredWidth: 160
-            onClicked: root.saveToken()
-            background: Rectangle {
-                radius: 9
-                color: parent.down ? "#5c6b52" : "#8fa382"
-            }
-            contentItem: Text {
-                text: "Save token"
-                color: "#fafaf7"
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                font.pixelSize: 13
-            }
+            font.family: "Noto Sans Mono"
         }
 
         Text {
             text: status
-            color: "#6e7568"
-            font.pixelSize: 11
+            color: "#c45c4a"
+            font.pixelSize: 12
             visible: status !== ""
         }
+
+        Item { Layout.fillHeight: true }
     }
 }
