@@ -13,6 +13,7 @@ Item {
     property string status: ""
     property bool busy: false
     property bool copied: false
+    property bool pairing: false
     property var reserved: []
 
     readonly property string draftName: nameField.text.trim()
@@ -33,12 +34,30 @@ Item {
         return false
     }
 
+    function startPairing() {
+        pairing = true
+        status = ""
+        copied = false
+    }
+
+    function finishPairing() {
+        pairing = false
+        busy = false
+        bundle = ""
+        qrPath = ""
+        copied = false
+        status = ""
+        nameField.text = ""
+        load()
+    }
+
     Http { id: api }
 
     function load() {
         api.get(Tokens.nasBase + "/clients", function (code, body) {
             if (code !== 200) {
-                status = "Failed to load devices (" + code + ")"
+                if (!root.pairing)
+                    status = "Failed to load devices (" + code + ")"
                 return
             }
             try {
@@ -144,60 +163,193 @@ Item {
     Component.onCompleted: load()
     onVisibleChanged: if (visible) load()
 
-    RowLayout {
+    ColumnLayout {
         anchors.fill: parent
-        spacing: 32
+        spacing: 14
+        visible: !root.pairing
+
+        Text {
+            text: "Devices"
+            color: "#141511"
+            font.pixelSize: 22
+            font.weight: Font.DemiBold
+            font.letterSpacing: -0.3
+        }
+        Text {
+            text: "Hath clients on this mesh."
+            color: "#8a8e87"
+            font.pixelSize: 13
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            radius: 14
+            color: Tokens.sageFill
+            border.color: Tokens.sageStroke
+            border.width: 1
+            clip: true
+
+            Column {
+                anchors.centerIn: parent
+                spacing: 14
+                width: Math.min(320, parent.width - 48)
+                visible: root.clients.length === 0
+
+                Text {
+                    width: parent.width
+                    text: "No Hath on this mesh yet. Add one and scan the setup code from that device."
+                    color: "#8a8e87"
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                    horizontalAlignment: Text.AlignHCenter
+                }
+                DadiButton {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "Add Hath"
+                    onClicked: root.startPairing()
+                }
+            }
+
+            DadiFlickable {
+                anchors.fill: parent
+                visible: root.clients.length > 0
+                contentWidth: width
+                contentHeight: roster.height
+
+                Column {
+                    id: roster
+                    width: parent.width
+
+                    Repeater {
+                        model: root.clients
+                        delegate: Item {
+                            id: row
+                            required property var modelData
+                            required property int index
+                            width: roster.width
+                            height: 56
+
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.leftMargin: 16
+                                anchors.rightMargin: 16
+                                height: 1
+                                color: "#14151112"
+                                visible: row.index > 0
+                            }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 20
+                                anchors.rightMargin: 20
+                                spacing: 12
+
+                                Rectangle {
+                                    width: 8
+                                    height: 8
+                                    radius: 4
+                                    color: row.modelData.pending
+                                           ? Tokens.sage
+                                           : (row.modelData.online ? "#141511" : "#8a8e87")
+                                }
+                                Text {
+                                    text: row.modelData.node_name
+                                    color: "#141511"
+                                    font.pixelSize: 15
+                                    font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+                                Text {
+                                    text: row.modelData.pending ? "Waiting" : (row.modelData.online ? "Online" : "Offline")
+                                    color: "#8a8e87"
+                                    font.pixelSize: 13
+                                }
+                            }
+                        }
+                    }
+
+                    Item {
+                        width: roster.width
+                        height: 56
+
+                        DadiButton {
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.left: parent.left
+                            anchors.leftMargin: 20
+                            text: "Add Hath"
+                            onClicked: root.startPairing()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Item {
+        anchors.fill: parent
+        visible: root.pairing
+
+        DadiButton {
+            kind: "ghost"
+            text: "Done"
+            anchors.top: parent.top
+            anchors.right: parent.right
+            onClicked: root.finishPairing()
+        }
 
         ColumnLayout {
-            Layout.preferredWidth: 340
-            Layout.maximumWidth: 380
-            Layout.fillHeight: true
+            anchors.centerIn: parent
+            width: 320
             spacing: 12
 
             Text {
-                text: "Devices"
+                text: "Add Hath"
                 color: "#141511"
                 font.pixelSize: 22
                 font.weight: Font.DemiBold
                 font.letterSpacing: -0.3
+                Layout.alignment: Qt.AlignHCenter
             }
             Text {
-                text: "Name a Hath, then scan the QR from that device. Setup codes are single-use and last about an hour."
+                text: root.qrPath === ""
+                      ? "Name it, then create a code to scan."
+                      : "Scan with Hath. Single-use, about an hour."
                 color: "#8a8e87"
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
                 Layout.fillWidth: true
             }
 
             FormRow {
                 id: nameField
+                Layout.fillWidth: true
                 label: "Name"
-                hint: "Shown on the mesh as this hostname."
+                visible: root.qrPath === ""
+            }
+
+            DadiButton {
+                Layout.fillWidth: true
+                visible: root.qrPath === ""
+                text: root.busy ? "Creating…" : "Create code"
+                enabled: !root.busy && root.draftName.length > 0 && !root.nameTaken
+                onClicked: root.mint()
             }
 
             Text {
-                visible: root.nameTaken
+                visible: root.nameTaken && root.qrPath === ""
                 text: "“" + root.draftName + "” is already taken"
                 color: "#c45c4a"
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
             }
-
-            DadiButton {
-                Layout.fillWidth: true
-                text: root.busy ? "Creating…" : "Create setup code"
-                enabled: !root.busy && root.draftName.length > 0 && !root.nameTaken
-                onClicked: root.mint()
-            }
-            DadiButton {
-                Layout.fillWidth: true
-                kind: "ghost"
-                visible: root.bundle !== ""
-                text: root.copied ? "Copied" : "Copy setup code"
-                onClicked: root.copyBundle()
-            }
-
             Text {
                 text: root.status
                 color: "#c45c4a"
@@ -205,87 +357,15 @@ Item {
                 visible: root.status !== ""
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
             }
-
-            Text {
-                text: "On the mesh"
-                color: "#141511"
-                font.pixelSize: 13
-                font.weight: Font.DemiBold
-                Layout.topMargin: 8
-            }
-
-            Flickable {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                contentWidth: width
-                contentHeight: roster.height
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-
-                ColumnLayout {
-                    id: roster
-                    width: parent.width
-                    spacing: 4
-
-                    Text {
-                        visible: root.clients.length === 0
-                        text: "No devices yet."
-                        color: "#8a8e87"
-                        font.pixelSize: 13
-                    }
-
-                    Repeater {
-                        model: root.clients
-                        delegate: Rectangle {
-                            id: row
-                            required property var modelData
-                            Layout.fillWidth: true
-                            implicitHeight: 40
-                            radius: 10
-                            color: "transparent"
-
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: 10
-                                anchors.rightMargin: 10
-                                spacing: 10
-
-                                Rectangle {
-                                    width: 7
-                                    height: 7
-                                    radius: 4
-                                    color: row.modelData.online ? "#141511" : "#8a8e87"
-                                }
-                                Text {
-                                    text: row.modelData.node_name
-                                    color: "#141511"
-                                    font.pixelSize: 14
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
-                                Text {
-                                    text: row.modelData.online ? "online" : "offline"
-                                    color: "#8a8e87"
-                                    font.pixelSize: 12
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Item {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
 
             Rectangle {
-                id: qrPlate
-                readonly property int side: Math.min(parent.width, parent.height)
-                width: side
-                height: side
-                anchors.centerIn: parent
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 8
+                Layout.preferredWidth: 300
+                Layout.preferredHeight: 300
+                visible: root.qrPath !== ""
                 radius: 16
                 color: "#ffffff"
                 border.color: "#14151114"
@@ -293,36 +373,19 @@ Item {
 
                 Image {
                     anchors.fill: parent
-                    anchors.margins: 20
+                    anchors.margins: 14
                     source: root.qrPath
                     fillMode: Image.PreserveAspectFit
-                    visible: root.qrPath !== ""
                     cache: false
                 }
+            }
 
-                Column {
-                    anchors.centerIn: parent
-                    spacing: 8
-                    visible: root.qrPath === ""
-                    width: parent.width - 48
-
-                    Text {
-                        width: parent.width
-                        text: root.busy ? "Creating…" : "QR appears here"
-                        color: "#8a8e87"
-                        font.pixelSize: 14
-                        horizontalAlignment: Text.AlignHCenter
-                    }
-                    Text {
-                        width: parent.width
-                        visible: !root.busy
-                        text: "Scan with Hath after you create a setup code."
-                        color: "#b0b8a6"
-                        font.pixelSize: 12
-                        wrapMode: Text.WordWrap
-                        horizontalAlignment: Text.AlignHCenter
-                    }
-                }
+            DadiButton {
+                Layout.fillWidth: true
+                kind: "ghost"
+                visible: root.bundle !== ""
+                text: root.copied ? "Copied" : "Copy setup code"
+                onClicked: root.copyBundle()
             }
         }
     }

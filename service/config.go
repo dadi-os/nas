@@ -13,8 +13,8 @@ import (
 	"strings"
 )
 
-// errControlURLUnset means Preferences → Tunnel has no control plane URL yet.
-var errControlURLUnset = errors.New("control URL not set — configure in Preferences → Tunnel")
+// errControlURLUnset means the Headscale control plane URL file is empty.
+var errControlURLUnset = errors.New("control URL not set — PUT /headscale/control-url")
 
 // Dwar (provider keys) and Chaavi (BW_*) have user-editable secrets.
 // Yaad/Dimaag/Ghar Postgres credentials are baked into compose/quadlets.

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import org.dadi.Desktop
 
 ColumnLayout {
     id: root
@@ -38,12 +39,17 @@ ColumnLayout {
         selectByMouse: true
         enabled: root.editable
         hoverEnabled: true
+        palette.accent: "#141511"
         palette.highlight: "#141511"
         palette.highlightedText: "#ffffff"
+        palette.text: "#141511"
+        palette.placeholderText: "#8a8e87"
+        selectionColor: "#141511"
+        selectedTextColor: "#ffffff"
         background: Rectangle {
             radius: 10
-            color: root.editable ? "#ffffffcc" : "#14151108"
-            border.color: field.activeFocus ? "#141511" : "#14151122"
+            color: root.editable ? Tokens.sageFill : "#14151108"
+            border.color: field.activeFocus ? "#141511" : Tokens.sageStroke
             border.width: 1
         }
     }

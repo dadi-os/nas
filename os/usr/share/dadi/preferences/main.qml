@@ -18,13 +18,19 @@ ApplicationWindow {
 
     property string section: "users"
     property string toast: ""
+    palette.accent: "#141511"
+    palette.highlight: "#141511"
+    palette.highlightedText: "#ffffff"
+    palette.text: "#141511"
+    palette.windowText: "#141511"
+    palette.button: "#141511"
+    palette.buttonText: "#ffffff"
+    palette.link: "#141511"
 
     readonly property var sections: [
         { id: "users", label: "Users" },
         { id: "dwar", label: "Dwar" },
-        { id: "tunnel", label: "Tunnel" },
-        { id: "desktop", label: "Desktop" },
-        { id: "power", label: "Power" }
+        { id: "desktop", label: "Desktop" }
     ]
 
     function showToast(msg) {
@@ -127,11 +133,7 @@ ApplicationWindow {
                 ModulePane {
                     onSaved: msg => win.showToast(msg)
                 }
-                TunnelPane {
-                    onSaved: msg => win.showToast(msg)
-                }
                 DesktopPane {}
-                PowerPane {}
             }
         }
     }

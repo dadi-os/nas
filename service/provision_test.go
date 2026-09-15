@@ -84,3 +84,52 @@ func TestPendingNodesRoundTrip(t *testing.T) {
 		t.Fatal("expected parse error")
 	}
 }
+
+func TestPruneJoinedPending(t *testing.T) {
+	pending := map[string]time.Time{
+		"mac":   time.Now().Add(time.Hour),
+		"phone": time.Now().Add(time.Hour),
+	}
+	pruneJoinedPending(pending, []meshClient{{NodeName: "Mac"}})
+	if _, ok := pending["mac"]; ok {
+		t.Fatal("joined name should leave pending")
+	}
+	if _, ok := pending["phone"]; !ok {
+		t.Fatal("unjoined name should stay pending")
+	}
+}
+
+func TestWithPendingClients(t *testing.T) {
+	now := time.Date(2026, 9, 14, 22, 0, 0, 0, time.UTC)
+	clients := []meshClient{{NodeName: "os", Online: true, IPAddresses: []string{}}}
+	pending := map[string]time.Time{
+		"zebra": now.Add(time.Hour),
+		"mac":   now.Add(time.Hour),
+		"os":    now.Add(time.Hour),
+		"stale": now.Add(-time.Minute),
+	}
+	got := withPendingClients(clients, pending, now)
+	if len(got) != 3 {
+		t.Fatalf("len %d: %+v", len(got), got)
+	}
+	if got[0].NodeName != "os" || got[0].Pending {
+		t.Fatalf("mesh row first: %+v", got[0])
+	}
+	if got[1].NodeName != "mac" || !got[1].Pending {
+		t.Fatalf("pending sorted: %+v", got[1])
+	}
+	if got[2].NodeName != "zebra" || !got[2].Pending {
+		t.Fatalf("pending sorted: %+v", got[2])
+	}
+}
+
+func TestWithPendingClientsEmpty(t *testing.T) {
+	now := time.Date(2026, 9, 14, 22, 0, 0, 0, time.UTC)
+	got := withPendingClients(nil, map[string]time.Time{}, now)
+	if got == nil {
+		t.Fatal("empty list must be non-nil JSON array")
+	}
+	if len(got) != 0 {
+		t.Fatalf("len %d", len(got))
+	}
+}

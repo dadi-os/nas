@@ -160,13 +160,11 @@ Item {
             Layout.fillWidth: true
         }
 
-        Flickable {
+        DadiFlickable {
             Layout.fillWidth: true
             Layout.preferredHeight: Math.max(52, Math.min(220, userCol.height))
             contentWidth: width
             contentHeight: userCol.height
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
 
             ColumnLayout {
                 id: userCol

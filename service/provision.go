@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -64,6 +65,52 @@ func takenNodeNames(clients []meshClient, pending map[string]time.Time, now time
 		add(name)
 	}
 	return names
+}
+
+// pruneJoinedPending drops reservations for names that already exist on the mesh.
+func pruneJoinedPending(pending map[string]time.Time, clients []meshClient) {
+	have := map[string]struct{}{}
+	for _, c := range clients {
+		n := strings.ToLower(strings.TrimSpace(c.NodeName))
+		if n != "" {
+			have[n] = struct{}{}
+		}
+	}
+	for name := range pending {
+		if _, ok := have[name]; ok {
+			delete(pending, name)
+		}
+	}
+}
+
+// withPendingClients appends unexpired pending names that are not already mesh nodes.
+func withPendingClients(clients []meshClient, pending map[string]time.Time, now time.Time) []meshClient {
+	have := map[string]struct{}{}
+	for _, c := range clients {
+		have[strings.ToLower(strings.TrimSpace(c.NodeName))] = struct{}{}
+	}
+	var extra []string
+	for name, until := range pending {
+		if name == "" || !until.After(now) {
+			continue
+		}
+		if _, ok := have[name]; ok {
+			continue
+		}
+		extra = append(extra, name)
+	}
+	sort.Strings(extra)
+	out := make([]meshClient, 0, len(clients)+len(extra))
+	out = append(out, clients...)
+	for _, name := range extra {
+		out = append(out, meshClient{
+			NodeName:    name,
+			Online:      false,
+			Pending:     true,
+			IPAddresses: []string{},
+		})
+	}
+	return out
 }
 
 // loadPendingNodes reads pending-nodes.json, dropping expired reservations.

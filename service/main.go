@@ -65,7 +65,7 @@ func main() {
 		handleProvision(w, r, controlURL, userName, state.dir)
 	})
 	mux.HandleFunc("GET /clients", func(w http.ResponseWriter, r *http.Request) {
-		handleListClients(w, r, userName)
+		handleListClients(w, r, userName, state.dir)
 	})
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		handleStatus(w, r, started, state.runtime, state.dir)
@@ -133,6 +133,11 @@ func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userNam
 	}
 	pending, err := loadPendingNodes(stateDir, now)
 	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+		return
+	}
+	pruneJoinedPending(pending, clients)
+	if err := savePendingNodes(stateDir, pending, now); err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 		return
 	}
@@ -220,6 +225,7 @@ func mintDeviceKey(userID uint64) (string, error) {
 type meshClient struct {
 	NodeName    string   `json:"node_name"`
 	Online      bool     `json:"online"`
+	Pending     bool     `json:"pending"`
 	LastSeen    *string  `json:"last_seen"`
 	IPAddresses []string `json:"ip_addresses"`
 }
@@ -232,14 +238,28 @@ type headscaleNode struct {
 	IPAddresses []string `json:"ipAddresses"`
 }
 
-// handleListClients returns Headscale mesh nodes for the appliance user.
-func handleListClients(w http.ResponseWriter, r *http.Request, userName string) {
+// handleListClients returns Headscale mesh nodes plus unexpired pending setup names.
+func handleListClients(w http.ResponseWriter, r *http.Request, userName, stateDir string) {
+	provisionMu.Lock()
+	defer provisionMu.Unlock()
+
 	clients, err := listMeshClients(userName)
 	if err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"clients": clients})
+	now := time.Now()
+	pending, err := loadPendingNodes(stateDir, now)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+		return
+	}
+	pruneJoinedPending(pending, clients)
+	if err := savePendingNodes(stateDir, pending, now); err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"clients": withPendingClients(clients, pending, now)})
 }
 
 // listMeshClients runs `headscale nodes list -o json` and maps nodes to meshClient values.

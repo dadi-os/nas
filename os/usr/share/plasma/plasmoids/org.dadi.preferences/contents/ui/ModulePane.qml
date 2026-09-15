@@ -165,13 +165,11 @@ Item {
     Component.onCompleted: load()
     onVisibleChanged: if (visible) load()
 
-    Flickable {
+    DadiFlickable {
         id: flick
         anchors.fill: parent
         contentWidth: width
         contentHeight: col.height
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: ScrollBar {
             policy: ScrollBar.AsNeeded
             contentItem: Rectangle {

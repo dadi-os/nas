@@ -17,6 +17,11 @@ Button {
     bottomPadding: 0
     hoverEnabled: true
     focusPolicy: Qt.TabFocus
+    palette.accent: "#141511"
+    palette.button: "#141511"
+    palette.buttonText: "#ffffff"
+    palette.highlight: "#141511"
+    palette.highlightedText: "#ffffff"
 
     background: Rectangle {
         implicitHeight: 40

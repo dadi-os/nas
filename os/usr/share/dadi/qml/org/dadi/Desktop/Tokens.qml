@@ -9,6 +9,8 @@ QtObject {
     readonly property color sageDeep: "#5c6b52"
     readonly property color sageLine: "#b9c9ab"
     readonly property color sageFaint: "#8fa38222"
+    readonly property color sageFill: Qt.rgba(143 / 255, 163 / 255, 130 / 255, 0.2)
+    readonly property color sageStroke: Qt.rgba(185 / 255, 201 / 255, 171 / 255, 0.45)
     readonly property color ink: "#141511"
     readonly property color inkMuted: "#8a8e87"
     readonly property color inkGhost: "#b0b8a6"

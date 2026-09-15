@@ -159,13 +159,11 @@ PlasmoidItem {
             }
         }
 
-        Flickable {
+        DadiFlickable {
             anchors.fill: parent
             visible: frame.devices.length > 0
             contentWidth: width
             contentHeight: listCol.height
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
 
             Column {
                 id: listCol

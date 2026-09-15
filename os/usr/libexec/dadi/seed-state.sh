@@ -38,7 +38,7 @@ done < <(find "$SEED" -print0)
 
 mkdir -p "$STATE/caddy" "$STATE/modules/dwar" "$STATE/modules/chaavi" "$STATE/headscale"
 
-# Control URL preference file (Preferences → Tunnel). Empty until set or seeded.
+# Control URL preference file. Empty until set or seeded.
 if [ ! -f "$STATE/headscale/control_url" ]; then
   : >"$STATE/headscale/control_url"
   chmod 0600 "$STATE/headscale/control_url"

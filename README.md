@@ -47,7 +47,7 @@ Optional seed (written once into `/var/lib/dadi/headscale/control_url` when that
 | --- | --- |
 | `CONTROL_URL` | Initial public Headscale URL for device provision bundles |
 
-After seed, Preferences → Tunnel (or `PUT /headscale/control-url`) is the sole source of truth. Provision fails until the file is non-empty.
+After seed, Hath’s control-plane setting (`PUT /headscale/control-url`) is the sole source of truth. Provision fails until the file is non-empty.
 
 Module secrets live in sibling `../dwar/.env` and `../chaavi/.env` in compose, and under `DADI_STATE_DIR/modules/{dwar,chaavi}/` on the appliance. Chaavi’s `BW_CLIENTID`, `BW_CLIENTSECRET`, and `BW_PASSWORD` are Chaavi module env — not Dwar keys. `VAULT_URL` is set on the container (compose `environment` / quadlet `Environment`), not the env file. Vaultwarden stores the encrypted vault in the `chaavi_vault` volume. Yaad/Dimaag/Ghar Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar or Chaavi values.
 
@@ -264,7 +264,7 @@ CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes an
 4. Kickstart writes `/var/lib/dadi/luks-enroll.key` (no trailing newline) and best-effort TPM-enrolls during `%post`. The volume key is a kernel logon key after unlock, so `systemd-cryptenroll` cannot read it from the keyring — that file is the enroll credential. First boot of the installed OS reseals to PCR 7 (so the seal matches disk boot, not the installer USB) and shreds the key. If `%post` enroll succeeded against PCR 7, that boot unlocks from the TPM; otherwise type the ISO passphrase once. Later boots unlock without it unless Secure Boot policy changes (recovery is still slot 0).
 5. SDDM (`sddm-wayland-plasma`, not Plasma Login Manager) autologins as `dadi` into Plasma. There is no lock screen; lid close and idle do not sleep or show a greeter.
 6. Add an SSH user in Preferences → Users (`POST /access/users`). SSH as that user with the password you set. `dadi` is not allowed to SSH.
-7. Open Preferences → Tunnel. Note the WAN address, create a DNS A record for your hostname pointing at it, then Save and publish `https://your-hostname`. Nas maps WAN 80/443 via UPnP, Caddy terminates TLS, and Headscale `server_url` is rewritten.
+7. From a connected Hath, set the public Headscale URL under System → control plane (`PUT /headscale/control-url`, `https://your-hostname`). Note WAN/LAN from `GET /headscale/publish`, create a DNS A record pointing at WAN, then save/publish. Nas maps WAN 80/443 via UPnP, Caddy terminates TLS, and Headscale `server_url` is rewritten.
 8. Provision Hath clients: on the box open **Preferences → Devices**, name the node, show the QR. Scan from Hath on the phone/laptop (the control URL is embedded in the bundle). Node names must be unique.
 
 Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`. If a firmware/Secure Boot change forces the LUKS passphrase again, write the ISO passphrase to `/var/lib/dadi/luks-enroll.key` with `printf '%s'` (no newline), `chmod 400`, and `systemctl start dadi-tpm-enroll` (the unit wipes the old TPM slot, reseals PCR 7, and shreds the key).
@@ -297,7 +297,7 @@ Plasma on the box only — Hath is for other devices. Visual system is **bone gl
 | Look-and-feel | `org.dadi.desktop` — translucent top bar (32px), floating dock, crest widgets |
 | Brand | plasmoid `org.dadi.brand` — wordmark opens Preferences; right-click for about / power |
 | Widgets | `org.dadi.widget.{agents,memory,timeline,ghar,system}` — liquid glass (GPL-3 shaders from liquidglass-kde-widgets) + Hath data |
-| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (users / dwar / tunnel / devices → `DADI_STATE_DIR`; Devices mints `POST /provision` QR for Hath) |
+| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (users / dwar / devices / desktop → `DADI_STATE_DIR`; Devices mints `POST /provision` QR for Hath) |
 | Wallpaper | `Dadi` (`/usr/share/wallpapers/Dadi/`) |
 | Wake / lid | immutable `action/lock_screen=false`, `kscreenlockerrc`, PowerDevil profiles, `dadi-inhibit-idle.service`, `logind.conf.d/dadi-lid.conf` |
 | TPM | `dadi-tpm-enroll.service` → PCR 7 via `/var/lib/dadi/luks-enroll.key` (shredded after seal; 45s cap; no TTY wait) |
@@ -307,14 +307,14 @@ Glass rules: blur before tint; never translucent text; two opacities only (veil 
 
 ## Mesh
 
-Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale is `localhost:8080`; production clients use the `https://` URL from Preferences → Tunnel. Host/sidecar hostname `os` should be the first node so MagicDNS extra records match `100.64.0.1`.
+Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale is `localhost:8080`; production clients use the `https://` URL set from Hath (`PUT /headscale/control-url`). Host/sidecar hostname `os` should be the first node so MagicDNS extra records match `100.64.0.1`.
 
 | Method | Path | Body | Success | Errors |
 | --- | --- | --- | --- | --- |
-| `GET` | `/clients` | — | `{ clients: [{ node_name, online, last_seen, ip_addresses }] }` | `internal_error` |
+| `GET` | `/clients` | — | `{ clients: [{ node_name, online, pending, last_seen, ip_addresses }] }` (`pending` is a setup name reserved ~1h until a Hath joins) | `internal_error` |
 | `POST` | `/provision` | `{ node_name }` | `{ bundle }` (base64 credentials JSON) | `invalid_request`, `conflict` (409, name taken or pending), `provision_failed`, `internal_error` |
 
-`POST /provision` reserves `node_name` for about an hour in `$DADI_STATE_DIR/pending-nodes.json` so two setup codes cannot claim the same hostname before the node appears in Headscale.
+`POST /provision` reserves `node_name` for about an hour in `$DADI_STATE_DIR/pending-nodes.json` so two setup codes cannot claim the same hostname before the node appears in Headscale. `GET /clients` merges those reservations (as `pending: true`) and drops them once Headscale lists the same name.
 
 `GET /status` returns `"errors": []` under Docker — searchable errors live at `GET /logs`.
 
