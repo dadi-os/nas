@@ -16,8 +16,8 @@ PlasmoidItem {
         title: "Ghar"
         Layout.minimumWidth: 280
         Layout.minimumHeight: 280
-        Layout.preferredWidth: 420
-        Layout.preferredHeight: 500
+        Layout.preferredWidth: 280
+        Layout.preferredHeight: 280
 
         property var devices: []
         property var rooms: []

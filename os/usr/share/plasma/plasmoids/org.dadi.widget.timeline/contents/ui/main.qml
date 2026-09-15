@@ -16,8 +16,8 @@ PlasmoidItem {
         title: "Timeline"
         Layout.minimumWidth: 480
         Layout.minimumHeight: 280
-        Layout.preferredWidth: 860
-        Layout.preferredHeight: 500
+        Layout.preferredWidth: 480
+        Layout.preferredHeight: 280
 
         property var days: []
         property var plans: []

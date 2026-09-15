@@ -16,8 +16,8 @@ PlasmoidItem {
         title: "Agents"
         Layout.minimumWidth: 480
         Layout.minimumHeight: 180
-        Layout.preferredWidth: 860
-        Layout.preferredHeight: 230
+        Layout.preferredWidth: 480
+        Layout.preferredHeight: 180
 
         property var nodes: []
         property var links: []

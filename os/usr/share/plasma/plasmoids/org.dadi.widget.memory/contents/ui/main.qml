@@ -16,8 +16,8 @@ PlasmoidItem {
         title: "Memory"
         Layout.minimumWidth: 480
         Layout.minimumHeight: 180
-        Layout.preferredWidth: 860
-        Layout.preferredHeight: 230
+        Layout.preferredWidth: 480
+        Layout.preferredHeight: 180
 
         property int people: -1
         property int memories: -1
