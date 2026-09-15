@@ -4,7 +4,7 @@
     "KPlugin": {
         "Authors": [{"Name": "dadi"}],
         "Category": "System Information",
-        "Description": "Mesh health, errors, and host meters",
+        "Description": "Modules, mesh clients, and host meters",
         "Icon": "dadi",
         "Id": "org.dadi.widget.system",
         "License": "MIT",

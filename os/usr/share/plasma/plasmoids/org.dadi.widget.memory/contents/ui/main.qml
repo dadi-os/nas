@@ -82,7 +82,7 @@ PlasmoidItem {
         }
 
         Timer {
-            interval: 4000
+            interval: Tokens.widgetPollMs
             running: true
             repeat: true
             triggeredOnStart: true
@@ -125,7 +125,7 @@ PlasmoidItem {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: modelData.value
                             color: "#141511"
-                            font.pixelSize: 32
+                            font.pixelSize: Tokens.typeDisplay
                             font.weight: Font.Medium
                             font.letterSpacing: -0.8
                         }
@@ -134,8 +134,8 @@ PlasmoidItem {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: modelData.label
                             color: "#8a8e87"
-                            font.pixelSize: 10
-                            font.letterSpacing: 2.2
+                            font.pixelSize: Tokens.typeSection
+                            font.letterSpacing: 1.4
                             font.weight: Font.Medium
                         }
                     }

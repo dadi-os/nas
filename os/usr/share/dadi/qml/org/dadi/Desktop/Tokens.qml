@@ -16,6 +16,12 @@ QtObject {
     readonly property color inkGhost: "#b0b8a6"
     readonly property color fail: "#c45c4a"
     readonly property color rule: "#14151118"
+    readonly property int typeTitle: 17
+    readonly property int typeSection: 13
+    readonly property int typeBody: 16
+    readonly property int typeMeta: 14
+    readonly property int typeMark: 18
+    readonly property int typeDisplay: 36
     readonly property real radiusControl: 10
     readonly property real radiusWindow: 16
     readonly property real radiusDock: 24
@@ -25,6 +31,7 @@ QtObject {
     readonly property int fastMs: 180
     readonly property int slowMs: 320
     readonly property int breathMs: 2400
+    readonly property int widgetPollMs: 1000
     readonly property string nasBase: "http://127.0.0.1:8092"
     readonly property string yaadBase: "http://127.0.0.1:8082"
     readonly property string dimaagBase: "http://127.0.0.1:8083"

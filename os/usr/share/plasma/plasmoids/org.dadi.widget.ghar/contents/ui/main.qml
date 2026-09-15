@@ -139,7 +139,7 @@ PlasmoidItem {
         }
 
         Timer {
-            interval: 3000
+            interval: Tokens.widgetPollMs
             running: true
             repeat: true
             triggeredOnStart: true
@@ -155,7 +155,7 @@ PlasmoidItem {
                 anchors.centerIn: parent
                 text: "No devices"
                 color: "#8a8e87"
-                font.pixelSize: 14
+                font.pixelSize: Tokens.typeBody
             }
         }
 
@@ -182,7 +182,7 @@ PlasmoidItem {
                             visible: frame.roomRows().length > 1
                             text: modelData.name
                             color: "#8a8e87"
-                            font.pixelSize: 12
+                            font.pixelSize: Tokens.typeSection
                             font.weight: Font.Medium
                         }
 
@@ -191,7 +191,7 @@ PlasmoidItem {
                             Item {
                                 required property var modelData
                                 width: listCol.width
-                                implicitHeight: 40
+                                implicitHeight: 44
 
                                 RowLayout {
                                     anchors.fill: parent
@@ -208,7 +208,7 @@ PlasmoidItem {
                                         renderType: Text.QtRendering
                                         text: modelData.name
                                         color: "#141511"
-                                        font.pixelSize: 14
+                                        font.pixelSize: Tokens.typeBody
                                         elide: Text.ElideRight
                                         Layout.fillWidth: true
                                     }
@@ -218,7 +218,7 @@ PlasmoidItem {
                                         visible: frame.canSwitch(modelData)
                                         text: frame.isOn(modelData) ? "on" : "off"
                                         color: frame.isOn(modelData) ? "#141511" : "#8a8e87"
-                                        font.pixelSize: 12
+                                        font.pixelSize: Tokens.typeMeta
                                     }
                                 }
 

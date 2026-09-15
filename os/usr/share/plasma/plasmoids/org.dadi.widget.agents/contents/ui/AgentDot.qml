@@ -1,4 +1,5 @@
 import QtQuick
+import org.dadi.Desktop
 
 Item {
     id: root
@@ -62,7 +63,7 @@ Item {
             width: parent.width
             text: root.label
             color: root.visual === "dormant" ? "#8a8e87" : "#141511"
-            font.pixelSize: 15
+            font.pixelSize: Tokens.typeBody
             font.weight: Font.DemiBold
             elide: Text.ElideRight
             horizontalAlignment: Text.AlignHCenter
@@ -74,7 +75,7 @@ Item {
             width: parent.width
             text: root.caption
             color: "#8a8e87"
-            font.pixelSize: 12
+            font.pixelSize: Tokens.typeMeta
             horizontalAlignment: Text.AlignHCenter
         }
     }

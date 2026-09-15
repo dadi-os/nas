@@ -189,7 +189,7 @@ PlasmoidItem {
         }
 
         Timer {
-            interval: 2000
+            interval: Tokens.widgetPollMs
             running: true
             repeat: true
             triggeredOnStart: true
@@ -205,7 +205,7 @@ PlasmoidItem {
                 visible: frame.status !== "" || frame.nodes.length === 0
                 text: frame.status !== "" ? frame.status : "Loading agents…"
                 color: "#b0b8a6"
-                font.pixelSize: 13
+                font.pixelSize: Tokens.typeBody
             }
 
             Item {

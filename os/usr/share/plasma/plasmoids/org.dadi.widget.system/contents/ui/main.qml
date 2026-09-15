@@ -20,30 +20,66 @@ PlasmoidItem {
         Layout.preferredHeight: 280
 
         property var statusPayload: ({})
+        property var clients: []
         property var errors: []
+        property bool statusReachable: false
 
-        readonly property var serviceOrder: ["nas", "dimaag", "yaad", "ghar", "dwar", "hath"]
+        readonly property var moduleOrder: ["dwar", "yaad", "dimaag", "ghar", "chaavi"]
 
-        function services() {
+        function erredNames() {
+            const names = {}
+            for (let i = 0; i < frame.errors.length; i++) {
+                const name = String(frame.errors[i].service || "").trim()
+                if (name !== "")
+                    names[name] = true
+            }
+            return names
+        }
+
+        function modules() {
             const raw = frame.statusPayload.services || []
             const byName = {}
             for (let i = 0; i < raw.length; i++)
-                byName[raw[i].name] = raw[i].healthy
-            byName["nas"] = true
+                byName[raw[i].name] = !!raw[i].healthy
+            const erred = frame.erredNames()
             const rows = []
             const seen = {}
-            for (let i = 0; i < serviceOrder.length; i++) {
-                const name = serviceOrder[i]
-                if (name === "nas" || byName[name] !== undefined) {
-                    rows.push({ name: name, ok: !!byName[name] })
-                    seen[name] = true
-                }
+            for (let i = 0; i < moduleOrder.length; i++) {
+                const name = moduleOrder[i]
+                const healthy = frame.statusReachable && byName[name] === true
+                rows.push({ name: name, ok: healthy && !erred[name] })
+                seen[name] = true
             }
             for (let i = 0; i < raw.length; i++) {
-                if (!seen[raw[i].name])
-                    rows.push({ name: raw[i].name, ok: !!raw[i].healthy })
+                const name = raw[i].name
+                if (seen[name])
+                    continue
+                const healthy = frame.statusReachable && !!raw[i].healthy
+                rows.push({ name: name, ok: healthy && !erred[name] })
             }
             return rows
+        }
+
+        function meshClients() {
+            const rows = []
+            for (let i = 0; i < frame.clients.length; i++) {
+                const c = frame.clients[i]
+                const name = String(c.node_name || "").trim()
+                if (name === "" || name.toLowerCase() === "os")
+                    continue
+                rows.push({
+                    name: name,
+                    pending: !!c.pending,
+                    online: !!c.online
+                })
+            }
+            return rows
+        }
+
+        function clientLabel(row) {
+            if (row.pending)
+                return "waiting"
+            return row.online ? "online" : "offline"
         }
 
         function pct(n) {
@@ -64,31 +100,44 @@ PlasmoidItem {
             return rows
         }
 
-        function latestTitle() {
-            if (frame.errors.length === 0)
-                return ""
-            const e = frame.errors[0]
-            return e.msg || e.raw || "error"
-        }
-
         function refresh() {
             const st = new XMLHttpRequest()
             st.onreadystatechange = function () {
                 if (st.readyState !== XMLHttpRequest.DONE)
                     return
                 if (st.status !== 200) {
-                    frame.status = st.status === 0 ? "nas unreachable" : ("nas " + st.status)
+                    frame.statusReachable = false
+                    frame.statusPayload = ({})
                     return
                 }
                 try {
                     frame.statusPayload = JSON.parse(st.responseText)
-                    frame.status = ""
+                    frame.statusReachable = true
                 } catch (e) {
-                    frame.status = "bad status"
+                    frame.statusReachable = false
+                    frame.statusPayload = ({})
                 }
             }
             st.open("GET", Tokens.nasBase + "/status")
             st.send()
+
+            const cl = new XMLHttpRequest()
+            cl.onreadystatechange = function () {
+                if (cl.readyState !== XMLHttpRequest.DONE)
+                    return
+                if (cl.status !== 200) {
+                    frame.clients = []
+                    return
+                }
+                try {
+                    const data = JSON.parse(cl.responseText)
+                    frame.clients = Array.isArray(data.clients) ? data.clients : []
+                } catch (e) {
+                    frame.clients = []
+                }
+            }
+            cl.open("GET", Tokens.nasBase + "/clients")
+            cl.send()
 
             const to = new Date()
             const from = new Date(to.getTime() - 3600 * 1000)
@@ -96,11 +145,13 @@ PlasmoidItem {
             lg.onreadystatechange = function () {
                 if (lg.readyState !== XMLHttpRequest.DONE)
                     return
-                if (lg.status !== 200)
+                if (lg.status !== 200) {
+                    frame.errors = []
                     return
+                }
                 try {
                     const data = JSON.parse(lg.responseText)
-                    frame.errors = data.entries || []
+                    frame.errors = Array.isArray(data.entries) ? data.entries : []
                 } catch (e) {
                     frame.errors = []
                 }
@@ -112,7 +163,7 @@ PlasmoidItem {
         }
 
         Timer {
-            interval: 2000
+            interval: Tokens.widgetPollMs
             running: true
             repeat: true
             triggeredOnStart: true
@@ -123,72 +174,112 @@ PlasmoidItem {
             anchors.fill: parent
             spacing: 14
 
-            ColumnLayout {
+            DadiFlickable {
                 Layout.fillWidth: true
-                spacing: 10
-                visible: frame.status === ""
-
-                Repeater {
-                    model: frame.services()
-                    RowLayout {
-                        required property var modelData
-                        Layout.fillWidth: true
-                        spacing: 10
-                        Text {
-                            renderType: Text.QtRendering
-                            text: modelData.name
-                            color: "#141511"
-                            font.pixelSize: 14
-                            Layout.fillWidth: true
-                        }
-                        Text {
-                            renderType: Text.QtRendering
-                            text: modelData.ok ? "✓" : "✕"
-                            color: modelData.ok ? "#141511" : "#c45c4a"
-                            font.pixelSize: 16
-                            font.weight: Font.DemiBold
-                        }
-                    }
-                }
+                Layout.fillHeight: true
+                contentWidth: width
+                contentHeight: lists.height
 
                 ColumnLayout {
-                    visible: frame.errors.length > 0
-                    Layout.fillWidth: true
-                    Layout.topMargin: 8
-                    spacing: 6
-                    Text {
-                        renderType: Text.QtRendering
-                        text: frame.errors.length + (frame.errors.length === 1 ? " error" : " errors") + " · 1h"
-                        color: "#c45c4a"
-                        font.pixelSize: 12
-                    }
-                    Text {
-                        renderType: Text.QtRendering
-                        text: frame.latestTitle()
-                        color: "#141511"
-                        font.pixelSize: 13
-                        wrapMode: Text.WordWrap
-                        maximumLineCount: 4
-                        elide: Text.ElideRight
+                    id: lists
+                    width: parent.width
+                    spacing: 16
+
+                    ColumnLayout {
                         Layout.fillWidth: true
+                        spacing: 8
+                        Text {
+                            renderType: Text.QtRendering
+                            text: "Modules"
+                            color: "#8a8e87"
+                            font.pixelSize: Tokens.typeSection
+                            font.letterSpacing: 1.2
+                            font.capitalization: Font.AllUppercase
+                        }
+                        Repeater {
+                            model: {
+                                frame.statusPayload
+                                frame.errors
+                                frame.statusReachable
+                                return frame.modules()
+                            }
+                            RowLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: 10
+                                Text {
+                                    renderType: Text.QtRendering
+                                    text: modelData.name
+                                    color: "#141511"
+                                    font.pixelSize: Tokens.typeBody
+                                    Layout.fillWidth: true
+                                }
+                                Text {
+                                    renderType: Text.QtRendering
+                                    text: modelData.ok ? "✓" : "✕"
+                                    color: modelData.ok ? "#141511" : "#c45c4a"
+                                    font.pixelSize: Tokens.typeMark
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+                        }
                     }
-                    Text {
-                        renderType: Text.QtRendering
-                        text: (frame.errors[0] && frame.errors[0].service) ? frame.errors[0].service : ""
-                        color: "#8a8e87"
-                        font.pixelSize: 12
-                        elide: Text.ElideRight
+
+                    ColumnLayout {
                         Layout.fillWidth: true
+                        spacing: 8
+                        Text {
+                            renderType: Text.QtRendering
+                            text: "Clients"
+                            color: "#8a8e87"
+                            font.pixelSize: Tokens.typeSection
+                            font.letterSpacing: 1.2
+                            font.capitalization: Font.AllUppercase
+                        }
+                        Text {
+                            visible: frame.meshClients().length === 0
+                            renderType: Text.QtRendering
+                            text: "None on the mesh"
+                            color: "#8a8e87"
+                            font.pixelSize: Tokens.typeBody
+                        }
+                        Repeater {
+                            model: frame.meshClients()
+                            RowLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: 10
+                                Rectangle {
+                                    width: 7
+                                    height: 7
+                                    radius: 4
+                                    color: modelData.pending
+                                           ? Tokens.sage
+                                           : (modelData.online ? "#141511" : "#8a8e87")
+                                }
+                                Text {
+                                    renderType: Text.QtRendering
+                                    text: modelData.name
+                                    color: "#141511"
+                                    font.pixelSize: Tokens.typeBody
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+                                Text {
+                                    renderType: Text.QtRendering
+                                    text: frame.clientLabel(modelData)
+                                    color: "#8a8e87"
+                                    font.pixelSize: Tokens.typeMeta
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            Item { Layout.fillHeight: true }
-
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 10
-                visible: frame.status === ""
                 Repeater {
                     model: frame.meters()
                     ColumnLayout {
@@ -201,7 +292,7 @@ PlasmoidItem {
                                 renderType: Text.QtRendering
                                 text: modelData.label
                                 color: "#8a8e87"
-                                font.pixelSize: 11
+                                font.pixelSize: Tokens.typeSection
                                 font.letterSpacing: 1.2
                                 font.capitalization: Font.AllUppercase
                             }
@@ -210,7 +301,7 @@ PlasmoidItem {
                                 renderType: Text.QtRendering
                                 text: modelData.pct === null ? "—" : modelData.pct + "%"
                                 color: "#141511"
-                                font.pixelSize: 12
+                                font.pixelSize: Tokens.typeMeta
                                 font.family: "Noto Sans Mono"
                             }
                         }

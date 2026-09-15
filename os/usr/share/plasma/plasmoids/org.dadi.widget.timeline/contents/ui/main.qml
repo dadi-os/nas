@@ -157,7 +157,7 @@ PlasmoidItem {
         }
 
         Timer {
-            interval: 8000
+            interval: Tokens.widgetPollMs
             running: true
             repeat: true
             triggeredOnStart: true
@@ -199,13 +199,13 @@ PlasmoidItem {
                             renderType: Text.QtRendering
                             text: frame.weekdayLetter(modelData)
                             color: today ? "#141511" : "#8a8e87"
-                            font.pixelSize: 11
+                            font.pixelSize: Tokens.typeSection
                             font.weight: Font.Medium
                         }
 
                         Item {
-                            width: 32
-                            height: 32
+                            width: 36
+                            height: 36
 
                             Rectangle {
                                 visible: today
@@ -219,7 +219,7 @@ PlasmoidItem {
                                 anchors.centerIn: parent
                                 text: modelData.getDate()
                                 color: today ? "#ffffff" : "#141511"
-                                font.pixelSize: 16
+                                font.pixelSize: Tokens.typeMark
                                 font.weight: Font.DemiBold
                             }
                         }
@@ -235,14 +235,14 @@ PlasmoidItem {
                                     renderType: Text.QtRendering
                                     text: frame.formatTime(modelData.occurred_at)
                                     color: "#8a8e87"
-                                    font.pixelSize: 11
+                                    font.pixelSize: Tokens.typeMeta
                                 }
                                 Text {
                                     renderType: Text.QtRendering
                                     width: parent.width
                                     text: modelData.title || "plan"
                                     color: "#141511"
-                                    font.pixelSize: 13
+                                    font.pixelSize: Tokens.typeBody
                                     font.weight: Font.Medium
                                     elide: Text.ElideRight
                                     wrapMode: Text.NoWrap

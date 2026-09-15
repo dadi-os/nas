@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import org.dadi.Desktop
 
 Item {
     id: root
@@ -49,7 +50,7 @@ Item {
         Text {
             text: root.title
             color: "#141511"
-            font.pixelSize: 15
+            font.pixelSize: Tokens.typeTitle
             font.weight: Font.DemiBold
             font.letterSpacing: -0.2
             renderType: Text.QtRendering
@@ -61,7 +62,7 @@ Item {
             visible: root.kicker !== ""
             text: root.kicker
             color: "#8a8e87"
-            font.pixelSize: 12
+            font.pixelSize: Tokens.typeMeta
             renderType: Text.QtRendering
         }
 
@@ -69,7 +70,7 @@ Item {
             visible: root.status !== ""
             text: root.status
             color: "#c45c4a"
-            font.pixelSize: 12
+            font.pixelSize: Tokens.typeMeta
             elide: Text.ElideRight
             Layout.maximumWidth: header.width * 0.4
             renderType: Text.QtRendering
@@ -79,7 +80,7 @@ Item {
     Item {
         id: body
         anchors.fill: parent
-        anchors.topMargin: 44
+        anchors.topMargin: 48
         anchors.leftMargin: 18
         anchors.rightMargin: 18
         anchors.bottomMargin: 16
