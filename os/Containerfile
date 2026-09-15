@@ -3,7 +3,9 @@ FROM golang:1.23-bookworm AS nas-build
 WORKDIR /src
 COPY service/go.mod service/go.sum ./
 COPY service/*.go ./
+COPY service/cmd ./cmd
 RUN CGO_ENABLED=0 go build -o /nas .
+RUN CGO_ENABLED=0 go build -o /dadi ./cmd/dadi
 
 FROM headscale/headscale:0.26 AS headscale
 FROM caddy:2.9.1-alpine AS caddy
@@ -15,6 +17,7 @@ FROM quay.io/fedora/fedora-bootc:44
 RUN dnf -y install \
     podman \
     openssh-server \
+    bash-completion \
     curl \
     jq \
     vim-minimal \
@@ -83,6 +86,7 @@ RUN mkdir -p /var/lib/headscale /var/lib/loki /var/lib/alloy
 
 COPY os/etc/ /etc/
 COPY os/usr/ /usr/
+COPY --from=nas-build /dadi /usr/bin/dadi
 
 RUN systemd-sysusers \
   && usermod -aG video,render,input dadi \
@@ -116,7 +120,6 @@ RUN mkdir -p \
      done \
   && chmod 0755 /usr/bin/dadi-preferences \
        /usr/bin/dadi-provision-qr /usr/bin/dadi \
-  && chmod 0755 /usr/libexec/dadi/dadi.mjs \
   && plymouth-set-default-theme dadi \
   && for k in /lib/modules/*; do \
        [ -d "$k" ] || continue; \

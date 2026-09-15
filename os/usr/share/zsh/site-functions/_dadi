@@ -1,0 +1,9 @@
+#compdef dadi
+
+_dadi() {
+  local -a replies
+  replies=(${(f)"$(COMP_LINE="$BUFFER" /usr/bin/dadi)"})
+  _describe 'command' replies
+}
+
+_dadi

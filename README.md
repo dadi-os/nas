@@ -20,6 +20,7 @@ Nas does not call other app modules as a client for its own control plane. It de
 ```
 nas/
   service/          Go control API (provision, status, logs, terminals, fs, browsers, module config)
+  service/cmd/dadi  host `dadi` CLI (baked into the image as `/usr/bin/dadi`)
   logging/          Dev Alloy + Loki configs
   os/               bootc image, host units, Plasma desktop, prod Alloy, installer
   headscale/        Headscale config templates
@@ -219,7 +220,7 @@ curl -sG 'http://nas.dadi/logs' \
 
 Response: `{ "status": "ok", "scope": "...", "reboot_required": bool }`.
 
-On the appliance, `/usr/bin/dadi` talks to Dimaag (`DIMAAG_URL=http://dimaag.dadi`) and can run `nas_pull_updates` / other registry tools.
+On the appliance, `/usr/bin/dadi` is a Nas-built Go CLI that talks to Dimaag’s grantable tool registry. It requires `DIMAAG_URL` (login shells export `http://127.0.0.1:8083` via `/etc/profile.d/dadi-cli.sh`): `dadi help`, `dadi help nas_get_logs`, `dadi nas_get_logs --level error`. Tab completion lists live tools and `--` parameters.
 
 ## Topology
 
@@ -271,7 +272,7 @@ Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `pod
 
 ### Host firewall (nftables)
 
-Ruleset: `/etc/nftables/dadi.nft` (loaded by `nftables.service`). Default-deny input except loopback, Tailscale (`tailscale0`), SSH, HTTP/HTTPS for public Headscale (TCP 80/443), Matter on the LAN (UDP 5353 / 5540 + IPv6 multicast), and container DNS (UDP/TCP 53 from `podman*` / `cni-podman*` to aardvark-dns). ICMPv6 is accepted so neighbor discovery works. Ghar's HTTP port `8084` is explicitly dropped off-loopback; the process also binds `127.0.0.1` only. Caddy aborts `*.dadi` vhosts from non-mesh source IPs.
+Ruleset: `/etc/nftables/dadi.nft` (loaded by `nftables.service`). Default-deny input except loopback, Tailscale (`tailscale0`), SSH, HTTP/HTTPS for public Headscale (TCP 80/443), Matter on the LAN (UDP 5353 / 5540 + IPv6 multicast), and container DNS (UDP/TCP 53 from `podman*` / `cni-podman*` to aardvark-dns). ICMPv6 is accepted so neighbor discovery works. Ghar's HTTP port `8084` is explicitly dropped off-loopback; the process also binds `127.0.0.1` only. Caddy aborts `*.dadi` vhosts from non-mesh, non-loopback, non-podman (`10.88.0.0/16`, `10.89.0.0/16`) source IPs.
 
 ## Desktop (dadiOS)
 

@@ -2,3 +2,5 @@
 .run/
 os/installer/output/
 os/installer/config.rendered.toml
+
+.DS_Store
