@@ -110,7 +110,7 @@ HTTP errors use `{ "error": { "type": "<code>", "message": "..." } }` where `typ
 | `forbidden` | Write into OS / dadiOS runtime paths (see Host agent) |
 | `busy` | Terminal pane already running a command / in-flight exec |
 | `binary_file` | Filesystem read of a binary file (415) |
-| `conflict` | FS edit matched 0 or many times (need exactly one) |
+| `conflict` | FS edit matched 0 or many times; device provision name already taken |
 | `internal_error` | Unexpected server failure |
 
 App modules may add domain-specific codes; they should reuse the table above for overlapping failures.
@@ -308,6 +308,13 @@ Glass rules: blur before tint; never translucent text; two opacities only (veil 
 ## Mesh
 
 Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale is `localhost:8080`; production clients use the `https://` URL from Preferences → Tunnel. Host/sidecar hostname `os` should be the first node so MagicDNS extra records match `100.64.0.1`.
+
+| Method | Path | Body | Success | Errors |
+| --- | --- | --- | --- | --- |
+| `GET` | `/clients` | — | `{ clients: [{ node_name, online, last_seen, ip_addresses }] }` | `internal_error` |
+| `POST` | `/provision` | `{ node_name }` | `{ bundle }` (base64 credentials JSON) | `invalid_request`, `conflict` (409, name taken or pending), `provision_failed`, `internal_error` |
+
+`POST /provision` reserves `node_name` for about an hour in `$DADI_STATE_DIR/pending-nodes.json` so two setup codes cannot claim the same hostname before the node appears in Headscale.
 
 `GET /status` returns `"errors": []` under Docker — searchable errors live at `GET /logs`.
 

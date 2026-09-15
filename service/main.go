@@ -62,7 +62,7 @@ func main() {
 			writeError(w, r, http.StatusInternalServerError, CodeConfigMissing, err.Error())
 			return
 		}
-		handleProvision(w, r, controlURL, userName)
+		handleProvision(w, r, controlURL, userName, state.dir)
 	})
 	mux.HandleFunc("GET /clients", func(w http.ResponseWriter, r *http.Request) {
 		handleListClients(w, r, userName)
@@ -104,7 +104,7 @@ type credentialsBundle struct {
 	NodeName   string `json:"node_name"`
 }
 
-func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userName string) {
+func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userName, stateDir string) {
 	var req provisionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "invalid json body")
@@ -122,8 +122,35 @@ func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userNam
 		return
 	}
 
+	provisionMu.Lock()
+	defer provisionMu.Unlock()
+
+	now := time.Now()
+	clients, err := listMeshClients(userName)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeProvisionFailed, err.Error())
+		return
+	}
+	pending, err := loadPendingNodes(stateDir, now)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+		return
+	}
+	if nodeNameTaken(nodeName, takenNodeNames(clients, pending, now)) {
+		writeError(w, r, http.StatusConflict, CodeConflict, "a device named "+nodeName+" already exists")
+		return
+	}
+
+	pendingKey := strings.ToLower(nodeName)
+	pending[pendingKey] = now.Add(pendingNodeTTL)
+	if err := savePendingNodes(stateDir, pending, now); err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+		return
+	}
+
 	authKey, err := mintDeviceKey(userID)
 	if err != nil {
+		rollbackPendingNode(stateDir, pending, pendingKey)
 		writeError(w, r, http.StatusInternalServerError, CodeProvisionFailed, err.Error())
 		return
 	}
@@ -134,6 +161,7 @@ func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userNam
 		NodeName:   nodeName,
 	})
 	if err != nil {
+		rollbackPendingNode(stateDir, pending, pendingKey)
 		writeError(w, r, http.StatusInternalServerError, CodeProvisionFailed, err.Error())
 		return
 	}

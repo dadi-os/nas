@@ -200,6 +200,7 @@ PlasmoidItem {
             anchors.fill: parent
 
             Text {
+                renderType: Text.QtRendering
                 anchors.centerIn: parent
                 visible: frame.status !== "" || frame.nodes.length === 0
                 text: frame.status !== "" ? frame.status : "Loading agents…"

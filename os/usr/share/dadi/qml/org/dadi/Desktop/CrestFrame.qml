@@ -18,11 +18,11 @@ Item {
         anchors.fill: parent
         radius: root.frameRadius
         tint: "#ffffff"
-        tintAlpha: 0.22
-        blurRadius: 36
-        fallbackOpacity: 0.55
-        refractScale: 28
-        chromaStrength: 0.06
+        tintAlpha: 0.04
+        blurRadius: 64
+        fallbackOpacity: 0.28
+        refractScale: 16
+        chromaStrength: 0
     }
 
     Rectangle {
@@ -52,6 +52,7 @@ Item {
             font.pixelSize: 15
             font.weight: Font.DemiBold
             font.letterSpacing: -0.2
+            renderType: Text.QtRendering
         }
 
         Item { Layout.fillWidth: true }
@@ -61,6 +62,7 @@ Item {
             text: root.kicker
             color: "#8a8e87"
             font.pixelSize: 12
+            renderType: Text.QtRendering
         }
 
         Text {
@@ -70,6 +72,7 @@ Item {
             font.pixelSize: 12
             elide: Text.ElideRight
             Layout.maximumWidth: header.width * 0.4
+            renderType: Text.QtRendering
         }
     }
 

@@ -57,6 +57,7 @@ Item {
         }
 
         Text {
+            renderType: Text.QtRendering
             anchors.horizontalCenter: parent.horizontalCenter
             width: parent.width
             text: root.label
@@ -68,6 +69,7 @@ Item {
         }
 
         Text {
+            renderType: Text.QtRendering
             anchors.horizontalCenter: parent.horizontalCenter
             width: parent.width
             text: root.caption

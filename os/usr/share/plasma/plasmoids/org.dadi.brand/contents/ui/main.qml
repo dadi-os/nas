@@ -12,7 +12,7 @@ PlasmoidItem {
 
     preferredRepresentation: fullRepresentation
     toolTipMainText: "દાદી"
-    toolTipSubText: "Menu"
+    toolTipSubText: "Preferences"
 
     fullRepresentation: Item {
         id: body
@@ -33,9 +33,15 @@ PlasmoidItem {
 
         MouseArea {
             anchors.fill: parent
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: brandMenu.popup(body, 0, body.height + 4)
+            onClicked: function (mouse) {
+                if (mouse.button === Qt.RightButton)
+                    brandMenu.popup(body, 0, body.height + 4)
+                else
+                    executable.exec("dadi-preferences")
+            }
         }
 
         Menu {
@@ -64,21 +70,6 @@ PlasmoidItem {
                 border.width: 1
             }
 
-            MenuItem {
-                text: "Add Device…"
-                onTriggered: executable.exec("dadi-add-device")
-            }
-            MenuItem {
-                text: "Preferences…"
-                onTriggered: executable.exec("dadi-preferences")
-            }
-            MenuSeparator {
-                contentItem: Rectangle {
-                    implicitHeight: 1
-                    color: "#14151114"
-                }
-                background: null
-            }
             MenuItem {
                 text: "About દાદી"
                 onTriggered: aboutDialog.open()

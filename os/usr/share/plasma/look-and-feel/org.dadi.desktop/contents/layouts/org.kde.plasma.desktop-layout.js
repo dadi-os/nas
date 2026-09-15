@@ -16,10 +16,6 @@ top.floating = false;
 top.lengthMode = "fill";
 top.opacity = "translucent";
 top.addWidget("org.dadi.brand");
-var kickoff = top.addWidget("org.kde.plasma.kickoff");
-kickoff.currentConfigGroup = ["General"];
-kickoff.writeConfig("icon", "dadi");
-kickoff.writeConfig("lengthVisible", false);
 top.addWidget("org.kde.plasma.appmenu");
 top.addWidget("org.kde.plasma.panelspacer");
 top.addWidget("org.kde.plasma.systemtray");
@@ -43,7 +39,7 @@ var tasks = dock.addWidget("org.kde.plasma.icontasks");
 tasks.currentConfigGroup = ["General"];
 tasks.writeConfig(
     "launchers",
-    "applications:org.kde.dolphin.desktop,applications:org.kde.konsole.desktop,applications:org.dadi.adddevice.desktop,applications:org.dadi.preferences.desktop"
+    "applications:org.kde.dolphin.desktop,applications:org.kde.konsole.desktop,applications:org.dadi.preferences.desktop"
 );
 tasks.writeConfig("max", "12");
 tasks.writeConfig("iconSpacing", "2");

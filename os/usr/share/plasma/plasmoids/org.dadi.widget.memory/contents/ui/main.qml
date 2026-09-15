@@ -121,6 +121,7 @@ PlasmoidItem {
                         spacing: 10
 
                         Text {
+                            renderType: Text.QtRendering
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: modelData.value
                             color: "#141511"
@@ -129,6 +130,7 @@ PlasmoidItem {
                             font.letterSpacing: -0.8
                         }
                         Text {
+                            renderType: Text.QtRendering
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: modelData.label
                             color: "#8a8e87"

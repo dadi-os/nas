@@ -151,6 +151,7 @@ PlasmoidItem {
             visible: frame.status === "" && frame.devices.length === 0
 
             Text {
+                renderType: Text.QtRendering
                 anchors.centerIn: parent
                 text: "No devices"
                 color: "#8a8e87"
@@ -179,6 +180,7 @@ PlasmoidItem {
                         spacing: 8
 
                         Text {
+                            renderType: Text.QtRendering
                             visible: frame.roomRows().length > 1
                             text: modelData.name
                             color: "#8a8e87"
@@ -205,6 +207,7 @@ PlasmoidItem {
                                     }
 
                                     Text {
+                                        renderType: Text.QtRendering
                                         text: modelData.name
                                         color: "#141511"
                                         font.pixelSize: 14
@@ -213,6 +216,7 @@ PlasmoidItem {
                                     }
 
                                     Text {
+                                        renderType: Text.QtRendering
                                         visible: frame.canSwitch(modelData)
                                         text: frame.isOn(modelData) ? "on" : "off"
                                         color: frame.isOn(modelData) ? "#141511" : "#8a8e87"

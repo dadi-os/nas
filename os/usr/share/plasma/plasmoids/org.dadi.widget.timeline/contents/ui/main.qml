@@ -196,6 +196,7 @@ PlasmoidItem {
                         spacing: 10
 
                         Text {
+                            renderType: Text.QtRendering
                             text: frame.weekdayLetter(modelData)
                             color: today ? "#141511" : "#8a8e87"
                             font.pixelSize: 11
@@ -214,6 +215,7 @@ PlasmoidItem {
                             }
 
                             Text {
+                                renderType: Text.QtRendering
                                 anchors.centerIn: parent
                                 text: modelData.getDate()
                                 color: today ? "#ffffff" : "#141511"
@@ -230,11 +232,13 @@ PlasmoidItem {
                                 spacing: 2
 
                                 Text {
+                                    renderType: Text.QtRendering
                                     text: frame.formatTime(modelData.occurred_at)
                                     color: "#8a8e87"
                                     font.pixelSize: 11
                                 }
                                 Text {
+                                    renderType: Text.QtRendering
                                     width: parent.width
                                     text: modelData.title || "plan"
                                     color: "#141511"

@@ -12,7 +12,9 @@ ApplicationWindow {
     minimumHeight: 620
     visible: true
     title: "Preferences"
-    color: "#fbfbfa"
+    color: "transparent"
+
+    FrostShell { anchors.fill: parent }
 
     property string section: "users"
     property string toast: ""

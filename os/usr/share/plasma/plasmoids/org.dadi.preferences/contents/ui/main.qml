@@ -150,9 +150,7 @@ PlasmoidItem {
                     TunnelPane {
                         onSaved: msg => win.showToast(msg)
                     }
-                    DevicesPane {
-                        runner: executable
-                    }
+                    DevicesPane {}
                     DesktopPane {
                         runner: executable
                         onToast: msg => win.showToast(msg)

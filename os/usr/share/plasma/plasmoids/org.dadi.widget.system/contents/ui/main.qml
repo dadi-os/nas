@@ -135,12 +135,14 @@ PlasmoidItem {
                         Layout.fillWidth: true
                         spacing: 10
                         Text {
+                            renderType: Text.QtRendering
                             text: modelData.name
                             color: "#141511"
                             font.pixelSize: 14
                             Layout.fillWidth: true
                         }
                         Text {
+                            renderType: Text.QtRendering
                             text: modelData.ok ? "✓" : "✕"
                             color: modelData.ok ? "#141511" : "#c45c4a"
                             font.pixelSize: 16
@@ -155,11 +157,13 @@ PlasmoidItem {
                     Layout.topMargin: 8
                     spacing: 6
                     Text {
+                        renderType: Text.QtRendering
                         text: frame.errors.length + (frame.errors.length === 1 ? " error" : " errors") + " · 1h"
                         color: "#c45c4a"
                         font.pixelSize: 12
                     }
                     Text {
+                        renderType: Text.QtRendering
                         text: frame.latestTitle()
                         color: "#141511"
                         font.pixelSize: 13
@@ -169,6 +173,7 @@ PlasmoidItem {
                         Layout.fillWidth: true
                     }
                     Text {
+                        renderType: Text.QtRendering
                         text: (frame.errors[0] && frame.errors[0].service) ? frame.errors[0].service : ""
                         color: "#8a8e87"
                         font.pixelSize: 12
@@ -193,6 +198,7 @@ PlasmoidItem {
                         RowLayout {
                             Layout.fillWidth: true
                             Text {
+                                renderType: Text.QtRendering
                                 text: modelData.label
                                 color: "#8a8e87"
                                 font.pixelSize: 11
@@ -201,6 +207,7 @@ PlasmoidItem {
                             }
                             Item { Layout.fillWidth: true }
                             Text {
+                                renderType: Text.QtRendering
                                 text: modelData.pct === null ? "—" : modelData.pct + "%"
                                 color: "#141511"
                                 font.pixelSize: 12
