@@ -1,5 +1,5 @@
 [Unit]
-Description=Refresh Headscale UPnP port mappings
+Description=Refresh Headscale LAN publish
 
 [Timer]
 OnBootSec=45s

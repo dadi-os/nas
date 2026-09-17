@@ -26,18 +26,18 @@ func TestControlHostname(t *testing.T) {
 }
 
 func TestApplianceControlURL(t *testing.T) {
-	if got := applianceControlURL("216.163.53.187"); got != "http://216.163.53.187:8080" {
+	if got := applianceControlURL("10.4.18.27"); got != "http://10.4.18.27:8080" {
 		t.Fatalf("got %q", got)
 	}
 }
 
 func TestApplyServerURL(t *testing.T) {
 	in := []byte("server_url: http://127.0.0.1:8080\nlisten_addr: 0.0.0.0:8080\n")
-	out, err := applyServerURL(in, "http://216.163.53.187:8080")
+	out, err := applyServerURL(in, "http://10.4.18.27:8080")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), "server_url: http://216.163.53.187:8080\n") {
+	if !strings.Contains(string(out), "server_url: http://10.4.18.27:8080\n") {
 		t.Fatalf("got %s", out)
 	}
 	if _, err := applyServerURL([]byte("listen_addr: :8080\n"), "https://x"); err == nil {
@@ -51,23 +51,6 @@ func TestParseRouteSrcIPv4(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != "10.4.18.27" {
-		t.Fatalf("got %q", got)
-	}
-}
-
-func TestParseUPnPExternalIP(t *testing.T) {
-	got, err := parseUPnPExternalIP("ExternalIPAddress = 216.163.53.187\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "216.163.53.187" {
-		t.Fatalf("got %q", got)
-	}
-	got, err = parseUPnPExternalIP("External IP address assigned by IGD: 1.2.3.4\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "1.2.3.4" {
 		t.Fatalf("got %q", got)
 	}
 }

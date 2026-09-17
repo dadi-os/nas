@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -18,8 +17,6 @@ const etcHeadscaleConfig = "/etc/headscale/config.yaml"
 
 var (
 	srcIPv4Re     = regexp.MustCompile(`\bsrc (\d{1,3}(?:\.\d{1,3}){3})\b`)
-	upnpExtIPRe   = regexp.MustCompile(`(?i)ExternalIPAddress\s*=\s*(\d{1,3}(?:\.\d{1,3}){3})`)
-	upnpExtAltRe  = regexp.MustCompile(`(?i)External IP address[^:]*:\s*(\d{1,3}(?:\.\d{1,3}){3})`)
 	serverURLLine = regexp.MustCompile(`(?m)^server_url:\s*.*$`)
 )
 
@@ -36,9 +33,9 @@ func controlHostname(controlURL string) (string, error) {
 	return host, nil
 }
 
-// applianceControlURL is the public Headscale URL minted from the current WAN IPv4.
-func applianceControlURL(wan string) string {
-	return "http://" + wan + ":8080"
+// applianceControlURL is the Headscale URL Hath dials at the given IPv4.
+func applianceControlURL(ip string) string {
+	return "http://" + ip + ":8080"
 }
 
 // applyServerURL sets Headscale server_url in a config.yaml body.
@@ -59,17 +56,6 @@ func parseRouteSrcIPv4(routeGet string) (string, error) {
 	return m[1], nil
 }
 
-// parseUPnPExternalIP extracts the WAN IPv4 from `upnpc -s` output (miniupnpc variants).
-func parseUPnPExternalIP(out string) (string, error) {
-	if m := upnpExtIPRe.FindStringSubmatch(out); m != nil {
-		return m[1], nil
-	}
-	if m := upnpExtAltRe.FindStringSubmatch(out); m != nil {
-		return m[1], nil
-	}
-	return "", fmt.Errorf("UPnP output has no external IPv4")
-}
-
 // headscaleConfigPath is the writable Headscale config under DADI_STATE_DIR.
 func (s stateConfig) headscaleConfigPath() string {
 	return filepath.Join(s.dir, "headscale", "config.yaml")
@@ -80,21 +66,20 @@ type publishStatus struct {
 	ControlURL string `json:"control_url"`
 	Hostname   string `json:"hostname,omitempty"`
 	LANIP      string `json:"lan_ip,omitempty"`
-	WANIP      string `json:"wan_ip,omitempty"`
 }
 
 // mintControlURL returns the Headscale URL Hath should dial. Compose uses
-// loopback. The appliance discovers WAN, maps TCP 8080 via UPnP, and sets
-// Headscale server_url to http://<wan>:8080.
+// loopback. The appliance uses http://<lan>:8080 from the host LAN IPv4
+// and sets Headscale server_url to that URL.
 func (s stateConfig) mintControlURL() (string, error) {
 	if s.runtime != "podman" {
 		return composeControlURL, nil
 	}
-	wan, err := publicIPv4()
+	lan, err := lanIPv4()
 	if err != nil {
 		return "", err
 	}
-	url := applianceControlURL(wan)
+	url := applianceControlURL(lan)
 	if err := s.applyControlPlanePublish(url); err != nil {
 		return "", err
 	}
@@ -102,7 +87,7 @@ func (s stateConfig) mintControlURL() (string, error) {
 }
 
 // loadPublishStatus returns the live control URL. Compose is localhost;
-// the appliance reports the current WAN-derived http://<wan>:8080 plus LAN/WAN IPs.
+// the appliance reports http://<lan>:8080.
 func (s stateConfig) loadPublishStatus() (publishStatus, error) {
 	if s.runtime != "podman" {
 		return publishStatus{
@@ -114,11 +99,7 @@ func (s stateConfig) loadPublishStatus() (publishStatus, error) {
 	if err != nil {
 		return publishStatus{}, err
 	}
-	wan, err := publicIPv4()
-	if err != nil {
-		return publishStatus{}, err
-	}
-	url := applianceControlURL(wan)
+	url := applianceControlURL(lan)
 	host, err := controlHostname(url)
 	if err != nil {
 		return publishStatus{}, err
@@ -127,16 +108,12 @@ func (s stateConfig) loadPublishStatus() (publishStatus, error) {
 		ControlURL: url,
 		Hostname:   host,
 		LANIP:      lan,
-		WANIP:      wan,
 	}, nil
 }
 
-// applyControlPlanePublish maps Headscale 8080 via UPnP and updates server_url.
+// applyControlPlanePublish updates Headscale server_url to controlURL.
 func (s stateConfig) applyControlPlanePublish(controlURL string) error {
 	if _, err := controlHostname(controlURL); err != nil {
-		return err
-	}
-	if err := s.mapHeadscalePorts(); err != nil {
 		return err
 	}
 	headscaleChanged, err := s.writeHeadscaleServerURL(controlURL)
@@ -180,28 +157,6 @@ func (s stateConfig) writeHeadscaleServerURL(controlURL string) (bool, error) {
 	return true, nil
 }
 
-// mapHeadscalePorts adds a UPnP TCP mapping for Headscale (8080) to this host.
-func (s stateConfig) mapHeadscalePorts() error {
-	lan, err := lanIPv4()
-	if err != nil {
-		return err
-	}
-	return upnpcAdd(lan, 8080, "dadi-headscale")
-}
-
-// publicIPv4 returns the WAN IPv4 as seen from the public internet.
-func publicIPv4() (string, error) {
-	out, err := exec.Command("curl", "-4", "-fsS", "--max-time", "8", "https://ifconfig.me").CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("public IPv4: %w (%s)", err, strings.TrimSpace(string(out)))
-	}
-	ip := strings.TrimSpace(string(out))
-	if net.ParseIP(ip) == nil || net.ParseIP(ip).To4() == nil {
-		return "", fmt.Errorf("public IPv4: not an IPv4 address: %q", ip)
-	}
-	return ip, nil
-}
-
 // lanIPv4 returns the IPv4 used as the source toward the public internet.
 func lanIPv4() (string, error) {
 	out, err := exec.Command("ip", "-4", "route", "get", "1.1.1.1").CombinedOutput()
@@ -209,17 +164,4 @@ func lanIPv4() (string, error) {
 		return "", fmt.Errorf("ip route get: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
 	return parseRouteSrcIPv4(string(out))
-}
-
-// upnpcAdd maps an external TCP port to lan:port through the IGD.
-func upnpcAdd(lan string, port int, desc string) error {
-	out, err := exec.Command(
-		"upnpc",
-		"-e", desc,
-		"-a", lan, fmt.Sprintf("%d", port), fmt.Sprintf("%d", port), "tcp",
-	).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("UPnP map %d: %w (%s)", port, err, strings.TrimSpace(string(out)))
-	}
-	return nil
 }

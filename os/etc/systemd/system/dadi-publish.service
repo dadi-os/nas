@@ -1,5 +1,5 @@
 [Unit]
-Description=Refresh Headscale UPnP port mappings
+Description=Refresh Headscale LAN publish
 After=nas.service network-online.target
 Wants=nas.service
 

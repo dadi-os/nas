@@ -27,7 +27,7 @@ table inet filter {
 		# SSH for box admins provisioned in Preferences.
 		tcp dport 22 accept
 
-		# Public Headscale (direct :8080; UPnP maps WAN→LAN).
+		# Headscale on the LAN (TCP 8080).
 		tcp dport 8080 accept
 
 		# Caddy (mesh *.dadi and optional imported vhosts).
