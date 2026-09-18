@@ -217,7 +217,7 @@ curl -sG 'http://nas.dadi/logs' \
 
 Response: `{ "status": "ok", "scope": "...", "reboot_required": bool }`.
 
-On the appliance, `/usr/bin/dadi` is a Nas-built Go CLI that talks to Dimaag’s grantable tool registry. It requires `DIMAAG_URL` (login shells export `http://127.0.0.1:8083` via `/etc/profile.d/dadi-cli.sh`): `dadi help`, `dadi help nas_get_logs`, `dadi nas_get_logs --level error`. Tab completion lists live tools and `--` parameters.
+On the appliance, `/usr/bin/dadi` is a Nas-built Go CLI that talks to Dimaag’s grantable tool registry. It requires `DIMAAG_URL` (login shells export `http://127.0.0.1:8083` via `/etc/profile.d/dadi-cli.sh`) and `--as-agent-id <uuid>` on every execute: `dadi help`, `dadi help nas_get_logs`, `dadi nas_get_logs --as-agent-id <uuid> --level error`. Tab completion lists live tools and `--` parameters.
 
 ## Topology
 

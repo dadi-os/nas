@@ -52,6 +52,7 @@ func completeWords(prev []string, current string) []string {
 		return nil
 	}
 	flags, enums := schemaFlags(detail.InputSchema)
+	flags = append([]string{"--as-agent-id"}, flags...)
 	if len(prev) > 1 {
 		last := prev[len(prev)-1]
 		if strings.HasPrefix(last, "--") {

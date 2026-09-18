@@ -112,8 +112,10 @@ func cmdHelp(name string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("dadi <tool> [--key value …]")
+		fmt.Println("dadi <tool> --as-agent-id <uuid> [--key value …]")
 		fmt.Println("dadi help [tool]")
+		fmt.Println()
+		fmt.Println("Execute always requires --as-agent-id (Dimaag runs the tool as that agent).")
 		fmt.Println()
 		for _, t := range list {
 			fmt.Printf("  %s\n    %s\n", t.Name, t.Description)
@@ -127,6 +129,7 @@ func cmdHelp(name string) error {
 	fmt.Println(detail.Name)
 	fmt.Println(detail.Description)
 	fmt.Println("Parameters:")
+	fmt.Println("  --as-agent-id (string, required) — agent UUID that holds the grant")
 	fmt.Print(formatSchema(detail.InputSchema))
 	return nil
 }
@@ -135,6 +138,11 @@ func cmdExecute(name string, input map[string]any) error {
 	if input == nil {
 		input = map[string]any{}
 	}
+	asAgentID, err := takeAsAgentID(input)
+	if err != nil {
+		return err
+	}
+	input["as_agent_id"] = asAgentID
 	raw, err := api(http.MethodPost, "/tools/"+urlPath(name)+"/execute", input)
 	if err != nil {
 		return err
@@ -149,6 +157,23 @@ func cmdExecute(name string, input map[string]any) error {
 	}
 	fmt.Println(rendered)
 	return nil
+}
+
+// takeAsAgentID removes --as-agent-id / --as_agent_id from the flag map and returns the UUID.
+func takeAsAgentID(input map[string]any) (string, error) {
+	for _, key := range []string{"as_agent_id", "as-agent-id"} {
+		raw, ok := input[key]
+		if !ok {
+			continue
+		}
+		delete(input, key)
+		value, ok := raw.(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			return "", fmt.Errorf("--as-agent-id <uuid> is required")
+		}
+		return strings.TrimSpace(value), nil
+	}
+	return "", fmt.Errorf("--as-agent-id <uuid> is required")
 }
 
 func renderContent(content any) string {

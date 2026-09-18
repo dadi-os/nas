@@ -22,6 +22,9 @@ func toolServer(t *testing.T) *httptest.Server {
 		case r.Method == http.MethodPost && r.URL.Path == "/tools/nas_get_logs/execute":
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["as_agent_id"] != "11111111-1111-4111-8111-111111111111" {
+				t.Fatalf("as_agent_id %+v", body)
+			}
 			if body["level"] != "error" {
 				t.Fatalf("input %+v", body)
 			}
@@ -99,7 +102,7 @@ func TestHelpAndExecute(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Stdout = w
-	if err := run([]string{"nas_get_logs", "--level", "error"}); err != nil {
+	if err := run([]string{"nas_get_logs", "--as-agent-id", "11111111-1111-4111-8111-111111111111", "--level", "error"}); err != nil {
 		os.Stdout = old
 		t.Fatal(err)
 	}
@@ -117,6 +120,16 @@ func TestMissingTool(t *testing.T) {
 	dimaagBase = srv.URL
 	err := run([]string{"help", "missing"})
 	if err == nil || err.Error() != "not_found: tool missing not found" {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestExecuteRequiresAsAgentID(t *testing.T) {
+	srv := toolServer(t)
+	t.Cleanup(srv.Close)
+	dimaagBase = srv.URL
+	err := run([]string{"nas_get_logs", "--level", "error"})
+	if err == nil || !strings.Contains(err.Error(), "--as-agent-id") {
 		t.Fatalf("got %v", err)
 	}
 }
