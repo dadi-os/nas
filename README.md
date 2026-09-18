@@ -197,11 +197,14 @@ Caddy `http://nas.dadi` is a plain `reverse_proxy` to Nas (`127.0.0.1:8092` in p
 Log query example:
 
 ```sh
+curl -s 'http://nas.dadi/logs/services'
 curl -sG 'http://nas.dadi/logs' \
   --data-urlencode 'services=dwar,yaad' \
   --data-urlencode 'level=error' \
   --data-urlencode 'q=timeout'
 ```
+
+`GET /logs/services` is Loki `service` labels unioned with the modules Nas health-checks.
 
 ### Updates
 
@@ -302,7 +305,7 @@ Glass rules: blur before tint; never translucent text; two opacities only (veil 
 
 ## Mesh
 
-Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale is `localhost:8080`; production clients use `http://<lan>:8080` minted at provision. Host/sidecar hostname `os` should be the first node so MagicDNS extra records match `100.64.0.1`.
+Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale is `localhost:8080`; production clients use `http://<lan>:8080` minted at provision. Host/sidecar hostname `os` should be the first node so MagicDNS extra records match `100.64.0.1`. Publish/provision also insert any missing `*.dadi` A records for modules Nas health-checks.
 
 | Method | Path | Body | Success | Errors |
 | --- | --- | --- | --- | --- |

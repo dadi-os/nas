@@ -31,6 +31,71 @@ func TestApplianceControlURL(t *testing.T) {
 	}
 }
 
+func TestEnsureExtraRecordsInsertsMissing(t *testing.T) {
+	in := []byte(`dns:
+  extra_records:
+    - name: "yaad.dadi"
+      type: "A"
+      value: "100.64.0.1"
+    - name: "nas.dadi"
+      type: "A"
+      value: "100.64.0.1"
+unix_socket: /var/run/headscale/headscale.sock
+`)
+	out, err := ensureExtraRecords(in, []string{"yaad.dadi", "nas.dadi", "chaavi.dadi"}, "100.64.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+	if !strings.Contains(got, `name: "chaavi.dadi"`) {
+		t.Fatalf("missing chaavi: %s", got)
+	}
+	if strings.Count(got, `name: "yaad.dadi"`) != 1 {
+		t.Fatalf("duplicated yaad: %s", got)
+	}
+	yaad := strings.Index(got, `name: "yaad.dadi"`)
+	chaavi := strings.Index(got, `name: "chaavi.dadi"`)
+	sock := strings.Index(got, "unix_socket:")
+	if yaad < 0 || chaavi < 0 || sock < 0 || !(yaad < chaavi && chaavi < sock) {
+		t.Fatalf("order yaad=%d chaavi=%d sock=%d\n%s", yaad, chaavi, sock, got)
+	}
+}
+
+func TestEnsureExtraRecordsNoopWhenPresent(t *testing.T) {
+	in := []byte(`dns:
+  extra_records:
+    - name: "chaavi.dadi"
+      type: "A"
+      value: "100.64.0.1"
+`)
+	out, err := ensureExtraRecords(in, []string{"chaavi.dadi"}, "100.64.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != string(in) {
+		t.Fatalf("rewrote complete config: %s", out)
+	}
+}
+
+func TestEnsureExtraRecordsRequiresBlock(t *testing.T) {
+	if _, err := ensureExtraRecords([]byte("server_url: http://x\n"), []string{"chaavi.dadi"}, "100.64.0.1"); err == nil {
+		t.Fatal("expected missing extra_records error")
+	}
+}
+
+func TestMeshExtraRecordNamesIncludeChaavi(t *testing.T) {
+	names := meshExtraRecordNames()
+	found := false
+	for _, n := range names {
+		if n == "chaavi.dadi" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("chaavi.dadi missing from %v", names)
+	}
+}
+
 func TestApplyServerURL(t *testing.T) {
 	in := []byte("server_url: http://127.0.0.1:8080\nlisten_addr: 0.0.0.0:8080\n")
 	out, err := applyServerURL(in, "http://10.4.18.27:8080")

@@ -69,6 +69,9 @@ func main() {
 	mux.HandleFunc("GET /logs", func(w http.ResponseWriter, r *http.Request) {
 		handleLogs(w, r, lokiURL)
 	})
+	mux.HandleFunc("GET /logs/services", func(w http.ResponseWriter, r *http.Request) {
+		handleLogServices(w, r, lokiURL, state.runtime)
+	})
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -541,6 +544,125 @@ func handleLogs(w http.ResponseWriter, r *http.Request, lokiURL string) {
 		return
 	}
 	writeJSON(w, http.StatusOK, logsResponse{Entries: entries})
+}
+
+type lokiLabelValues struct {
+	Data []string `json:"data"`
+}
+
+type logServicesResponse struct {
+	Services []string `json:"services"`
+}
+
+// handleLogServices is GET /logs/services — Loki `service` label values unioned
+// with the modules Nas health-checks, so chips exist before a service has logs.
+func handleLogServices(w http.ResponseWriter, r *http.Request, lokiURL, runtime string) {
+	q := r.URL.Query()
+	now := time.Now().UTC()
+	end := now
+	start := now.Add(-24 * time.Hour)
+	if raw := strings.TrimSpace(q.Get("from")); raw != "" {
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "from must be RFC3339")
+			return
+		}
+		start = t
+	}
+	if raw := strings.TrimSpace(q.Get("to")); raw != "" {
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "to must be RFC3339")
+			return
+		}
+		end = t
+	}
+	if !end.After(start) {
+		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "to must be after from")
+		return
+	}
+
+	endpoint, err := url.Parse(strings.TrimRight(lokiURL, "/") + "/loki/api/v1/label/service/values")
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeLogQueryFailed, "invalid LOKI_URL")
+		return
+	}
+	params := endpoint.Query()
+	params.Set("start", strconv.FormatInt(start.UnixNano(), 10))
+	params.Set("end", strconv.FormatInt(end.UnixNano(), 10))
+	endpoint.RawQuery = params.Encode()
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(endpoint.String())
+	if err != nil {
+		slog.Error("loki label query failed", "code", CodeLogQueryFailed, "err", err)
+		writeError(w, r, http.StatusBadGateway, CodeLogQueryFailed, "loki query failed")
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeError(w, r, http.StatusBadGateway, CodeLogQueryFailed, "read loki response")
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		slog.Error("loki returned error", "code", CodeLogQueryFailed, "status", resp.StatusCode, "body", string(body))
+		writeError(w, r, http.StatusBadGateway, CodeLogQueryFailed, "loki query failed")
+		return
+	}
+
+	fromLoki, err := parseLokiLabelValues(body)
+	if err != nil {
+		slog.Error("parse loki label values", "code", CodeLogQueryFailed, "err", err)
+		writeError(w, r, http.StatusBadGateway, CodeLogQueryFailed, "parse loki response")
+		return
+	}
+	writeJSON(w, http.StatusOK, logServicesResponse{
+		Services: mergeLogServices(knownLogServices(runtime), fromLoki),
+	})
+}
+
+// knownLogServices is the module names Nas health-checks, plus nas itself.
+func knownLogServices(runtime string) []string {
+	targets := healthTargets(runtime)
+	names := make([]string, 0, len(targets)+1)
+	for _, t := range targets {
+		names = append(names, t.name)
+	}
+	names = append(names, "nas")
+	return names
+}
+
+// mergeLogServices unions known module names with Loki label values, sorted.
+func mergeLogServices(known, fromLoki []string) []string {
+	set := make(map[string]struct{}, len(known)+len(fromLoki))
+	for _, n := range known {
+		n = strings.TrimSpace(n)
+		if n != "" {
+			set[n] = struct{}{}
+		}
+	}
+	for _, n := range fromLoki {
+		n = strings.TrimSpace(n)
+		if n != "" {
+			set[n] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(set))
+	for n := range set {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// parseLokiLabelValues decodes GET /loki/api/v1/label/service/values.
+func parseLokiLabelValues(body []byte) ([]string, error) {
+	var parsed lokiLabelValues
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, err
+	}
+	return parsed.Data, nil
 }
 
 type lokiRangeResponse struct {

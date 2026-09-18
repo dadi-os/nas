@@ -15,9 +15,14 @@ const composeControlURL = "http://localhost:8080"
 
 const etcHeadscaleConfig = "/etc/headscale/config.yaml"
 
+// meshExtraRecordIP is the appliance mesh address extra records point at.
+// Headscale assigns 100.64.0.1 to the first node (`os`).
+const meshExtraRecordIP = "100.64.0.1"
+
 var (
-	srcIPv4Re     = regexp.MustCompile(`\bsrc (\d{1,3}(?:\.\d{1,3}){3})\b`)
-	serverURLLine = regexp.MustCompile(`(?m)^server_url:\s*.*$`)
+	srcIPv4Re         = regexp.MustCompile(`\bsrc (\d{1,3}(?:\.\d{1,3}){3})\b`)
+	serverURLLine     = regexp.MustCompile(`(?m)^server_url:\s*.*$`)
+	extraRecordNameRe = regexp.MustCompile(`(?m)^\s+-\s+name:\s+"([^"]+)"`)
 )
 
 // controlHostname is the hostname Hath/Tailscale dial from a control plane URL.
@@ -111,7 +116,8 @@ func (s stateConfig) loadPublishStatus() (publishStatus, error) {
 	}, nil
 }
 
-// applyControlPlanePublish updates Headscale server_url to controlURL.
+// applyControlPlanePublish updates Headscale server_url to controlURL and
+// inserts any missing MagicDNS extra records for mesh modules.
 func (s stateConfig) applyControlPlanePublish(controlURL string) error {
 	if _, err := controlHostname(controlURL); err != nil {
 		return err
@@ -128,7 +134,8 @@ func (s stateConfig) applyControlPlanePublish(controlURL string) error {
 	return nil
 }
 
-// writeHeadscaleServerURL updates server_url in the state Headscale config (seeding from /etc when absent).
+// writeHeadscaleServerURL updates server_url and mesh extra records in the
+// state Headscale config (seeding from /etc when absent).
 func (s stateConfig) writeHeadscaleServerURL(controlURL string) (bool, error) {
 	path := s.headscaleConfigPath()
 	body, err := os.ReadFile(path)
@@ -145,6 +152,10 @@ func (s stateConfig) writeHeadscaleServerURL(controlURL string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	updated, err = ensureExtraRecords(updated, meshExtraRecordNames(), meshExtraRecordIP)
+	if err != nil {
+		return false, err
+	}
 	if bytes.Equal(body, updated) {
 		return false, nil
 	}
@@ -155,6 +166,79 @@ func (s stateConfig) writeHeadscaleServerURL(controlURL string) (bool, error) {
 		return false, fmt.Errorf("write headscale config: %w", err)
 	}
 	return true, nil
+}
+
+// meshExtraRecordNames is the *.dadi names Caddy serves on the appliance.
+func meshExtraRecordNames() []string {
+	names := []string{"nas.dadi"}
+	for _, t := range healthTargets("podman") {
+		names = append(names, t.name+".dadi")
+	}
+	return names
+}
+
+// ensureExtraRecords inserts missing MagicDNS A records into a Headscale config body.
+func ensureExtraRecords(config []byte, names []string, ip string) ([]byte, error) {
+	if !bytes.Contains(config, []byte("extra_records:")) {
+		return nil, fmt.Errorf("headscale config has no extra_records")
+	}
+	present := map[string]struct{}{}
+	for _, m := range extraRecordNameRe.FindAllSubmatch(config, -1) {
+		present[string(m[1])] = struct{}{}
+	}
+	var missing []string
+	for _, name := range names {
+		if _, ok := present[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return config, nil
+	}
+	insertAt, err := extraRecordsInsertIndex(config)
+	if err != nil {
+		return nil, err
+	}
+	var block strings.Builder
+	for _, name := range missing {
+		fmt.Fprintf(&block, "    - name: %q\n      type: \"A\"\n      value: %q\n", name, ip)
+	}
+	out := make([]byte, 0, len(config)+block.Len())
+	out = append(out, config[:insertAt]...)
+	out = append(out, block.String()...)
+	out = append(out, config[insertAt:]...)
+	return out, nil
+}
+
+// extraRecordsInsertIndex is the byte offset just after the extra_records list.
+func extraRecordsInsertIndex(config []byte) (int, error) {
+	lines := strings.SplitAfter(string(config), "\n")
+	off := 0
+	seen := false
+	insert := 0
+	for _, line := range lines {
+		raw := strings.TrimRight(line, "\n")
+		trimmed := strings.TrimSpace(raw)
+		indent := len(raw) - len(strings.TrimLeft(raw, " "))
+		if !seen {
+			if trimmed == "extra_records:" {
+				seen = true
+				insert = off + len(line)
+			}
+			off += len(line)
+			continue
+		}
+		if trimmed == "" || indent > 2 {
+			insert = off + len(line)
+			off += len(line)
+			continue
+		}
+		return off, nil
+	}
+	if !seen {
+		return 0, fmt.Errorf("headscale config has no extra_records")
+	}
+	return insert, nil
 }
 
 // lanIPv4 returns the IPv4 used as the source toward the public internet.

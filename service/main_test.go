@@ -115,6 +115,51 @@ func TestWriteErrorShape(t *testing.T) {
 	}
 }
 
+func TestKnownLogServicesIncludesChaavi(t *testing.T) {
+	got := knownLogServices("podman")
+	found := false
+	for _, n := range got {
+		if n == "chaavi" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("chaavi missing from %v", got)
+	}
+}
+
+func TestMergeLogServicesUnionsAndSorts(t *testing.T) {
+	got := mergeLogServices([]string{"yaad", "nas", "chaavi"}, []string{"caddy", "yaad", "hath"})
+	want := []string{"caddy", "chaavi", "hath", "nas", "yaad"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v want %v", got, want)
+		}
+	}
+}
+
+func TestParseLokiLabelValues(t *testing.T) {
+	got, err := parseLokiLabelValues([]byte(`{"status":"success","data":["chaavi","nas"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "chaavi" || got[1] != "nas" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestHandleLogServicesInvalidRange(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/logs/services?from=2026-01-01T00:00:00Z&to=2026-01-01T00:00:00Z", nil)
+	rec := httptest.NewRecorder()
+	handleLogServices(rec, req, "http://loki:3100", "compose")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d", rec.Code)
+	}
+}
+
 func TestHandleLogsInvalidLimit(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/logs?limit=nope", nil)
 	rec := httptest.NewRecorder()
