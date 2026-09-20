@@ -522,7 +522,7 @@ func (b *browserHost) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !b.processesExist(id) {
-		writeError(w, r, http.StatusNotFound, CodeNotFound, "not_found")
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	b.killBrowser(id)

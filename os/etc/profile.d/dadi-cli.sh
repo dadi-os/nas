@@ -4,6 +4,8 @@ if [ -x /var/lib/dadi/bin/dadi ]; then
     *:/var/lib/dadi/bin:*) ;;
     *) PATH="/var/lib/dadi/bin:${PATH}" ;;
   esac
+elif [ -x "${HOME}/.local/bin/dadi" ] && [ -x /usr/bin/dadi ]; then
+  PATH="/usr/bin:${PATH}"
 fi
 # Host CLI talks to Dimaag on the appliance loopback publish port.
 export DIMAAG_URL=http://127.0.0.1:8083

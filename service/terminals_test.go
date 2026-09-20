@@ -297,3 +297,51 @@ func TestTerminalsExecTruncation(t *testing.T) {
 		t.Fatalf("missing elision note: %q", resp.Output)
 	}
 }
+
+func TestParseExecCaptureScrubsMarker(t *testing.T) {
+	sent := "echo hi; printf '\\n" + execMarker + "%s %d\\n' 'abc' $?"
+	capture := strings.Join([]string{
+		sent,
+		"hi",
+		"wrap " + execMarker + " fragment",
+		execMarker + "abc 0",
+	}, "\n")
+	code, out, ok := parseExecCapture(capture, sent, execMarker+"abc ")
+	if !ok {
+		t.Fatal("expected parse ok")
+	}
+	if code != 0 {
+		t.Fatalf("code %d", code)
+	}
+	if strings.Contains(out, execMarker) {
+		t.Fatalf("marker leaked: %q", out)
+	}
+	if !strings.Contains(out, "hi") {
+		t.Fatalf("missing output: %q", out)
+	}
+
+	partial := partialExecOutput(capture, sent)
+	if strings.Contains(partial, execMarker) {
+		t.Fatalf("partial marker leaked: %q", partial)
+	}
+}
+
+func TestTerminalsDeleteIdempotent(t *testing.T) {
+	_, mux := testTerminalEnv(t)
+	code, body := doJSON(t, mux, http.MethodPost, "/terminals", map[string]any{})
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, body)
+	}
+	var created createTerminalResponse
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatal(err)
+	}
+	code, _ = doJSON(t, mux, http.MethodDelete, "/terminals/"+created.ID, nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("delete %d", code)
+	}
+	code, _ = doJSON(t, mux, http.MethodDelete, "/terminals/"+created.ID, nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("second delete %d", code)
+	}
+}

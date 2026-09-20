@@ -31,9 +31,10 @@ const (
 var sessionNameRe = regexp.MustCompile(`^t([1-9][0-9]*)$`)
 
 type terminalHost struct {
-	host *hostRuntime
-	mu   sync.Mutex
-	busy map[string]struct{}
+	host     *hostRuntime
+	mu       sync.Mutex
+	createMu sync.Mutex
+	busy     map[string]struct{}
 }
 
 func newTerminalHost(host *hostRuntime) *terminalHost {
@@ -137,6 +138,9 @@ type createTerminalResponse struct {
 }
 
 func (t *terminalHost) handleCreate(w http.ResponseWriter, r *http.Request) {
+	t.createMu.Lock()
+	defer t.createMu.Unlock()
+
 	var req createTerminalRequest
 	if r.Body != nil {
 		dec := json.NewDecoder(r.Body)
@@ -395,7 +399,7 @@ func parseExecCapture(capture, sentLine, markerPrefix string) (exitCode int, out
 	if start > markerIdx {
 		start = markerIdx
 	}
-	body := strings.Join(lines[start:markerIdx], "\n")
+	body := scrubExecMarkerLines(strings.Join(lines[start:markerIdx], "\n"))
 	return code, body, true
 }
 
@@ -417,9 +421,22 @@ func partialExecOutput(capture, sentLine string) string {
 		}
 	}
 	if cmdIdx < 0 {
-		return strings.Join(lines, "\n")
+		return scrubExecMarkerLines(strings.Join(lines, "\n"))
 	}
-	return strings.Join(lines[cmdIdx+1:], "\n")
+	return scrubExecMarkerLines(strings.Join(lines[cmdIdx+1:], "\n"))
+}
+
+// scrubExecMarkerLines drops any line that still contains the exec marker (wrapped pane echo).
+func scrubExecMarkerLines(s string) string {
+	lines := splitPaneLines(s)
+	out := make([]string, 0, len(lines))
+	for _, ln := range lines {
+		if strings.Contains(ln, execMarker) {
+			continue
+		}
+		out = append(out, ln)
+	}
+	return strings.Join(out, "\n")
 }
 
 func splitPaneLines(s string) []string {
@@ -502,8 +519,12 @@ func (t *terminalHost) handleKeys(w http.ResponseWriter, r *http.Request) {
 
 func (t *terminalHost) handleDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if !sessionNameRe.MatchString(id) || !t.hasSession(id) {
+	if !sessionNameRe.MatchString(id) {
 		writeError(w, r, http.StatusNotFound, CodeNotFound, "not_found")
+		return
+	}
+	if !t.hasSession(id) {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if err := t.tmuxCmd("kill-session", "-t", id).Run(); err != nil {

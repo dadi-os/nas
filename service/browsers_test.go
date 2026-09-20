@@ -108,6 +108,10 @@ func TestBrowsersCreateListDelete(t *testing.T) {
 	if code != http.StatusNoContent {
 		t.Fatalf("delete %d", code)
 	}
+	code, _ = doJSON(t, mux, http.MethodDelete, "/browsers/10", nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("second delete %d", code)
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if !bh.processesExist(10) {

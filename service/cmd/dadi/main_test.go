@@ -239,6 +239,41 @@ func TestParseFlagsCoerce(t *testing.T) {
 	}
 }
 
+func TestParseFlagsCoerceJSON(t *testing.T) {
+	f := newToolFixture(t)
+	if err := run([]string{
+		"nas_get_logs",
+		"--as-dadi",
+		"--keys", `["C-c"]`,
+		"--params", `{"state":"on"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	keys, ok := f.lastExecute["keys"].([]any)
+	if !ok || len(keys) != 1 || keys[0] != "C-c" {
+		t.Fatalf("keys %+v", f.lastExecute["keys"])
+	}
+	params, ok := f.lastExecute["params"].(map[string]any)
+	if !ok || params["state"] != "on" {
+		t.Fatalf("params %+v", f.lastExecute["params"])
+	}
+
+	got, err := parseFlags([]string{"--bad", `[not-json`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["bad"] != `[not-json` {
+		t.Fatalf("invalid JSON should stay string: %v", got["bad"])
+	}
+	got, err = parseFlags([]string{"--obj", `{broken`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["obj"] != `{broken` {
+		t.Fatalf("invalid object JSON should stay string: %v", got["obj"])
+	}
+}
+
 func TestLoadDimaagBaseRequiresEnv(t *testing.T) {
 	t.Setenv("DIMAAG_URL", "")
 	if _, err := loadDimaagBase(); err == nil {

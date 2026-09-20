@@ -457,6 +457,13 @@ func coerce(value string) any {
 	case "null":
 		return nil
 	}
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) > 0 && (trimmed[0] == '[' || trimmed[0] == '{') {
+		var decoded any
+		if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
+			return decoded
+		}
+	}
 	if n, err := strconv.ParseInt(value, 10, 64); err == nil {
 		return n
 	}
