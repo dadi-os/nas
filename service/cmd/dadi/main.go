@@ -29,6 +29,17 @@ type toolsList struct {
 	Tools []toolInfo `json:"tools"`
 }
 
+type agentInfo struct {
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	ParentAgentID *string `json:"parent_agent_id"`
+	Active        bool    `json:"active"`
+}
+
+type agentsList struct {
+	Agents []agentInfo `json:"agents"`
+}
+
 type execResult struct {
 	OK      bool `json:"ok"`
 	Content any  `json:"content"`
@@ -74,6 +85,9 @@ func loadDimaagBase() (string, error) {
 }
 
 func run(args []string) error {
+	if len(args) > 0 && args[0] == "agents" {
+		return cmdAgents()
+	}
 	tool, help, input, err := parseArgs(args)
 	if err != nil {
 		return err
@@ -112,10 +126,11 @@ func cmdHelp(name string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("dadi <tool> --as-agent-id <uuid> [--key value …]")
+		fmt.Println("dadi <tool> (--as-agent-id <uuid> | --as <name> | --as-dadi) [--key value …]")
+		fmt.Println("dadi agents")
 		fmt.Println("dadi help [tool]")
 		fmt.Println()
-		fmt.Println("Execute always requires --as-agent-id (Dimaag runs the tool as that agent).")
+		fmt.Println("Execute requires one caller identity: --as-agent-id <uuid>, --as <name>, or --as-dadi.")
 		fmt.Println()
 		for _, t := range list {
 			fmt.Printf("  %s\n    %s\n", t.Name, t.Description)
@@ -129,7 +144,10 @@ func cmdHelp(name string) error {
 	fmt.Println(detail.Name)
 	fmt.Println(detail.Description)
 	fmt.Println("Parameters:")
-	fmt.Println("  --as-agent-id (string, required) — agent UUID that holds the grant")
+	fmt.Println("  --as-agent-id (string) — agent UUID that holds the grant")
+	fmt.Println("  --as (string) — unique agent name (resolved via GET /agents)")
+	fmt.Println("  --as-dadi — act as Dadi (router authority)")
+	fmt.Println("  Exactly one of --as-agent-id, --as, or --as-dadi is required.")
 	fmt.Print(formatSchema(detail.InputSchema))
 	return nil
 }
@@ -138,7 +156,7 @@ func cmdExecute(name string, input map[string]any) error {
 	if input == nil {
 		input = map[string]any{}
 	}
-	asAgentID, err := takeAsAgentID(input)
+	asAgentID, err := takeCallerIdentity(input)
 	if err != nil {
 		return err
 	}
@@ -159,21 +177,142 @@ func cmdExecute(name string, input map[string]any) error {
 	return nil
 }
 
-// takeAsAgentID removes --as-agent-id / --as_agent_id from the flag map and returns the UUID.
-func takeAsAgentID(input map[string]any) (string, error) {
-	for _, key := range []string{"as_agent_id", "as-agent-id"} {
-		raw, ok := input[key]
-		if !ok {
+// takeCallerIdentity removes identity flags from the flag map and returns as_agent_id for Dimaag.
+func takeCallerIdentity(input map[string]any) (string, error) {
+	asAgentID, hasAsAgentID, err := takeStringFlag(input, "as_agent_id", "as-agent-id")
+	if err != nil {
+		return "", err
+	}
+	asName, hasAs, err := takeStringFlag(input, "as")
+	if err != nil {
+		return "", err
+	}
+	hasAsDadi, err := takeBoolFlag(input, "as_dadi", "as-dadi")
+	if err != nil {
+		return "", err
+	}
+
+	n := 0
+	if hasAsAgentID {
+		n++
+	}
+	if hasAs {
+		n++
+	}
+	if hasAsDadi {
+		n++
+	}
+	if n > 1 {
+		return "", fmt.Errorf("pass only one of --as, --as-agent-id, and --as-dadi")
+	}
+	if n == 0 {
+		return "", fmt.Errorf("one of --as <name>, --as-agent-id <uuid>, or --as-dadi is required")
+	}
+	if hasAsDadi {
+		return "dadi", nil
+	}
+	if hasAsAgentID {
+		return asAgentID, nil
+	}
+	return resolveAgentName(asName)
+}
+
+func takeStringFlag(input map[string]any, keys ...string) (value string, ok bool, err error) {
+	for _, key := range keys {
+		raw, present := input[key]
+		if !present {
 			continue
 		}
 		delete(input, key)
-		value, ok := raw.(string)
-		if !ok || strings.TrimSpace(value) == "" {
-			return "", fmt.Errorf("--as-agent-id <uuid> is required")
+		s, isString := raw.(string)
+		if !isString || strings.TrimSpace(s) == "" {
+			return "", true, fmt.Errorf("--%s requires a value", strings.ReplaceAll(key, "_", "-"))
 		}
-		return strings.TrimSpace(value), nil
+		return strings.TrimSpace(s), true, nil
 	}
-	return "", fmt.Errorf("--as-agent-id <uuid> is required")
+	return "", false, nil
+}
+
+func takeBoolFlag(input map[string]any, keys ...string) (bool, error) {
+	for _, key := range keys {
+		raw, present := input[key]
+		if !present {
+			continue
+		}
+		delete(input, key)
+		switch v := raw.(type) {
+		case bool:
+			if !v {
+				return false, fmt.Errorf("--%s does not take a value", strings.ReplaceAll(key, "_", "-"))
+			}
+			return true, nil
+		default:
+			return false, fmt.Errorf("--%s does not take a value", strings.ReplaceAll(key, "_", "-"))
+		}
+	}
+	return false, nil
+}
+
+func resolveAgentName(name string) (string, error) {
+	agents, err := fetchAgents()
+	if err != nil {
+		return "", err
+	}
+	for _, agent := range agents {
+		if agent.Name == name {
+			return agent.ID, nil
+		}
+	}
+	return "", fmt.Errorf("agent %q not found", name)
+}
+
+func cmdAgents() error {
+	agents, err := fetchAgents()
+	if err != nil {
+		return err
+	}
+	printAgentForest(agents)
+	return nil
+}
+
+func printAgentForest(agents []agentInfo) {
+	byParent := map[string][]agentInfo{}
+	var roots []agentInfo
+	for _, agent := range agents {
+		if agent.ParentAgentID == nil {
+			roots = append(roots, agent)
+			continue
+		}
+		parent := *agent.ParentAgentID
+		byParent[parent] = append(byParent[parent], agent)
+	}
+	sort.Slice(roots, func(i, j int) bool { return roots[i].Name < roots[j].Name })
+	for _, root := range roots {
+		printAgentLine(root, 0)
+		printAgentChildren(root.ID, byParent, 1)
+	}
+}
+
+func printAgentChildren(parentID string, byParent map[string][]agentInfo, depth int) {
+	children := byParent[parentID]
+	sort.Slice(children, func(i, j int) bool { return children[i].Name < children[j].Name })
+	for _, child := range children {
+		printAgentLine(child, depth)
+		printAgentChildren(child.ID, byParent, depth+1)
+	}
+}
+
+func printAgentLine(agent agentInfo, depth int) {
+	state := "dormant"
+	if agent.Active {
+		state = "active"
+	}
+	short := agent.ID
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	indent := strings.Repeat("  ", depth)
+	fmt.Printf("%s%s  %s  %s\n", indent, agent.Name, short, state)
 }
 
 func renderContent(content any) string {
@@ -224,6 +363,21 @@ func fetchTool(name string) (toolInfo, error) {
 		return toolInfo{}, fmt.Errorf("bad tool payload")
 	}
 	return detail, nil
+}
+
+func fetchAgents() ([]agentInfo, error) {
+	raw, err := api(http.MethodGet, "/agents", nil)
+	if err != nil {
+		return nil, err
+	}
+	var wrap agentsList
+	if err := json.Unmarshal(raw, &wrap); err != nil {
+		return nil, fmt.Errorf("bad agents payload: %w", err)
+	}
+	if wrap.Agents == nil {
+		return nil, fmt.Errorf("bad agents payload")
+	}
+	return wrap.Agents, nil
 }
 
 func urlPath(name string) string {

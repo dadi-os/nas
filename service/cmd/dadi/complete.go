@@ -31,20 +31,29 @@ func completeLine(line string) []string {
 func completeWords(prev []string, current string) []string {
 	tools, err := fetchTools()
 	if err != nil {
-		return filterPrefix([]string{"help"}, current)
+		return filterPrefix([]string{"agents", "help"}, current)
 	}
-	names := make([]string, 0, len(tools)+1)
-	names = append(names, "help")
+	names := make([]string, 0, len(tools)+2)
+	names = append(names, "agents", "help")
 	for _, t := range tools {
 		names = append(names, t.Name)
 	}
+	sort.Strings(names)
 	if len(prev) == 0 {
 		return filterPrefix(names, current)
 	}
 	if prev[0] == "help" {
 		if len(prev) == 1 {
-			return filterPrefix(names[1:], current)
+			toolNames := make([]string, 0, len(tools))
+			for _, t := range tools {
+				toolNames = append(toolNames, t.Name)
+			}
+			sort.Strings(toolNames)
+			return filterPrefix(toolNames, current)
 		}
+		return nil
+	}
+	if prev[0] == "agents" {
 		return nil
 	}
 	detail, err := fetchTool(prev[0])
@@ -52,11 +61,15 @@ func completeWords(prev []string, current string) []string {
 		return nil
 	}
 	flags, enums := schemaFlags(detail.InputSchema)
-	flags = append([]string{"--as-agent-id"}, flags...)
+	flags = append([]string{"--as", "--as-agent-id", "--as-dadi"}, flags...)
+	sort.Strings(flags)
 	if len(prev) > 1 {
 		last := prev[len(prev)-1]
 		if strings.HasPrefix(last, "--") {
 			key := strings.TrimPrefix(last, "--")
+			if key == "as" {
+				return filterPrefix(agentNames(), current)
+			}
 			if vals, ok := enums[key]; ok {
 				return filterPrefix(vals, current)
 			}
@@ -80,6 +93,19 @@ func completeWords(prev []string, current string) []string {
 		return filterPrefix(remaining, current)
 	}
 	return nil
+}
+
+func agentNames() []string {
+	agents, err := fetchAgents()
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(agents))
+	for _, agent := range agents {
+		names = append(names, agent.Name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func schemaFlags(schema map[string]any) (flags []string, enums map[string][]string) {
