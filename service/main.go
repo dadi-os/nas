@@ -45,6 +45,10 @@ func main() {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
 	}
+	if err := state.ensureChaaviTLS(); err != nil {
+		slog.Error(err.Error(), "code", CodeInternal)
+		os.Exit(1)
+	}
 	terminals := newTerminalHost(host)
 	files := newFSHost(host)
 	browsers := newBrowserHost(host)
@@ -52,13 +56,16 @@ func main() {
 	started := time.Now()
 	startMetricsSampler()
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /ca", func(w http.ResponseWriter, r *http.Request) {
+		handleMeshCA(w, r, state)
+	})
 	mux.HandleFunc("POST /provision", func(w http.ResponseWriter, r *http.Request) {
 		controlURL, err := state.mintControlURL()
 		if err != nil {
 			writeError(w, r, http.StatusInternalServerError, CodeConfigMissing, err.Error())
 			return
 		}
-		handleProvision(w, r, controlURL, userName, state.dir)
+		handleProvision(w, r, controlURL, userName, state)
 	})
 	mux.HandleFunc("GET /clients", func(w http.ResponseWriter, r *http.Request) {
 		handleListClients(w, r, userName, state.dir)
@@ -101,9 +108,11 @@ type credentialsBundle struct {
 	ControlURL string `json:"control_url"`
 	AuthKey    string `json:"auth_key"`
 	NodeName   string `json:"node_name"`
+	// CaPem is the mesh CA certificate (PEM). Hath installs it so https://chaavi.dadi works.
+	CaPem string `json:"ca_pem,omitempty"`
 }
 
-func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userName, stateDir string) {
+func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userName string, state stateConfig) {
 	var req provisionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "invalid json body")
@@ -130,13 +139,13 @@ func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userNam
 		writeError(w, r, http.StatusInternalServerError, CodeProvisionFailed, err.Error())
 		return
 	}
-	pending, err := loadPendingNodes(stateDir, now)
+	pending, err := loadPendingNodes(state.dir, now)
 	if err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 		return
 	}
 	pruneJoinedPending(pending, clients)
-	if err := savePendingNodes(stateDir, pending, now); err != nil {
+	if err := savePendingNodes(state.dir, pending, now); err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 		return
 	}
@@ -147,15 +156,27 @@ func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userNam
 
 	pendingKey := strings.ToLower(nodeName)
 	pending[pendingKey] = now.Add(pendingNodeTTL)
-	if err := savePendingNodes(stateDir, pending, now); err != nil {
+	if err := savePendingNodes(state.dir, pending, now); err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 		return
 	}
 
 	authKey, err := mintDeviceKey(userID)
 	if err != nil {
-		rollbackPendingNode(stateDir, pending, pendingKey)
+		rollbackPendingNode(state.dir, pending, pendingKey)
 		writeError(w, r, http.StatusInternalServerError, CodeProvisionFailed, err.Error())
+		return
+	}
+
+	caPem, err := state.readChaaviCAPem()
+	if err != nil {
+		rollbackPendingNode(state.dir, pending, pendingKey)
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+		return
+	}
+	if caPem == "" {
+		rollbackPendingNode(state.dir, pending, pendingKey)
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, "mesh CA not generated")
 		return
 	}
 
@@ -163,9 +184,10 @@ func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userNam
 		ControlURL: controlURL,
 		AuthKey:    authKey,
 		NodeName:   nodeName,
+		CaPem:      caPem,
 	})
 	if err != nil {
-		rollbackPendingNode(stateDir, pending, pendingKey)
+		rollbackPendingNode(state.dir, pending, pendingKey)
 		writeError(w, r, http.StatusInternalServerError, CodeProvisionFailed, err.Error())
 		return
 	}
@@ -173,6 +195,22 @@ func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userNam
 	writeJSON(w, http.StatusOK, provisionResponse{
 		Bundle: base64.StdEncoding.EncodeToString(payload),
 	})
+}
+
+// handleMeshCA serves the mesh CA PEM for Hath trust install (and re-join without re-provision).
+func handleMeshCA(w http.ResponseWriter, r *http.Request, state stateConfig) {
+	pem, err := state.readChaaviCAPem()
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+		return
+	}
+	if pem == "" {
+		writeError(w, r, http.StatusNotFound, CodeNotFound, "mesh CA not generated")
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-pem-file")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, pem)
 }
 
 type headscaleUser struct {

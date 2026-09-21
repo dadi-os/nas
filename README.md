@@ -250,7 +250,7 @@ On the appliance, `/usr/bin/dadi` is a Nas-built Go CLI that talks to Dimaag’s
 | Development | Docker Compose on a Mac (headless) | `docker-compose.yml` |
 | Production | bootc host systemd + podman modules | units + quadlets under `/etc/containers/systemd/` |
 
-Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under test is browser Hath. Chaavi is `http://chaavi.dadi`: Caddy sends `/v1*` and `/health` to the adapter; everything else (Bitwarden clients: `/api`, `/identity`, …) goes to Vaultwarden. Nas restart names are `chaavi` and `chaavi-vault` (Dimaag’s `restart-module` tool is updated in that repo).
+Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under test is browser Hath. Chaavi is `http://chaavi.dadi` for `/v1*` + `/health` (adapter) and `https://chaavi.dadi` for the Bitwarden web vault / extension (mesh CA under `$DADI_STATE_DIR/caddy/tls/`; Hath installs it on join). Nas restart names are `chaavi` and `chaavi-vault` (Dimaag’s `restart-module` tool is updated in that repo).
 
 ### First install
 

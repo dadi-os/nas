@@ -60,6 +60,7 @@ RUN dnf -y install \
     ImageMagick \
     wl-clipboard \
     nftables \
+    openssl \
     miniupnpc \
     tpm2-tools \
     tpm2-tss \

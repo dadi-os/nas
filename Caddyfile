@@ -53,7 +53,22 @@ http://ghar.dadi {
 	}
 }
 
+# API stays on HTTP for meshproxy / browser Hath. Vault UI is HTTPS.
 http://chaavi.dadi {
+	import cors_hath
+	handle /v1* {
+		reverse_proxy chaavi:8080
+	}
+	handle /health {
+		reverse_proxy chaavi:8080
+	}
+	handle {
+		redir https://chaavi.dadi{uri} permanent
+	}
+}
+
+https://chaavi.dadi {
+	tls /var/lib/dadi/caddy/tls/chaavi.crt /var/lib/dadi/caddy/tls/chaavi.key
 	import cors_hath
 	handle /v1* {
 		reverse_proxy chaavi:8080
