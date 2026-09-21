@@ -77,6 +77,17 @@ func TestPendingNodesRoundTrip(t *testing.T) {
 		t.Fatal("expired name should be dropped on load")
 	}
 
+	if err := os.WriteFile(filepath.Join(dir, pendingNodesFile), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	empty, err := loadPendingNodes(dir, now)
+	if err != nil {
+		t.Fatalf("empty file: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("empty file should be empty map: %+v", empty)
+	}
+
 	if err := os.WriteFile(filepath.Join(dir, pendingNodesFile), []byte("{"), 0600); err != nil {
 		t.Fatal(err)
 	}

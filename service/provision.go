@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -114,6 +115,7 @@ func withPendingClients(clients []meshClient, pending map[string]time.Time, now 
 }
 
 // loadPendingNodes reads pending-nodes.json, dropping expired reservations.
+// A missing or empty file is an empty map. Truncated or corrupt JSON still errors.
 func loadPendingNodes(dir string, now time.Time) (map[string]time.Time, error) {
 	path := filepath.Join(dir, pendingNodesFile)
 	raw, err := os.ReadFile(path)
@@ -122,6 +124,9 @@ func loadPendingNodes(dir string, now time.Time) (map[string]time.Time, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read pending nodes: %w", err)
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return map[string]time.Time{}, nil
 	}
 	var encoded map[string]string
 	if err := json.Unmarshal(raw, &encoded); err != nil {
@@ -141,6 +146,7 @@ func loadPendingNodes(dir string, now time.Time) (map[string]time.Time, error) {
 }
 
 // savePendingNodes writes unexpired pending names as RFC3339 timestamps (mode 0600).
+// Uses a temp file + rename so a crash cannot leave a truncated pending-nodes.json.
 func savePendingNodes(dir string, pending map[string]time.Time, now time.Time) error {
 	encoded := map[string]string{}
 	for name, until := range pending {
@@ -154,7 +160,24 @@ func savePendingNodes(dir string, pending map[string]time.Time, now time.Time) e
 		return fmt.Errorf("encode pending nodes: %w", err)
 	}
 	path := filepath.Join(dir, pendingNodesFile)
-	if err := os.WriteFile(path, raw, 0600); err != nil {
+	tmp, err := os.CreateTemp(dir, pendingNodesFile+".tmp.*")
+	if err != nil {
+		return fmt.Errorf("create pending nodes temp: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod pending nodes temp: %w", err)
+	}
+	if _, err := tmp.Write(raw); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write pending nodes temp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close pending nodes temp: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("write pending nodes: %w", err)
 	}
 	return nil
