@@ -56,6 +56,10 @@ type browserInfo struct {
 	Healthy bool   `json:"healthy"`
 }
 
+type createBrowserRequest struct {
+	ID *int `json:"id"`
+}
+
 type createBrowserResponse struct {
 	ID      int    `json:"id"`
 	Display string `json:"display"`
@@ -172,14 +176,52 @@ func portFree(port int) bool {
 	return true
 }
 
-func (b *browserHost) nextID() (int, error) {
-	for n := browserIDMin; n < 10000; n++ {
-		if _, err := os.Stat(xSocketPath(n)); err == nil {
+// displayFree reports whether id's X socket is absent and its CDP port can be bound.
+func (b *browserHost) displayFree(id int) (bool, error) {
+	if _, err := os.Stat(xSocketPath(id)); err == nil {
+		return false, nil
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+	return portFree(cdpPort(id)), nil
+}
+
+// profileFresh reports whether the profile directory for id has no Chromium user data.
+// A missing directory is fresh. Singleton lock files left by a crash are not user data.
+func (b *browserHost) profileFresh(id int) (bool, error) {
+	entries, err := os.ReadDir(b.profileDir(id))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	for _, entry := range entries {
+		switch entry.Name() {
+		case "SingletonLock", "SingletonCookie", "SingletonSocket":
 			continue
-		} else if !os.IsNotExist(err) {
+		default:
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// nextFreshID returns the lowest id >= 10 whose display is down and whose profile has no Chromium data.
+func (b *browserHost) nextFreshID() (int, error) {
+	for n := browserIDMin; n < 10000; n++ {
+		free, err := b.displayFree(n)
+		if err != nil {
 			return 0, err
 		}
-		if !portFree(cdpPort(n)) {
+		if !free {
+			continue
+		}
+		fresh, err := b.profileFresh(n)
+		if err != nil {
+			return 0, err
+		}
+		if !fresh {
 			continue
 		}
 		return n, nil
@@ -412,10 +454,38 @@ func (b *browserHost) handleCreate(w http.ResponseWriter, r *http.Request) {
 	b.createMu.Lock()
 	defer b.createMu.Unlock()
 
-	id, err := b.nextID()
-	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-		return
+	var req createBrowserRequest
+	if r.Body != nil {
+		dec := json.NewDecoder(r.Body)
+		if err := dec.Decode(&req); err != nil && err != io.EOF {
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "invalid json body")
+			return
+		}
+	}
+
+	var id int
+	if req.ID != nil {
+		id = *req.ID
+		if id < browserIDMin {
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "id must be >= 10")
+			return
+		}
+		free, err := b.displayFree(id)
+		if err != nil {
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+			return
+		}
+		if !free {
+			writeError(w, r, http.StatusConflict, CodeConflict, "browser id is already running")
+			return
+		}
+	} else {
+		var err error
+		id, err = b.nextFreshID()
+		if err != nil {
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+			return
+		}
 	}
 	if err := b.ensureProfile(id); err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())

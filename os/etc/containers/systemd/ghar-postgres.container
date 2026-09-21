@@ -17,10 +17,14 @@ HealthInterval=2s
 HealthTimeout=5s
 HealthRetries=20
 Notify=healthy
+# PostgreSQL 18 crash-recovers when an untracked child dies. pg_isready runs in
+# this PID namespace and gets reparented to PID 1; init reaps it instead.
+RunInit=true
 
 [Service]
 Restart=always
-TimeoutStartSec=180
+TimeoutStartSec=300
+TimeoutStopSec=180
 
 [Install]
 WantedBy=multi-user.target

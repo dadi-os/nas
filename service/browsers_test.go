@@ -168,14 +168,24 @@ func TestBrowsersIDReuseAndProfile(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	code, body = doJSON(t, mux, http.MethodPost, "/browsers", nil)
+	code, body = doJSON(t, mux, http.MethodPost, "/browsers", map[string]any{})
 	if code != http.StatusOK {
-		t.Fatalf("recreate %d %s", code, body)
+		t.Fatalf("fresh %d %s", code, body)
+	}
+	var fresh createBrowserResponse
+	_ = json.Unmarshal(body, &fresh)
+	if fresh.ID == 10 || fresh.ID == 11 {
+		t.Fatalf("fresh id reused occupied profile %d", fresh.ID)
+	}
+
+	code, body = doJSON(t, mux, http.MethodPost, "/browsers", map[string]any{"id": 10})
+	if code != http.StatusOK {
+		t.Fatalf("respawn %d %s", code, body)
 	}
 	var b3 createBrowserResponse
 	_ = json.Unmarshal(body, &b3)
 	if b3.ID != 10 {
-		t.Fatalf("want reuse 10 got %d", b3.ID)
+		t.Fatalf("want respawn 10 got %d", b3.ID)
 	}
 	got, err := os.ReadFile(marker)
 	if err != nil {
@@ -183,6 +193,78 @@ func TestBrowsersIDReuseAndProfile(t *testing.T) {
 	}
 	if string(got) != "keep" {
 		t.Fatalf("profile marker %q", got)
+	}
+
+	code, body = doJSON(t, mux, http.MethodPost, "/browsers", map[string]any{"id": 11})
+	if code != http.StatusConflict {
+		t.Fatalf("running id status %d %s", code, body)
+	}
+	var conflict errorResponse
+	if err := json.Unmarshal(body, &conflict); err != nil {
+		t.Fatal(err)
+	}
+	if conflict.Error.Type != CodeConflict {
+		t.Fatalf("conflict type %s", conflict.Error.Type)
+	}
+
+	code, body = doJSON(t, mux, http.MethodPost, "/browsers", map[string]any{"id": 3})
+	if code != http.StatusBadRequest {
+		t.Fatalf("low id status %d %s", code, body)
+	}
+}
+
+func TestBrowserNextFreshIDSkipsProfile(t *testing.T) {
+	dir := t.TempDir()
+	state := stateConfig{dir: dir, runtime: "compose"}
+	host, err := newHostRuntime(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bh := newBrowserHost(host)
+	free10, err := bh.displayFree(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	free11, err := bh.displayFree(11)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !free10 || !free11 {
+		t.Skip("display 10 or 11 is in use")
+	}
+
+	id, err := bh.nextFreshID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != 10 {
+		t.Fatalf("empty state want 10 got %d", id)
+	}
+
+	profile := bh.profileDir(10)
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile, "SingletonLock"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id, err = bh.nextFreshID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != 10 {
+		t.Fatalf("singleton lock want 10 got %d", id)
+	}
+
+	if err := os.WriteFile(filepath.Join(profile, "Local State"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id, err = bh.nextFreshID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != 11 {
+		t.Fatalf("occupied profile want 11 got %d", id)
 	}
 }
 

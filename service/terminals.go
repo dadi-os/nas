@@ -129,6 +129,7 @@ func (t *terminalHost) nextSessionID() (string, error) {
 }
 
 type createTerminalRequest struct {
+	ID  string `json:"id"`
 	Cwd string `json:"cwd"`
 }
 
@@ -162,10 +163,23 @@ func (t *terminalHost) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "cwd must be an existing directory")
 		return
 	}
-	id, err := t.nextSessionID()
-	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-		return
+	id := strings.TrimSpace(req.ID)
+	if id != "" {
+		if !sessionNameRe.MatchString(id) {
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "id must be t<n> for a positive integer n")
+			return
+		}
+		if t.hasSession(id) {
+			writeError(w, r, http.StatusConflict, CodeConflict, "terminal id is already running")
+			return
+		}
+	} else {
+		var err error
+		id, err = t.nextSessionID()
+		if err != nil {
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+			return
+		}
 	}
 	if _, err := t.tmuxOutput("new-session", "-d", "-s", id, "-c", cwd); err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())

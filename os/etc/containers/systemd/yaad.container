@@ -1,6 +1,7 @@
 [Unit]
 After=dadi-seed.service yaad-postgres.service yaad-migrate.service
-Requires=dadi-seed.service yaad-postgres.service
+Requires=dadi-seed.service
+BindsTo=yaad-postgres.service
 Wants=yaad-migrate.service
 
 [Container]
@@ -24,3 +25,4 @@ Restart=always
 
 [Install]
 WantedBy=multi-user.target
+WantedBy=yaad-postgres.service

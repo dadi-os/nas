@@ -125,6 +125,51 @@ func TestTerminalsCreateListKillReuse(t *testing.T) {
 	}
 }
 
+func TestTerminalsCreateByID(t *testing.T) {
+	_, mux := testTerminalEnv(t)
+
+	code, body := doJSON(t, mux, http.MethodPost, "/terminals", map[string]any{"id": "t3"})
+	if code != http.StatusOK {
+		t.Fatalf("create t3 %d %s", code, body)
+	}
+	var created createTerminalResponse
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.ID != "t3" {
+		t.Fatalf("want t3 got %s", created.ID)
+	}
+
+	code, body = doJSON(t, mux, http.MethodPost, "/terminals", map[string]any{})
+	if code != http.StatusOK {
+		t.Fatalf("fresh %d %s", code, body)
+	}
+	var fresh createTerminalResponse
+	if err := json.Unmarshal(body, &fresh); err != nil {
+		t.Fatal(err)
+	}
+	if fresh.ID != "t1" {
+		t.Fatalf("want lowest vacant t1 got %s", fresh.ID)
+	}
+
+	code, body = doJSON(t, mux, http.MethodPost, "/terminals", map[string]any{"id": "t3"})
+	if code != http.StatusConflict {
+		t.Fatalf("running id status %d %s", code, body)
+	}
+	var conflict errorResponse
+	if err := json.Unmarshal(body, &conflict); err != nil {
+		t.Fatal(err)
+	}
+	if conflict.Error.Type != CodeConflict {
+		t.Fatalf("conflict type %s", conflict.Error.Type)
+	}
+
+	code, body = doJSON(t, mux, http.MethodPost, "/terminals", map[string]any{"id": "term"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("bad id status %d %s", code, body)
+	}
+}
+
 func TestTerminalsExecExitAndOutput(t *testing.T) {
 	_, mux := testTerminalEnv(t)
 	code, body := doJSON(t, mux, http.MethodPost, "/terminals", map[string]any{})

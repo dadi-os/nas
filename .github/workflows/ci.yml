@@ -44,9 +44,27 @@ jobs:
           grep -q '^Notify=healthy$' os/etc/containers/systemd/ghar-postgres.container
           grep -q '^Notify=healthy$' os/etc/containers/systemd/yaad-postgres.container
           grep -q '^Notify=healthy$' os/etc/containers/systemd/dimaag-postgres.container
-          grep -q '^TimeoutStartSec=180$' os/etc/containers/systemd/ghar-postgres.container
-          grep -q '^TimeoutStartSec=180$' os/etc/containers/systemd/yaad-postgres.container
-          grep -q '^TimeoutStartSec=180$' os/etc/containers/systemd/dimaag-postgres.container
+          grep -q '^RunInit=true$' os/etc/containers/systemd/ghar-postgres.container
+          grep -q '^RunInit=true$' os/etc/containers/systemd/yaad-postgres.container
+          grep -q '^RunInit=true$' os/etc/containers/systemd/dimaag-postgres.container
+          grep -q '^TimeoutStartSec=300$' os/etc/containers/systemd/ghar-postgres.container
+          grep -q '^TimeoutStartSec=300$' os/etc/containers/systemd/yaad-postgres.container
+          grep -q '^TimeoutStartSec=300$' os/etc/containers/systemd/dimaag-postgres.container
+          grep -q '^TimeoutStopSec=180$' os/etc/containers/systemd/ghar-postgres.container
+          grep -q '^TimeoutStopSec=180$' os/etc/containers/systemd/yaad-postgres.container
+          grep -q '^TimeoutStopSec=180$' os/etc/containers/systemd/dimaag-postgres.container
+          grep -q '^BindsTo=yaad-postgres.service$' os/etc/containers/systemd/yaad.container
+          grep -q '^BindsTo=yaad-postgres.service$' os/etc/containers/systemd/yaad-migrate.container
+          grep -q '^WantedBy=yaad-postgres.service$' os/etc/containers/systemd/yaad.container
+          grep -q '^WantedBy=yaad-postgres.service$' os/etc/containers/systemd/yaad-migrate.container
+          grep -q '^BindsTo=dimaag-postgres.service$' os/etc/containers/systemd/dimaag.container
+          grep -q '^BindsTo=dimaag-postgres.service$' os/etc/containers/systemd/dimaag-migrate.container
+          grep -q '^WantedBy=dimaag-postgres.service$' os/etc/containers/systemd/dimaag.container
+          grep -q '^WantedBy=dimaag-postgres.service$' os/etc/containers/systemd/dimaag-migrate.container
+          grep -q '^BindsTo=ghar-postgres.service$' os/etc/containers/systemd/ghar.container
+          grep -q '^BindsTo=ghar-postgres.service$' os/etc/containers/systemd/ghar-migrate.container
+          grep -q '^WantedBy=ghar-postgres.service$' os/etc/containers/systemd/ghar.container
+          grep -q '^WantedBy=ghar-postgres.service$' os/etc/containers/systemd/ghar-migrate.container
           grep -q 'dadi-apply-desktop.service' os/Containerfile
           grep -q 'seq 1 120' os/usr/libexec/dadi/apply-desktop.sh
           grep -q 'busctl --user' os/usr/libexec/dadi/apply-desktop.sh

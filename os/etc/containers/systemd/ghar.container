@@ -1,6 +1,7 @@
 [Unit]
 After=dadi-seed.service ghar-postgres.service ghar-migrate.service
-Requires=dadi-seed.service ghar-postgres.service
+Requires=dadi-seed.service
+BindsTo=ghar-postgres.service
 Wants=ghar-migrate.service
 
 [Container]
@@ -27,3 +28,4 @@ Restart=always
 
 [Install]
 WantedBy=multi-user.target
+WantedBy=ghar-postgres.service

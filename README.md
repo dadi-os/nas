@@ -141,11 +141,11 @@ There is **no project sandbox folder**. Agents may read any absolute path. **Wri
 
 ### Terminals
 
-Session names are `t<n>` for positive integers. `POST /terminals` picks the lowest `n` absent from `tmux ls`. History limit is `50000`.
+Session names are `t<n>` for positive integers. `POST /terminals` with no `id` picks the lowest `n` absent from `tmux ls`, which is a new shell. Pass `id` (`t<n>`) to create that session when it is not already running. A closed session keeps no scrollback, so a named create is a new shell under that name. History limit is `50000`.
 
 | Method | Path | Body / query | Success | Errors |
 | --- | --- | --- | --- | --- |
-| `POST` | `/terminals` | `{ "cwd"?: string }` (default state dir) | `{ id, cwd }` | `invalid_request` |
+| `POST` | `/terminals` | `{ "id"?: string, "cwd"?: string }` (`id` is `t<n>`; `cwd` defaults to state dir) | `{ id, cwd }` | `invalid_request`, `conflict` (409, id already running) |
 | `GET` | `/terminals` | — | `[{ id, cwd, created_at, busy }]` | — |
 | `POST` | `/terminals/{id}/exec` | `{ "command": string, "timeout_seconds"?: number (default 120, max 3600), "max_bytes"?: number (default 32768) }` | `{ exit_code, output, truncated, timed_out }` | `not_found`, `busy` (409), `invalid_request` |
 | `GET` | `/terminals/{id}/capture` | `?lines=N` (default 200) | `{ output }` | `not_found`, `invalid_request` |
@@ -170,7 +170,7 @@ Paths must be absolute. Reads are unrestricted (aside from `binary_file`). Write
 
 Each browser is a headed Chromium on its own Xvfb display (not headless, not a VM). Nas only spawns, lists, kills, proxies CDP, and screenshots the virtual monitor. Callers drive pages over CDP. Running processes are the registry — nothing is stored in Nas.
 
-**Derivation from integer id `n` (lowest free `n >= 10`; 1–9 reserved for Plasma):**
+**Derivation from integer id `n` (`n >= 10`; 1–9 reserved for Plasma):**
 
 | Field | Value |
 | --- | --- |
@@ -178,11 +178,11 @@ Each browser is a headed Chromium on its own Xvfb display (not headless, not a V
 | CDP port | `9300 + n` (loopback only) |
 | Profile dir | `$DADI_STATE_DIR/browsers/<n>` — created on first spawn, **never deleted by Nas** (cookies/logins survive kill + reboot when the id is reused) |
 
-`create` picks the lowest `n >= 10` whose `/tmp/.X11-unix/X<n>` is absent and whose CDP port is free. Spawns Xvfb as root (so it can bind `/tmp/.X11-unix`), then Chromium as `dadi` on the appliance (`DADI_RUNTIME=podman`) — Chromium refuses to run as root without `--no-sandbox`. Compose/dev keeps the current process user and adds `--no-sandbox` / `--disable-dev-shm-usage` because those hosts disable user namespaces. Window size 1920×1080; profile under `--user-data-dir` (and `HOME`). Both processes use `setsid` so a Nas restart does not take them down. Stderr is logged under the `nas` service with `browser=<n>`.
+`POST /browsers` takes `{ "id"?: number }`. With no `id`, Nas picks the lowest `n >= 10` whose `/tmp/.X11-unix/X<n>` is absent, whose CDP port is free, and whose profile directory is missing or holds only Chromium singleton locks — a fresh login. With `id`, Nas starts that display when it is down and opens the existing profile, so cookies and logins from the last time that id ran are still there. `conflict` if that id is already running; `invalid_request` if `id < 10`. Spawns Xvfb as root (so it can bind `/tmp/.X11-unix`), then Chromium as `dadi` on the appliance (`DADI_RUNTIME=podman`) — Chromium refuses to run as root without `--no-sandbox`. Compose/dev keeps the current process user and adds `--no-sandbox` / `--disable-dev-shm-usage` because those hosts disable user namespaces. Window size 1920×1080; profile under `--user-data-dir` (and `HOME`). Both processes use `setsid` so a Nas restart does not take them down. Stderr is logged under the `nas` service with `browser=<n>`.
 
 | Method | Path | Success | Errors |
 | --- | --- | --- | --- |
-| `POST` | `/browsers` | `{ id, display, cdp_url }` | `internal_error` (Xvfb/Chromium startup; message includes stderr) |
+| `POST` | `/browsers` | `{ id, display, cdp_url }` | `invalid_request`, `conflict` (409, id already running), `internal_error` (Xvfb/Chromium startup; message includes stderr) |
 | `GET` | `/browsers` | `[{ id, display, cdp_url, healthy }]` — `healthy` false if Xvfb is up but CDP is not | — |
 | `DELETE` | `/browsers/{id}` | 204 (SIGTERM process groups, wait ≤5s, SIGKILL) | `not_found` if neither process exists |
 | `GET` | `/browsers/{id}/json/version` | Chromium `/json/version` with `ws://127.0.0.1:<port>/…` rewritten to `ws://<Host>/browsers/<id>/…` | `not_found`, `upstream_unreachable` |
@@ -235,6 +235,8 @@ On the appliance, `/usr/bin/dadi` is a Nas-built Go CLI that talks to Dimaag’s
 | `loki` / `alloy` | host systemd | logs |
 | `sddm` + Plasma | host graphical | `sddm-wayland-plasma`; autologin `dadi`; no locker; bone glass desktop |
 | `dwar` / `yaad` / `dimaag` / `ghar` / `chaavi` (+ postgres / migrate / `chaavi-vault`) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8086` (`ghar` uses `Network=host`, binds loopback; Chaavi adapter `8085`, Vaultwarden `8086`) |
+
+Postgres quadlets set `RunInit=true` so the `pg_isready` health check is reaped by init. PostgreSQL 18 is otherwise PID 1 and crash-recovers when that child dies. `yaad`, `dimaag`, and `ghar`, and their migrate units, `BindsTo` their postgres unit and are `WantedBy` it, so a postgres restart stops them and starts them again. Those postgres units allow 300s to start and 180s to stop. Dev Compose sets `init: true` on the same three databases.
 
 ### Development (Mac Compose, headless)
 

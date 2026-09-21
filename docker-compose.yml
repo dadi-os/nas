@@ -64,6 +64,7 @@ services:
 
   yaad-postgres:
     image: docker.io/pgvector/pgvector:pg18
+    init: true
     environment:
       POSTGRES_USER: yaad
       POSTGRES_DB: yaad
@@ -123,6 +124,7 @@ services:
 
   dimaag-postgres:
     image: docker.io/library/postgres:18
+    init: true
     environment:
       POSTGRES_USER: dimaag
       POSTGRES_DB: dimaag
@@ -182,6 +184,7 @@ services:
 
   ghar-postgres:
     image: docker.io/library/postgres:18
+    init: true
     environment:
       POSTGRES_USER: ghar
       POSTGRES_DB: ghar

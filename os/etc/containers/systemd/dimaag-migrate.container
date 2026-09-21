@@ -1,6 +1,7 @@
 [Unit]
 After=dadi-seed.service dimaag-postgres.service
-Requires=dadi-seed.service dimaag-postgres.service
+Requires=dadi-seed.service
+BindsTo=dimaag-postgres.service
 
 [Container]
 Image=ghcr.io/dadi-os/dimaag:latest
@@ -16,3 +17,4 @@ RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
+WantedBy=dimaag-postgres.service

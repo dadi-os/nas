@@ -1,6 +1,7 @@
 [Unit]
 After=dadi-seed.service yaad-postgres.service
-Requires=dadi-seed.service yaad-postgres.service
+Requires=dadi-seed.service
+BindsTo=yaad-postgres.service
 
 [Container]
 Image=ghcr.io/dadi-os/yaad:latest
@@ -16,3 +17,4 @@ RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
+WantedBy=yaad-postgres.service

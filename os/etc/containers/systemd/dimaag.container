@@ -1,6 +1,7 @@
 [Unit]
 After=dadi-seed.service dimaag-postgres.service dimaag-migrate.service
-Requires=dadi-seed.service dimaag-postgres.service
+Requires=dadi-seed.service
+BindsTo=dimaag-postgres.service
 Wants=dimaag-migrate.service
 
 [Container]
@@ -26,3 +27,4 @@ Restart=always
 
 [Install]
 WantedBy=multi-user.target
+WantedBy=dimaag-postgres.service
