@@ -350,13 +350,14 @@ func parseHeadscaleNodes(out []byte) ([]headscaleNode, error) {
 }
 
 type statusResponse struct {
-	UptimeSeconds int64           `json:"uptime_seconds"`
-	Services      []serviceStatus `json:"services"`
-	Disk          diskStatus      `json:"disk"`
-	CPU           *cpuStatus      `json:"cpu,omitempty"`
-	Memory        *memoryStatus   `json:"memory,omitempty"`
-	GPU           []gpuStatus     `json:"gpu,omitempty"`
-	Errors        []string        `json:"errors"`
+	UptimeSeconds int64              `json:"uptime_seconds"`
+	Services      []serviceStatus    `json:"services"`
+	Disk          diskStatus         `json:"disk"`
+	Disks         []diskVolumeStatus `json:"disks"`
+	CPU           *cpuStatus         `json:"cpu,omitempty"`
+	Memory        *memoryStatus      `json:"memory,omitempty"`
+	GPU           []gpuStatus        `json:"gpu,omitempty"`
+	Errors        []string           `json:"errors"`
 }
 
 type serviceStatus struct {
@@ -442,12 +443,30 @@ func handleStatus(w http.ResponseWriter, _ *http.Request, started time.Time, run
 	if diskErr != nil {
 		errs = append(errs, diskErr.Error())
 	}
+	disks, disksErr := readDisks()
+	if disksErr != nil {
+		errs = append(errs, disksErr.Error())
+		disks = []diskVolumeStatus{}
+	}
+	if disks == nil {
+		disks = []diskVolumeStatus{}
+	}
+	if len(disks) == 0 && disk.TotalBytes > 0 {
+		disks = []diskVolumeStatus{{
+			Name:        "state",
+			Mount:       stateDir,
+			FreeBytes:   disk.FreeBytes,
+			TotalBytes:  disk.TotalBytes,
+			UsedPercent: disk.UsedPercent,
+		}}
+	}
 
 	m := currentMetrics()
 	writeJSON(w, http.StatusOK, statusResponse{
 		UptimeSeconds: int64(time.Since(started).Seconds()),
 		Services:      services,
 		Disk:          disk,
+		Disks:         disks,
 		CPU:           m.CPU,
 		Memory:        m.Memory,
 		GPU:           m.GPU,

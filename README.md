@@ -258,11 +258,11 @@ Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under 
 
 ### First install
 
-CD builds an unattended Anaconda ISO whenever `os/**` or `service/**` changes and publishes it on the `dadiOS-latest` GitHub Release (also `dadiOS-<sha>`).
+CD builds an Anaconda ISO whenever `os/**` or `service/**` changes and publishes it on the `dadiOS-latest` GitHub Release (also `dadiOS-<sha>`). Install is automated except for an interactive disk selection on the console.
 
 1. Set repo secret `DADIOS_LUKS_PASSPHRASE` (no quotes, `#`, or backslashes).
 2. Download all `dadiOS-amd64.iso.*` parts from the `dadiOS-latest` release and reassemble: `cat dadiOS-amd64.iso.* > dadiOS-amd64.iso`.
-3. Flash to USB; boot the target machine. **The first disk is wiped with no confirmation.**
+3. Flash to USB; boot the target machine with a keyboard attached. The installer lists fixed disks (NVMe first), asks which one to use, and requires typing `YES` before wiping. **Only that disk is reformatted**; other disks are left alone.
 4. Kickstart writes `/var/lib/dadi/luks-enroll.key` (no trailing newline) and best-effort TPM-enrolls during `%post`. The volume key is a kernel logon key after unlock, so `systemd-cryptenroll` cannot read it from the keyring — that file is the enroll credential. First boot of the installed OS reseals to PCR 7 (so the seal matches disk boot, not the installer USB) and shreds the key. If `%post` enroll succeeded against PCR 7, that boot unlocks from the TPM; otherwise type the ISO passphrase once. Later boots unlock without it unless Secure Boot policy changes (recovery is still slot 0).
 5. SDDM (`sddm-wayland-plasma`, not Plasma Login Manager) autologins as `dadi` into Plasma. There is no lock screen; lid close and idle do not sleep or show a greeter.
 6. Add an SSH user in Preferences → Users (`POST /access/users`). SSH as that user with the password you set. `dadi` is not allowed to SSH.
@@ -318,7 +318,7 @@ Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale i
 
 `POST /provision` reserves `node_name` for about an hour in `$DADI_STATE_DIR/pending-nodes.json` so two setup codes cannot claim the same hostname before the node appears in Headscale. `GET /clients` merges those reservations (as `pending: true`) and drops them once Headscale lists the same name.
 
-`GET /status` returns `"errors": []` under Docker — searchable errors live at `GET /logs`.
+`GET /status` returns host meters (`cpu`, `memory`, `gpu`, `disk` for the state volume, `disks` for each physical drive with a mounted filesystem), module health, and `"errors": []` under Docker — searchable errors live at `GET /logs`.
 
 ## One-time host setup (dev Mac)
 

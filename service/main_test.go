@@ -311,3 +311,57 @@ func TestDiskStatusFromStatfs(t *testing.T) {
 		t.Fatalf("avail>total: %+v", over)
 	}
 }
+
+func TestCollectMountsAndSkip(t *testing.T) {
+	tree := lsblkDevice{
+		Name: "nvme0n1",
+		Type: "disk",
+		Children: []lsblkDevice{
+			{Name: "nvme0n1p1", Mountpoints: []any{"/boot/efi"}},
+			{Name: "nvme0n1p2", Mountpoints: []any{"/boot"}},
+			{
+				Name: "nvme0n1p3",
+				Children: []lsblkDevice{
+					{Name: "luks-root", Mountpoints: []any{"/var", "/sysroot", nil}},
+				},
+			},
+		},
+	}
+	mounts := collectMounts(tree)
+	if len(mounts) != 4 {
+		t.Fatalf("mounts: %v", mounts)
+	}
+	kept := 0
+	for _, m := range mounts {
+		if !skipMount(m) {
+			kept++
+			if m != "/var" && m != "/sysroot" {
+				t.Fatalf("unexpected kept mount %q", m)
+			}
+		}
+	}
+	if kept != 2 {
+		t.Fatalf("kept=%d mounts=%v", kept, mounts)
+	}
+}
+
+func TestDiskSortKey(t *testing.T) {
+	if diskSortKey(diskVolumeStatus{Name: "nvme0n1", Transport: "nvme"}) >= diskSortKey(diskVolumeStatus{Name: "sda", Transport: "sata"}) {
+		t.Fatal("nvme should sort before sata")
+	}
+}
+
+func TestDiskLabel(t *testing.T) {
+	if got := diskLabel(diskVolumeStatus{Name: "sda", Model: "ST1000"}); got != "ST1000" {
+		t.Fatalf("model: %q", got)
+	}
+	if got := diskLabel(diskVolumeStatus{Name: "sda", Transport: "sata"}); got != "sda (sata)" {
+		t.Fatalf("tran: %q", got)
+	}
+}
+
+func TestMountPref(t *testing.T) {
+	if mountPref("/") >= mountPref("/sysroot") || mountPref("/sysroot") >= mountPref("/var") {
+		t.Fatal("expected / < /sysroot < /var")
+	}
+}

@@ -174,9 +174,10 @@ jobs:
           tag_name: dadiOS-${{ github.sha }}
           name: dadiOS ${{ github.sha }}
           body: |
-            Unattended installer ISO for dadiOS (`nas`).
+            Installer ISO for dadiOS (`nas`).
 
-            Flashing this USB and booting it **wipes the first disk** with LUKS (passphrase from `DADIOS_LUKS_PASSPHRASE`).
+            Boot with a keyboard: the installer **asks which disk to wipe** (type `YES` to confirm). Other disks are left alone.
+            LUKS passphrase comes from `DADIOS_LUKS_PASSPHRASE`.
             OS image: `ghcr.io/${{ github.repository_owner }}/nas:${{ github.sha }}`
 
             The ISO is split for GitHub's 2 GiB asset limit. Reassemble, then flash:
@@ -194,9 +195,9 @@ jobs:
           tag_name: dadiOS-latest
           name: dadiOS latest
           body: |
-            Latest unattended dadiOS installer ISO (from `${{ github.sha }}`).
+            Latest dadiOS installer ISO (from `${{ github.sha }}`).
 
-            Flashing this USB and booting it **wipes the first disk**.
+            Boot with a keyboard: the installer **asks which disk to wipe** (type `YES` to confirm).
             OS image: `ghcr.io/${{ github.repository_owner }}/nas:${{ github.sha }}`
 
             The ISO is split for GitHub's 2 GiB asset limit. Reassemble, then flash:

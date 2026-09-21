@@ -88,6 +88,21 @@ PlasmoidItem {
             return Math.max(0, Math.min(100, Math.round(n)))
         }
 
+        function diskKind(d, multi) {
+            if (!multi)
+                return "disk"
+            const mount = String(d.mount || "")
+            if (mount === "/var/home" || mount === "/home")
+                return "home"
+            if (mount === "/var" || mount === "/" || mount === "/sysroot")
+                return "os"
+            const tran = String(d.transport || "").toLowerCase()
+            const name = String(d.name || "")
+            if (tran === "nvme" || name.indexOf("nvme") === 0)
+                return "nvme"
+            return name.slice(0, 8) || "disk"
+        }
+
         function meters() {
             const s = frame.statusPayload
             const rows = []
@@ -95,8 +110,26 @@ PlasmoidItem {
                 rows.push({ key: "cpu", label: "cpu", pct: pct(s.cpu.used_percent) })
             if (s.memory && s.memory.total_bytes > 0)
                 rows.push({ key: "ram", label: "ram", pct: pct(s.memory.used_percent) })
-            if (s.disk && s.disk.total_bytes > 0)
-                rows.push({ key: "disk", label: "disk", pct: pct(s.disk.used_percent) })
+            const volumes = Array.isArray(s.disks) && s.disks.length > 0
+                ? s.disks
+                : (s.disk && s.disk.total_bytes > 0 ? [s.disk] : [])
+            const multi = volumes.length > 1
+            for (let i = 0; i < volumes.length; i++) {
+                const d = volumes[i]
+                if (!d || !(d.total_bytes > 0))
+                    continue
+                const name = d.name || ("disk" + i)
+                let used = d.used_percent
+                if (used === undefined || used === null) {
+                    if (d.total_bytes > 0)
+                        used = (1 - (d.free_bytes || 0) / d.total_bytes) * 100
+                }
+                rows.push({
+                    key: "disk-" + name,
+                    label: diskKind(d, multi),
+                    pct: pct(used)
+                })
+            }
             return rows
         }
 

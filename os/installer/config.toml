@@ -3,16 +3,93 @@
 
 [customizations.installer.kickstart]
 contents = """
-text --non-interactive
+text
 lang en_US.UTF-8
 keyboard us
 timezone America/New_York
 network --bootproto=dhcp --device=link --activate --onboot=on
 rootpw --lock
 user --name=setup --password=$6$lECKZK9wyBsU1xGD$KtwcHJppZQYaQ.kna8f2g27QmJ.KmoAlaiZvAbsFC/GwWzApQSgThlxEHy56LSNL2pbQCHHqxsf9yMk8yNWVU. --iscrypted
-%pre
-disk=$(lsblk -dn -o NAME,TYPE,RM | awk '$2=="disk" && $3=="0" {print $1; exit}')
-echo "ignoredisk --only-use=$disk" > /tmp/disk-include.ks
+%pre --erroronfail --interpreter=/bin/bash
+set -euo pipefail
+# Interactive disk pick on the installer console (keyboard required).
+# lsblk -J avoids empty TRAN/MODEL shifting columns (unlike whitespace -o).
+exec < /dev/tty > /dev/tty 2>&1 || exec < /dev/console > /dev/console 2>&1
+
+tmp=$(mktemp)
+python3 - <<'PY' > \"$tmp\"
+import json, subprocess, sys
+raw = subprocess.check_output(
+    [\"lsblk\", \"-dn\", \"-J\", \"-o\", \"NAME,TYPE,RM,SIZE,TRAN,MODEL\"],
+    text=True,
+)
+devs = json.loads(raw).get(\"blockdevices\") or []
+rows = []
+for d in devs:
+    if d.get(\"type\") != \"disk\":
+        continue
+    if str(d.get(\"rm\", \"0\")) not in (\"0\", \"false\", \"False\"):
+        continue
+    name = (d.get(\"name\") or \"\").strip()
+    if not name:
+        continue
+    tran = (d.get(\"tran\") or \"\") or \"\"
+    model = (d.get(\"model\") or \"\") or \"\"
+    size = (d.get(\"size\") or \"\") or \"\"
+    sk = 0 if (\"nvme\" in name.lower() or \"nvme\" in tran.lower()) else 1
+    rows.append((sk, name, size, tran, model))
+rows.sort()
+for sk, name, size, tran, model in rows:
+    print(f\"{sk}\\t{name}\\t{size}\\t{tran}\\t{model}\")
+PY
+
+if [ ! -s \"$tmp\" ]; then
+  echo \"No fixed disks found.\" >&2
+  exit 1
+fi
+
+echo
+echo \"============================================================\"
+echo \" dadiOS installer — choose the disk to WIPE and install onto\"
+echo \"============================================================\"
+echo \" The selected disk will be fully reformatted (LUKS + LVM).\"
+echo \" Other disks are left alone.\"
+echo
+
+declare -a names=()
+i=1
+while IFS=$'\\t' read -r _sk name size tran model; do
+  names[$i]=$name
+  label=\"/dev/$name  $size\"
+  [ -n \"$model\" ] && label=\"$label  $model\"
+  [ -n \"$tran\" ] && label=\"$label  ($tran)\"
+  printf \"  %d) %s\\n\" \"$i\" \"$label\"
+  i=$((i + 1))
+done < \"$tmp\"
+rm -f \"$tmp\"
+echo
+
+while true; do
+  printf \"Disk number [1-%d]: \" \"$((i - 1))\"
+  read -r choice
+  if [[ \"$choice\" =~ ^[0-9]+$ ]] && [ -n \"${names[$choice]:-}\" ]; then
+    disk=\"${names[$choice]}\"
+    break
+  fi
+  echo \"Invalid selection.\"
+done
+
+echo
+echo \"About to WIPE /dev/$disk completely.\"
+printf \"Type YES to continue: \"
+read -r confirm
+if [ \"$confirm\" != \"YES\" ]; then
+  echo \"Aborted.\" >&2
+  exit 1
+fi
+
+echo \"ignoredisk --only-use=$disk\" > /tmp/disk-include.ks
+echo \"Selected /dev/$disk\"
 %end
 %include /tmp/disk-include.ks
 zerombr
