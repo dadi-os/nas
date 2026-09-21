@@ -24,7 +24,7 @@ PlasmoidItem {
         property var errors: []
         property bool statusReachable: false
 
-        readonly property var moduleOrder: ["dwar", "yaad", "dimaag", "ghar", "chaavi", "nas"]
+        readonly property var moduleOrder: ["dwar", "yaad", "dimaag", "ghar", "chaavi", "nas", "hath"]
 
         function erredNames() {
             const names = {}
@@ -46,7 +46,9 @@ PlasmoidItem {
             const seen = {}
             for (let i = 0; i < moduleOrder.length; i++) {
                 const name = moduleOrder[i]
-                const healthy = frame.statusReachable && byName[name] === true
+                if (name === "hath" && byName[name] === undefined)
+                    continue
+                const healthy = frame.statusReachable && (name === "nas" || byName[name] === true)
                 rows.push({ name: name, ok: healthy && !erred[name] })
                 seen[name] = true
             }
@@ -58,6 +60,33 @@ PlasmoidItem {
                 rows.push({ name: name, ok: healthy && !erred[name] })
             }
             return rows
+        }
+
+        function unhealthyCount() {
+            const rows = frame.modules()
+            let n = 0
+            for (let i = 0; i < rows.length; i++) {
+                if (!rows[i].ok)
+                    n += 1
+            }
+            return n
+        }
+
+        function updateChrome() {
+            if (!frame.statusReachable) {
+                frame.status = "nas unreachable"
+                frame.kicker = ""
+                return
+            }
+            frame.status = ""
+            const clients = frame.meshClients().length
+            const bad = frame.unhealthyCount()
+            const parts = []
+            if (clients > 0)
+                parts.push(clients + (clients === 1 ? " client" : " clients"))
+            if (bad > 0)
+                parts.push(bad + " unhealthy")
+            frame.kicker = parts.join(" · ")
         }
 
         function meshClients() {
@@ -110,6 +139,17 @@ PlasmoidItem {
                 rows.push({ key: "cpu", label: "cpu", pct: pct(s.cpu.used_percent) })
             if (s.memory && s.memory.total_bytes > 0)
                 rows.push({ key: "ram", label: "ram", pct: pct(s.memory.used_percent) })
+            const gpus = Array.isArray(s.gpu) ? s.gpu : []
+            for (let i = 0; i < gpus.length; i++) {
+                const g = gpus[i]
+                if (!g)
+                    continue
+                rows.push({
+                    key: "gpu-" + i,
+                    label: "gpu",
+                    pct: pct(g.used_percent)
+                })
+            }
             const volumes = Array.isArray(s.disks) && s.disks.length > 0
                 ? s.disks
                 : (s.disk && s.disk.total_bytes > 0 ? [s.disk] : [])
@@ -134,6 +174,15 @@ PlasmoidItem {
         }
 
         function refresh() {
+            let statusDone = false
+            let clientsDone = false
+            let logsDone = false
+
+            function finishPiece() {
+                if (statusDone && clientsDone && logsDone)
+                    frame.updateChrome()
+            }
+
             const st = new XMLHttpRequest()
             st.onreadystatechange = function () {
                 if (st.readyState !== XMLHttpRequest.DONE)
@@ -141,15 +190,17 @@ PlasmoidItem {
                 if (st.status !== 200) {
                     frame.statusReachable = false
                     frame.statusPayload = ({})
-                    return
+                } else {
+                    try {
+                        frame.statusPayload = JSON.parse(st.responseText)
+                        frame.statusReachable = true
+                    } catch (e) {
+                        frame.statusReachable = false
+                        frame.statusPayload = ({})
+                    }
                 }
-                try {
-                    frame.statusPayload = JSON.parse(st.responseText)
-                    frame.statusReachable = true
-                } catch (e) {
-                    frame.statusReachable = false
-                    frame.statusPayload = ({})
-                }
+                statusDone = true
+                finishPiece()
             }
             st.open("GET", Tokens.nasBase + "/status")
             st.send()
@@ -160,14 +211,16 @@ PlasmoidItem {
                     return
                 if (cl.status !== 200) {
                     frame.clients = []
-                    return
+                } else {
+                    try {
+                        const data = JSON.parse(cl.responseText)
+                        frame.clients = Array.isArray(data.clients) ? data.clients : []
+                    } catch (e) {
+                        frame.clients = []
+                    }
                 }
-                try {
-                    const data = JSON.parse(cl.responseText)
-                    frame.clients = Array.isArray(data.clients) ? data.clients : []
-                } catch (e) {
-                    frame.clients = []
-                }
+                clientsDone = true
+                finishPiece()
             }
             cl.open("GET", Tokens.nasBase + "/clients")
             cl.send()
@@ -180,14 +233,16 @@ PlasmoidItem {
                     return
                 if (lg.status !== 200) {
                     frame.errors = []
-                    return
+                } else {
+                    try {
+                        const data = JSON.parse(lg.responseText)
+                        frame.errors = Array.isArray(data.entries) ? data.entries : []
+                    } catch (e) {
+                        frame.errors = []
+                    }
                 }
-                try {
-                    const data = JSON.parse(lg.responseText)
-                    frame.errors = Array.isArray(data.entries) ? data.entries : []
-                } catch (e) {
-                    frame.errors = []
-                }
+                logsDone = true
+                finishPiece()
             }
             lg.open("GET", Tokens.nasBase + "/logs?level=error&limit=8&from="
                     + encodeURIComponent(from.toISOString())

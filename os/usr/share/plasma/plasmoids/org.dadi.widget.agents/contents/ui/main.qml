@@ -26,85 +26,85 @@ PlasmoidItem {
         property real contentMaxX: 0
         property real contentMaxY: 0
 
-        function leafCount(node) {
-            if (!node.children || node.children.length === 0)
-                return 1
-            let n = 0
-            for (let i = 0; i < node.children.length; i++)
-                n += leafCount(node.children[i])
-            return n
-        }
-
         function visualOf(agent) {
             if (!agent.active)
                 return "dormant"
             const lanes = agent.running || {}
-            if (lanes.reasoning || lanes.conversation)
-                return "running"
-            return "idle"
-        }
-
-        function captionOf(agent) {
-            if (!agent.active)
-                return "dormant"
-            const lanes = agent.running || {}
+            if (lanes.reasoning && lanes.conversation)
+                return "both"
             if (lanes.reasoning)
                 return "reasoning"
             if (lanes.conversation)
-                return "talking"
+                return "conversation"
             return "idle"
         }
 
-        function buildTree(agents) {
+        function captionOf(visual) {
+            if (visual === "dormant")
+                return "dormant"
+            if (visual === "reasoning")
+                return "reasoning"
+            if (visual === "conversation")
+                return "talking"
+            if (visual === "both")
+                return "both"
+            return "idle"
+        }
+
+        function isLive(visual) {
+            return visual === "reasoning" || visual === "conversation" || visual === "both"
+        }
+
+        function buildForest(agents) {
             if (!agents || agents.length === 0)
-                return null
+                return []
             const byId = {}
             for (let i = 0; i < agents.length; i++)
                 byId[agents[i].id] = agents[i]
-            let rootAgent = null
-            for (let i = 0; i < agents.length; i++) {
-                if (agents[i].parent_agent_id === null) {
-                    rootAgent = agents[i]
-                    break
-                }
-            }
-            if (!rootAgent)
-                return null
             const childrenOf = {}
+            const roots = []
             for (let i = 0; i < agents.length; i++) {
                 const agent = agents[i]
-                if (agent.id === rootAgent.id)
+                const parentId = agent.parent_agent_id
+                if (parentId === null || parentId === undefined || !byId[parentId]) {
+                    roots.push(agent)
                     continue
-                let parentId = agent.parent_agent_id
-                if (parentId === null || !byId[parentId])
-                    parentId = rootAgent.id
+                }
                 if (!childrenOf[parentId])
                     childrenOf[parentId] = []
                 childrenOf[parentId].push(agent)
             }
             function toNode(agent) {
                 const kids = childrenOf[agent.id] || []
+                const visual = frame.visualOf(agent)
                 const node = {
                     id: agent.id,
                     name: agent.name,
-                    visual: visualOf(agent),
-                    caption: captionOf(agent),
+                    visual: visual,
+                    caption: frame.captionOf(visual),
                     children: []
                 }
                 for (let i = 0; i < kids.length; i++)
                     node.children.push(toNode(kids[i]))
                 return node
             }
-            return toNode(rootAgent)
+            const forest = []
+            for (let i = 0; i < roots.length; i++)
+                forest.push(toNode(roots[i]))
+            return forest
         }
 
-        function layoutTree(rootNode, spacingX, spacingY) {
+        function layoutCircle(forest, ring, step) {
             const nodes = []
             const links = []
-            function walk(node, left, depth, parentPos) {
-                const width = leafCount(node)
-                const x = left + (width - 1) * spacingX / 2
-                const y = depth * spacingY
+            const count = forest.length
+            if (count === 0)
+                return { nodes: nodes, links: links }
+            const sector = (Math.PI * 2) / count
+
+            function place(data, angle, radius, depth, parentPos) {
+                const x = Math.cos(angle) * radius
+                const y = Math.sin(angle) * radius
                 if (parentPos) {
                     links.push({
                         x1: parentPos.x,
@@ -114,22 +114,27 @@ PlasmoidItem {
                     })
                 }
                 nodes.push({
-                    id: node.id,
-                    name: node.name,
-                    visual: node.visual,
-                    caption: node.caption,
-                    isRoot: depth === 0,
+                    id: data.id,
+                    name: data.name,
+                    visual: data.visual,
+                    caption: data.caption,
                     x: x,
                     y: y
                 })
-                let childLeft = left
-                for (let i = 0; i < node.children.length; i++) {
-                    const w = leafCount(node.children[i])
-                    walk(node.children[i], childLeft, depth + 1, { x: x, y: y })
-                    childLeft += w * spacingX
+                const kids = data.children || []
+                const fan = Math.min(sector * 0.62, 0.7)
+                for (let i = 0; i < kids.length; i++) {
+                    const spread = kids.length === 1
+                            ? 0
+                            : (i - (kids.length - 1) / 2) * (fan / kids.length)
+                    place(kids[i], angle + spread, radius + step, depth + 1, { x: x, y: y })
                 }
             }
-            walk(rootNode, 0, 0, null)
+
+            for (let i = 0; i < forest.length; i++) {
+                const angle = -Math.PI / 2 + i * sector
+                place(forest[i], angle, ring, 0, null)
+            }
             return { nodes: nodes, links: links }
         }
 
@@ -148,27 +153,37 @@ PlasmoidItem {
                 try {
                     const data = JSON.parse(xhr.responseText)
                     const list = Array.isArray(data) ? data : (data.agents || [])
-                    const tree = frame.buildTree(list)
-                    if (!tree) {
-                        frame.status = "no root agent"
+                    if (list.length === 0) {
+                        frame.status = "no agents"
                         frame.kicker = ""
                         frame.nodes = []
                         frame.links = []
                         return
                     }
-                    const laid = frame.layoutTree(tree, 140, 96)
+                    const forest = frame.buildForest(list)
+                    if (forest.length === 0) {
+                        frame.status = "no agents"
+                        frame.kicker = ""
+                        frame.nodes = []
+                        frame.links = []
+                        return
+                    }
+                    const spacingX = 72
+                    const spacingY = 64
+                    const ring = Math.max(108, (forest.length * spacingX) / (Math.PI * 2))
+                    const laid = frame.layoutCircle(forest, ring, spacingY * 0.82)
                     let minX = Infinity
                     let maxX = -Infinity
                     let minY = Infinity
                     let maxY = -Infinity
-                    let running = 0
+                    let live = 0
                     for (let i = 0; i < laid.nodes.length; i++) {
                         minX = Math.min(minX, laid.nodes[i].x)
                         maxX = Math.max(maxX, laid.nodes[i].x)
                         minY = Math.min(minY, laid.nodes[i].y)
                         maxY = Math.max(maxY, laid.nodes[i].y)
-                        if (laid.nodes[i].visual === "running")
-                            running += 1
+                        if (frame.isLive(laid.nodes[i].visual))
+                            live += 1
                     }
                     frame.contentMinX = minX
                     frame.contentMinY = minY
@@ -178,7 +193,7 @@ PlasmoidItem {
                     frame.links = laid.links
                     frame.status = ""
                     const n = laid.nodes.length
-                    frame.kicker = n === 1 ? "" : (n + " agents" + (running > 0 ? " · " + running + " running" : ""))
+                    frame.kicker = n === 1 ? "" : (n + " agents" + (live > 0 ? " · " + live + " live" : ""))
                 } catch (e) {
                     frame.status = "bad agents payload"
                     frame.kicker = ""
@@ -204,12 +219,12 @@ PlasmoidItem {
                 anchors.centerIn: parent
                 visible: frame.status !== "" || frame.nodes.length === 0
                 text: frame.status !== "" ? frame.status : "Loading agents…"
-                color: "#b0b8a6"
+                color: Tokens.inkGhost
                 font.pixelSize: Tokens.typeBody
             }
 
             Item {
-                id: treeView
+                id: ringView
                 anchors.fill: parent
                 visible: frame.status === "" && frame.nodes.length > 0
 
@@ -222,10 +237,10 @@ PlasmoidItem {
                     model: frame.links
                     ShapeLink {
                         required property var modelData
-                        x1: treeView.originX + modelData.x1
-                        y1: treeView.originY + modelData.y1
-                        x2: treeView.originX + modelData.x2
-                        y2: treeView.originY + modelData.y2
+                        x1: ringView.originX + modelData.x1
+                        y1: ringView.originY + modelData.y1
+                        x2: ringView.originX + modelData.x2
+                        y2: ringView.originY + modelData.y2
                     }
                 }
 
@@ -233,10 +248,9 @@ PlasmoidItem {
                     model: frame.nodes
                     AgentDot {
                         required property var modelData
-                        x: treeView.originX + modelData.x - width / 2
-                        y: treeView.originY + modelData.y - anchorY
+                        x: ringView.originX + modelData.x - width / 2
+                        y: ringView.originY + modelData.y - anchorY
                         visual: modelData.visual
-                        isRoot: modelData.isRoot
                         label: modelData.name
                         caption: modelData.caption
                     }

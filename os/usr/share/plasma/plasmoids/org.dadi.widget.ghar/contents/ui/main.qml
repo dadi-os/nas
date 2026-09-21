@@ -21,27 +21,11 @@ PlasmoidItem {
 
         property var devices: []
         property var rooms: []
+        property var pendingIds: ({})
+        property int pendingCount: 0
 
-        function roomRows() {
-            const byId = {}
-            const order = []
-            for (let i = 0; i < frame.devices.length; i++) {
-                const dev = frame.devices[i]
-                const roomId = (dev.room && dev.room.id) ? dev.room.id : "unassigned"
-                if (!byId[roomId]) {
-                    byId[roomId] = {
-                        id: roomId,
-                        name: (dev.room && dev.room.name) ? dev.room.name : "unassigned",
-                        devices: []
-                    }
-                    order.push(roomId)
-                }
-                byId[roomId].devices.push(dev)
-            }
-            const rows = []
-            for (let i = 0; i < order.length; i++)
-                rows.push(byId[order[i]])
-            return rows
+        function roomTitle(name) {
+            return name === "unassigned" ? "Unplaced" : name
         }
 
         function isOn(dev) {
@@ -52,6 +36,80 @@ PlasmoidItem {
             const caps = dev.capabilities || []
             for (let i = 0; i < caps.length; i++) {
                 if (caps[i].capability === "switchable")
+                    return true
+            }
+            return false
+        }
+
+        function isPending(id) {
+            return !!frame.pendingIds[id]
+        }
+
+        function roomPanels() {
+            const byId = {}
+            const named = []
+            for (let i = 0; i < frame.rooms.length; i++) {
+                const room = frame.rooms[i]
+                if (!room || room.name === "unassigned")
+                    continue
+                if (byId[room.id])
+                    continue
+                byId[room.id] = { id: room.id, name: room.name, devices: [] }
+                named.push(byId[room.id])
+            }
+            let unplaced = null
+            for (let i = 0; i < frame.devices.length; i++) {
+                const dev = frame.devices[i]
+                const room = dev.room || {}
+                const roomId = room.id || "unassigned"
+                const roomName = room.name || "unassigned"
+                if (roomName === "unassigned") {
+                    if (!unplaced) {
+                        unplaced = { id: roomId, name: "unassigned", devices: [] }
+                    }
+                    unplaced.devices.push(dev)
+                    continue
+                }
+                if (!byId[roomId]) {
+                    byId[roomId] = { id: roomId, name: roomName, devices: [] }
+                    named.push(byId[roomId])
+                }
+                byId[roomId].devices.push(dev)
+            }
+            const panels = []
+            for (let i = 0; i < named.length; i++) {
+                if (named[i].devices.length > 0)
+                    panels.push(named[i])
+            }
+            if (unplaced && unplaced.devices.length > 0)
+                panels.push(unplaced)
+            return panels
+        }
+
+        function roomLit(panel) {
+            const list = panel.devices || []
+            for (let i = 0; i < list.length; i++) {
+                const dev = list[i]
+                if (dev.online && frame.canSwitch(dev) && frame.isOn(dev))
+                    return true
+            }
+            return false
+        }
+
+        function roomPending(panel) {
+            const list = panel.devices || []
+            for (let i = 0; i < list.length; i++) {
+                if (frame.isPending(list[i].id))
+                    return true
+            }
+            return false
+        }
+
+        function roomCanToggle(panel) {
+            const list = panel.devices || []
+            for (let i = 0; i < list.length; i++) {
+                const dev = list[i]
+                if (dev.online && frame.canSwitch(dev))
                     return true
             }
             return false
@@ -75,6 +133,9 @@ PlasmoidItem {
         }
 
         function refresh() {
+            if (frame.pendingCount > 0)
+                return
+
             const roomsReq = new XMLHttpRequest()
             roomsReq.onreadystatechange = function () {
                 if (roomsReq.readyState !== XMLHttpRequest.DONE)
@@ -118,24 +179,73 @@ PlasmoidItem {
             xhr.send()
         }
 
-        function toggle(dev) {
+        function markPending(ids, on) {
+            const next = Object.assign({}, frame.pendingIds)
+            for (let i = 0; i < ids.length; i++) {
+                if (on)
+                    next[ids[i]] = true
+                else
+                    delete next[ids[i]]
+            }
+            frame.pendingIds = next
+            frame.pendingCount = Object.keys(next).length
+        }
+
+        function postToggle(id, onDone) {
             const xhr = new XMLHttpRequest()
             xhr.onreadystatechange = function () {
                 if (xhr.readyState !== XMLHttpRequest.DONE)
                     return
-                if (xhr.status !== 200) {
+                if (xhr.status !== 200)
                     frame.fail(xhr, "ghar")
-                    return
-                }
-                frame.refresh()
+                onDone()
             }
-            xhr.open("POST", Tokens.gharBase + "/devices/" + dev.id + "/command")
+            xhr.open("POST", Tokens.gharBase + "/devices/" + id + "/command")
             xhr.setRequestHeader("Content-Type", "application/json")
             xhr.send(JSON.stringify({
                 capability: "switchable",
                 params: { state: "toggle" },
                 cause: "user"
             }))
+        }
+
+        function toggleRoom(panel) {
+            if (frame.roomPending(panel))
+                return
+            const lights = []
+            const list = panel.devices || []
+            for (let i = 0; i < list.length; i++) {
+                const dev = list[i]
+                if (dev.online && frame.canSwitch(dev))
+                    lights.push(dev)
+            }
+            if (lights.length === 0)
+                return
+            let anyOn = false
+            for (let i = 0; i < lights.length; i++) {
+                if (frame.isOn(lights[i])) {
+                    anyOn = true
+                    break
+                }
+            }
+            const targets = []
+            for (let i = 0; i < lights.length; i++) {
+                if (!anyOn || frame.isOn(lights[i]))
+                    targets.push(lights[i].id)
+            }
+            if (targets.length === 0)
+                return
+            frame.markPending(targets, true)
+            let remaining = targets.length
+            for (let i = 0; i < targets.length; i++) {
+                frame.postToggle(targets[i], function () {
+                    remaining -= 1
+                    if (remaining > 0)
+                        return
+                    frame.markPending(targets, false)
+                    frame.refresh()
+                })
+            }
         }
 
         Timer {
@@ -159,80 +269,104 @@ PlasmoidItem {
             }
         }
 
-        DadiFlickable {
+        Item {
             anchors.fill: parent
-            visible: frame.devices.length > 0
-            contentWidth: width
-            contentHeight: listCol.height
+            visible: frame.status === "" && frame.devices.length > 0 && frame.roomPanels().length === 0
 
-            Column {
-                id: listCol
-                width: parent.width
-                spacing: 16
+            Text {
+                renderType: Text.QtRendering
+                anchors.centerIn: parent
+                text: "Unplaced"
+                color: "#8a8e87"
+                font.pixelSize: Tokens.typeBody
+            }
+        }
 
-                Repeater {
-                    model: frame.roomRows()
-                    Column {
-                        required property var modelData
-                        width: listCol.width
+        GridLayout {
+            anchors.fill: parent
+            columns: 2
+            rowSpacing: 8
+            columnSpacing: 8
+            visible: frame.status === "" && frame.roomPanels().length > 0
+
+            Repeater {
+                model: frame.roomPanels()
+                Rectangle {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    radius: Tokens.radiusControl
+                    color: {
+                        if (frame.roomPending(modelData))
+                            return "#14151114"
+                        if (frame.roomLit(modelData))
+                            return Tokens.sageFaint
+                        return "#fafaf766"
+                    }
+                    border.width: 1
+                    border.color: {
+                        if (frame.roomPending(modelData))
+                            return Tokens.rule
+                        if (frame.roomLit(modelData))
+                            return Tokens.sage
+                        return Tokens.sageLine
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 12
                         spacing: 8
 
                         Text {
                             renderType: Text.QtRendering
-                            visible: frame.roomRows().length > 1
-                            text: modelData.name
-                            color: "#8a8e87"
+                            text: frame.roomTitle(modelData.name)
+                            color: frame.roomPending(modelData)
+                                   ? Tokens.inkMuted
+                                   : (frame.roomLit(modelData) ? Tokens.sageDeep : Tokens.inkMuted)
                             font.pixelSize: Tokens.typeSection
                             font.weight: Font.Medium
+                            font.capitalization: Font.AllUppercase
+                            font.letterSpacing: 1.2
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
                         }
 
-                        Repeater {
-                            model: modelData.devices
-                            Item {
-                                required property var modelData
-                                width: listCol.width
-                                implicitHeight: 44
+                        Rectangle {
+                            width: 7
+                            height: 7
+                            radius: 4
+                            color: frame.roomPending(modelData)
+                                   ? Tokens.inkMuted
+                                   : (frame.roomLit(modelData) ? Tokens.sage : Tokens.inkMuted)
+                            opacity: frame.roomPending(modelData) ? breathOpacity : 1
+                            property real breathOpacity: 1
 
-                                RowLayout {
-                                    anchors.fill: parent
-                                    spacing: 10
-
-                                    Rectangle {
-                                        width: 7
-                                        height: 7
-                                        radius: 4
-                                        color: modelData.online ? "#141511" : "#8a8e87"
-                                    }
-
-                                    Text {
-                                        renderType: Text.QtRendering
-                                        text: modelData.name
-                                        color: "#141511"
-                                        font.pixelSize: Tokens.typeBody
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-
-                                    Text {
-                                        renderType: Text.QtRendering
-                                        visible: frame.canSwitch(modelData)
-                                        text: frame.isOn(modelData) ? "on" : "off"
-                                        color: frame.isOn(modelData) ? "#141511" : "#8a8e87"
-                                        font.pixelSize: Tokens.typeMeta
-                                    }
-                                }
-
-                                MouseArea {
-                                    anchors.fill: parent
-                                    enabled: frame.canSwitch(modelData)
-                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                    onClicked: frame.toggle(modelData)
-                                }
+                            SequentialAnimation on breathOpacity {
+                                running: frame.roomPending(modelData)
+                                loops: Animation.Infinite
+                                NumberAnimation { from: 0.35; to: 1; duration: 900; easing.type: Easing.InOutSine }
+                                NumberAnimation { from: 1; to: 0.35; duration: 900; easing.type: Easing.InOutSine }
                             }
                         }
                     }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: !frame.roomPending(modelData) && frame.roomCanToggle(modelData)
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: frame.toggleRoom(modelData)
+                    }
                 }
             }
+        }
+
+        Text {
+            anchors.centerIn: parent
+            visible: frame.status !== ""
+            renderType: Text.QtRendering
+            text: frame.status
+            color: Tokens.fail
+            font.pixelSize: Tokens.typeBody
         }
     }
 }

@@ -4,12 +4,14 @@ import org.dadi.Desktop
 Item {
     id: root
     property string visual: "idle"
-    property bool isRoot: false
     property string label: ""
     property string caption: "idle"
 
-    readonly property real disc: isRoot ? 22 : 16
+    readonly property real disc: visual === "dormant" ? 14 : 16
     readonly property real anchorY: disc / 2 + 2
+    readonly property bool live: visual === "reasoning"
+            || visual === "conversation"
+            || visual === "both"
 
     width: 132
     height: 76
@@ -32,14 +34,14 @@ Item {
             height: root.disc + 4
 
             Rectangle {
-                visible: root.visual === "running"
+                visible: root.live
                 anchors.centerIn: parent
                 width: root.disc + 10
                 height: width
                 radius: width / 2
                 color: "#14151118"
                 SequentialAnimation on scale {
-                    running: root.visual === "running"
+                    running: root.live
                     loops: Animation.Infinite
                     NumberAnimation { from: 0.9; to: 1.12; duration: 1200; easing.type: Easing.InOutSine }
                     NumberAnimation { from: 1.12; to: 0.9; duration: 1200; easing.type: Easing.InOutSine }
@@ -47,13 +49,24 @@ Item {
             }
 
             Rectangle {
+                visible: root.visual !== "reasoning"
                 anchors.centerIn: parent
                 width: root.disc
                 height: width
                 radius: width / 2
-                color: root.visual === "dormant" ? "transparent" : "#141511"
+                color: root.visual === "dormant" ? "transparent" : Tokens.ink
                 border.width: root.visual === "dormant" ? 1.5 : 0
                 border.color: "#14151155"
+            }
+
+            Rectangle {
+                visible: root.visual === "reasoning" || root.visual === "both"
+                anchors.centerIn: parent
+                width: root.visual === "both" ? root.disc * 0.55 : root.disc * 0.95
+                height: width
+                color: root.visual === "both" ? Tokens.bone : Tokens.ink
+                border.width: 0
+                rotation: 45
             }
         }
 
@@ -62,7 +75,7 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             width: parent.width
             text: root.label
-            color: root.visual === "dormant" ? "#8a8e87" : "#141511"
+            color: root.visual === "dormant" ? Tokens.inkMuted : Tokens.ink
             font.pixelSize: Tokens.typeBody
             font.weight: Font.DemiBold
             elide: Text.ElideRight
@@ -74,7 +87,7 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             width: parent.width
             text: root.caption
-            color: "#8a8e87"
+            color: Tokens.inkMuted
             font.pixelSize: Tokens.typeMeta
             horizontalAlignment: Text.AlignHCenter
         }
