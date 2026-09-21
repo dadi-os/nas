@@ -30,6 +30,7 @@ ApplicationWindow {
     readonly property var sections: [
         { id: "users", label: "Users" },
         { id: "dwar", label: "Dwar" },
+        { id: "chaavi", label: "Chaavi" },
         { id: "desktop", label: "Desktop" }
     ]
 
@@ -131,6 +132,9 @@ ApplicationWindow {
                     onSaved: msg => win.showToast(msg)
                 }
                 ModulePane {
+                    onSaved: msg => win.showToast(msg)
+                }
+                ChaaviPane {
                     onSaved: msg => win.showToast(msg)
                 }
                 DesktopPane {}

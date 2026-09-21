@@ -44,7 +44,7 @@ Required on the control service (fail at startup if missing):
 
 `POST /provision` mints `control_url` at issue time: compose uses `http://localhost:8080`; the appliance uses `http://<lan>:8080` from the host LAN IPv4 (Headscale `server_url` is rewritten). There is no stored control-URL preference and no Cloudflare tunnel token.
 
-Module secrets live in sibling `../dwar/.env` and `../chaavi/.env` in compose, and under `DADI_STATE_DIR/modules/{dwar,chaavi}/` on the appliance. Chaavi’s `BW_CLIENTID`, `BW_CLIENTSECRET`, and `BW_PASSWORD` are Chaavi module env — not Dwar keys. `VAULT_URL` is set on the container (compose `environment` / quadlet `Environment`), not the env file. Vaultwarden stores the encrypted vault in the `chaavi_vault` volume. Yaad/Dimaag/Ghar Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar or Chaavi values.
+Module secrets live in sibling `../dwar/.env` and `../chaavi/.env` in compose, and under `DADI_STATE_DIR/modules/{dwar,chaavi}/` on the appliance. Preferences → Dwar and Preferences → Chaavi edit those files and restart the module. Chaavi’s `BW_CLIENTID`, `BW_CLIENTSECRET`, and `BW_PASSWORD` are Chaavi module env — not Dwar keys. `VAULT_URL` is set on the container (compose `environment` / quadlet `Environment`), not the env file. Vaultwarden stores the encrypted vault in the `chaavi_vault` volume. Yaad/Dimaag/Ghar Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar or Chaavi values. Empty Chaavi keys are valid; Chaavi boots and fails the request that needs them.
 
 ## Local run
 
@@ -132,6 +132,8 @@ On the appliance (`DADI_RUNTIME=podman`) Nas runs as root and launches every tmu
 | `DELETE` | `/access/users/{username}` | — | `{ status: ok, username }` | `invalid_request`, `not_found`, `forbidden` (compose), `internal_error` |
 | `GET` | `/modules/dwar/settings` | — | `{ env, config }` (keys + config.toml fields) | `internal_error` |
 | `PUT` | `/modules/dwar/settings` | `{ env, config }` | `{ status: ok }` (writes files, restarts dwar) | `invalid_request`, `internal_error` |
+| `GET` | `/modules/chaavi/settings` | — | `{ env }` (`BW_CLIENTID`, `BW_CLIENTSECRET`, `BW_PASSWORD`) | `internal_error` |
+| `PUT` | `/modules/chaavi/settings` | `{ env }` | `{ status: ok }` (writes `.env`, restarts chaavi). Empty values are valid. | `invalid_request`, `internal_error` |
 
 `tpm` is `{ present, enrolled, pcrs?, device? }` from `/var/lib/dadi/tpm.json` after `dadi-tpm-enroll`. Remote reboot: TPM unlocks LUKS, systemd starts enabled units (`nas`, mesh, SDDM autologin).
 
@@ -295,7 +297,7 @@ Plasma on the box only — Hath is for other devices. Visual system is **bone gl
 | Look-and-feel | `org.dadi.desktop` — translucent top bar (32px), floating dock, crest widgets |
 | Brand | plasmoid `org.dadi.brand` — wordmark opens Preferences; right-click for about / power |
 | Widgets | `org.dadi.widget.{agents,memory,timeline,ghar,system}` — liquid glass (GPL-3 shaders from liquidglass-kde-widgets) + Hath data |
-| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (users / dwar / devices / desktop → `DADI_STATE_DIR`; Devices mints `POST /provision` QR for Hath) |
+| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (users / dwar / chaavi / devices / desktop → `DADI_STATE_DIR`; Devices mints `POST /provision` QR for Hath) |
 | Wallpaper | `Dadi` (`/usr/share/wallpapers/Dadi/`) |
 | Wake / lid | immutable `action/lock_screen=false`, `kscreenlockerrc`, PowerDevil profiles, `dadi-inhibit-idle.service`, `logind.conf.d/dadi-lid.conf` |
 | TPM | `dadi-tpm-enroll.service` → PCR 7 via `/var/lib/dadi/luks-enroll.key` (shredded after seal; 45s cap; no TTY wait) |
@@ -331,7 +333,7 @@ cp ../dwar/.env.example ../dwar/.env
 cp ../chaavi/.env.example ../chaavi/.env
 ```
 
-Yaad, Dimaag, and Ghar need no `.env` — Nas injects fixed local Postgres credentials. Chaavi still needs `../chaavi/.env` (blank `BW_*` until set); `VAULT_URL` is injected by compose.
+Yaad, Dimaag, and Ghar need no `.env` — Nas injects fixed local Postgres credentials. Chaavi still needs `../chaavi/.env` (blank `BW_*` until set in Preferences → Chaavi, or by editing the file); `VAULT_URL` is injected by compose.
 
 Docker Desktop (or equivalent) must be running. No Overmind / tmux.
 

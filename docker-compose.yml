@@ -263,12 +263,14 @@ services:
       target: dev
     env_file: ../chaavi/.env
     environment:
-      VAULT_URL: http://chaavi-vault:80
+      VAULT_URL: https://chaavi.dadi
+      NODE_EXTRA_CA_CERTS: /var/lib/chaavi/tls/ca.crt
       BITWARDENCLI_APPDATA_DIR: /var/lib/chaavi/bw
     volumes:
       - ../chaavi:/app
       - /app/node_modules
       - chaavi_bw:/var/lib/chaavi/bw
+      - chaavi_tls:/var/lib/chaavi/tls:ro
     expose: ["8080"]
     healthcheck:
       test:

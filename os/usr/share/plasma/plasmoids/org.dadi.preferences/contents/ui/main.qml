@@ -36,6 +36,7 @@ PlasmoidItem {
         readonly property var sections: [
             { id: "users", label: "Users" },
             { id: "dwar", label: "Dwar" },
+            { id: "chaavi", label: "Chaavi" },
             { id: "devices", label: "Devices" },
             { id: "desktop", label: "Desktop" }
         ]
@@ -151,6 +152,9 @@ PlasmoidItem {
                         onSaved: msg => win.showToast(msg)
                     }
                     ModulePane {
+                        onSaved: msg => win.showToast(msg)
+                    }
+                    ChaaviPane {
                         onSaved: msg => win.showToast(msg)
                     }
                     DevicesPane {}

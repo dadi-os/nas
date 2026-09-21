@@ -84,6 +84,7 @@ func main() {
 	})
 	registerConfigRoutes(mux, state)
 	registerDwarSettingsRoutes(mux, state)
+	registerChaaviSettingsRoutes(mux, state)
 	registerAccessRoutes(mux, state)
 	terminals.register(mux)
 	files.register(mux)
