@@ -126,11 +126,11 @@ func cmdHelp(name string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("dadi <tool> (--as-agent-id <uuid> | --as <name> | --as-dadi) [--key value …]")
+		fmt.Println("dadi <tool> (--as-agent-id <uuid> | --as-dadi | --as-user) [--key value …]")
 		fmt.Println("dadi agents")
 		fmt.Println("dadi help [tool]")
 		fmt.Println()
-		fmt.Println("Execute requires one caller identity: --as-agent-id <uuid>, --as <name>, or --as-dadi.")
+		fmt.Println("Execute requires one caller identity: --as-agent-id <uuid>, --as-dadi, or --as-user.")
 		fmt.Println()
 		for _, t := range list {
 			fmt.Printf("  %s\n    %s\n", t.Name, t.Description)
@@ -144,10 +144,10 @@ func cmdHelp(name string) error {
 	fmt.Println(detail.Name)
 	fmt.Println(detail.Description)
 	fmt.Println("Parameters:")
-	fmt.Println("  --as-agent-id (string) — agent UUID that holds the grant")
-	fmt.Println("  --as (string) — unique agent name (resolved via GET /agents)")
-	fmt.Println("  --as-dadi — act as Dadi (router authority)")
-	fmt.Println("  Exactly one of --as-agent-id, --as, or --as-dadi is required.")
+	fmt.Println("  --as-agent-id (string) — agent UUID that holds the grant (see dadi agents)")
+	fmt.Println("  --as-dadi — act as Dadi (router authority tools only)")
+	fmt.Println("  --as-user — act as the human (any tool, no grant check)")
+	fmt.Println("  Exactly one of --as-agent-id, --as-dadi, or --as-user is required.")
 	fmt.Print(formatSchema(detail.InputSchema))
 	return nil
 }
@@ -183,11 +183,11 @@ func takeCallerIdentity(input map[string]any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	asName, hasAs, err := takeStringFlag(input, "as")
+	hasAsDadi, err := takeBoolFlag(input, "as_dadi", "as-dadi")
 	if err != nil {
 		return "", err
 	}
-	hasAsDadi, err := takeBoolFlag(input, "as_dadi", "as-dadi")
+	hasAsUser, err := takeBoolFlag(input, "as_user", "as-user")
 	if err != nil {
 		return "", err
 	}
@@ -196,25 +196,25 @@ func takeCallerIdentity(input map[string]any) (string, error) {
 	if hasAsAgentID {
 		n++
 	}
-	if hasAs {
-		n++
-	}
 	if hasAsDadi {
 		n++
 	}
+	if hasAsUser {
+		n++
+	}
 	if n > 1 {
-		return "", fmt.Errorf("pass only one of --as, --as-agent-id, and --as-dadi")
+		return "", fmt.Errorf("pass only one of --as-agent-id, --as-dadi, and --as-user")
 	}
 	if n == 0 {
-		return "", fmt.Errorf("one of --as <name>, --as-agent-id <uuid>, or --as-dadi is required")
+		return "", fmt.Errorf("one of --as-agent-id <uuid>, --as-dadi, or --as-user is required")
 	}
 	if hasAsDadi {
 		return "dadi", nil
 	}
-	if hasAsAgentID {
-		return asAgentID, nil
+	if hasAsUser {
+		return "user", nil
 	}
-	return resolveAgentName(asName)
+	return asAgentID, nil
 }
 
 func takeStringFlag(input map[string]any, keys ...string) (value string, ok bool, err error) {
@@ -251,19 +251,6 @@ func takeBoolFlag(input map[string]any, keys ...string) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-func resolveAgentName(name string) (string, error) {
-	agents, err := fetchAgents()
-	if err != nil {
-		return "", err
-	}
-	for _, agent := range agents {
-		if agent.Name == name {
-			return agent.ID, nil
-		}
-	}
-	return "", fmt.Errorf("agent %q not found", name)
 }
 
 func cmdAgents() error {
@@ -307,12 +294,8 @@ func printAgentLine(agent agentInfo, depth int) {
 	if agent.Active {
 		state = "active"
 	}
-	short := agent.ID
-	if len(short) > 8 {
-		short = short[:8]
-	}
 	indent := strings.Repeat("  ", depth)
-	fmt.Printf("%s%s  %s  %s\n", indent, agent.Name, short, state)
+	fmt.Printf("%s%s  %s  %s\n", indent, agent.Name, agent.ID, state)
 }
 
 func renderContent(content any) string {

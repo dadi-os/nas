@@ -61,14 +61,14 @@ func completeWords(prev []string, current string) []string {
 		return nil
 	}
 	flags, enums := schemaFlags(detail.InputSchema)
-	flags = append([]string{"--as", "--as-agent-id", "--as-dadi"}, flags...)
+	flags = append([]string{"--as-agent-id", "--as-dadi", "--as-user"}, flags...)
 	sort.Strings(flags)
 	if len(prev) > 1 {
 		last := prev[len(prev)-1]
 		if strings.HasPrefix(last, "--") {
 			key := strings.TrimPrefix(last, "--")
-			if key == "as" {
-				return filterPrefix(agentNames(), current)
+			if key == "as-agent-id" || key == "as_agent_id" {
+				return filterPrefix(agentIDs(), current)
 			}
 			if vals, ok := enums[key]; ok {
 				return filterPrefix(vals, current)
@@ -95,17 +95,17 @@ func completeWords(prev []string, current string) []string {
 	return nil
 }
 
-func agentNames() []string {
+func agentIDs() []string {
 	agents, err := fetchAgents()
 	if err != nil {
 		return nil
 	}
-	names := make([]string, 0, len(agents))
+	ids := make([]string, 0, len(agents))
 	for _, agent := range agents {
-		names = append(names, agent.Name)
+		ids = append(ids, agent.ID)
 	}
-	sort.Strings(names)
-	return names
+	sort.Strings(ids)
+	return ids
 }
 
 func schemaFlags(schema map[string]any) (flags []string, enums map[string][]string) {

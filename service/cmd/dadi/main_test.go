@@ -66,12 +66,16 @@ func TestCompleteLine(t *testing.T) {
 		t.Fatalf("top-level: %v", got)
 	}
 	got = completeLine("dadi nas_get_logs --")
-	if !containsAll(got, []string{"--as", "--as-agent-id", "--as-dadi", "--level", "--services"}) {
+	if !containsAll(got, []string{"--as-agent-id", "--as-dadi", "--as-user", "--level", "--services"}) {
 		t.Fatalf("flags: %v", got)
 	}
-	got = completeLine("dadi nas_get_logs --as ")
-	if !containsAll(got, []string{"Coding Manager", "Finance Specialist", "Worker One"}) {
-		t.Fatalf("agent names: %v", got)
+	got = completeLine("dadi nas_get_logs --as-agent-id ")
+	if !containsAll(got, []string{
+		"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+		"cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+	}) {
+		t.Fatalf("agent ids: %v", got)
 	}
 	got = completeLine("dadi nas_get_logs --lev")
 	if strings.Join(got, ",") != "--level" {
@@ -152,21 +156,13 @@ func TestExecuteAsDadi(t *testing.T) {
 	}
 }
 
-func TestExecuteAsName(t *testing.T) {
+func TestExecuteAsUser(t *testing.T) {
 	f := newToolFixture(t)
-	if err := run([]string{"nas_get_logs", "--as", "Coding Manager", "--level", "error"}); err != nil {
+	if err := run([]string{"nas_get_logs", "--as-user", "--level", "error"}); err != nil {
 		t.Fatal(err)
 	}
-	if f.lastExecute["as_agent_id"] != "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" {
+	if f.lastExecute["as_agent_id"] != "user" {
 		t.Fatalf("as_agent_id %+v", f.lastExecute)
-	}
-}
-
-func TestExecuteAsUnknownName(t *testing.T) {
-	_ = newToolFixture(t)
-	err := run([]string{"nas_get_logs", "--as", "Missing Manager", "--level", "error"})
-	if err == nil || !strings.Contains(err.Error(), `"Missing Manager"`) || !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("got %v", err)
 	}
 }
 
@@ -176,7 +172,7 @@ func TestExecuteRejectsMultipleIdentityFlags(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "pass only one") {
 		t.Fatalf("got %v", err)
 	}
-	err = run([]string{"nas_get_logs", "--as", "Coding Manager", "--as-dadi"})
+	err = run([]string{"nas_get_logs", "--as-user", "--as-dadi"})
 	if err == nil || !strings.Contains(err.Error(), "pass only one") {
 		t.Fatalf("got %v", err)
 	}
@@ -193,7 +189,7 @@ func TestMissingTool(t *testing.T) {
 func TestExecuteRequiresCallerIdentity(t *testing.T) {
 	_ = newToolFixture(t)
 	err := run([]string{"nas_get_logs", "--level", "error"})
-	if err == nil || !strings.Contains(err.Error(), "--as-dadi") || !strings.Contains(err.Error(), "--as ") {
+	if err == nil || !strings.Contains(err.Error(), "--as-dadi") || !strings.Contains(err.Error(), "--as-user") {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -218,13 +214,13 @@ func TestAgentsCommand(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("lines: %v", lines)
 	}
-	if !strings.HasPrefix(lines[0], "Coding Manager  aaaaaaaa  active") {
+	if !strings.HasPrefix(lines[0], "Coding Manager  aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa  active") {
 		t.Fatalf("root: %q", lines[0])
 	}
-	if !strings.HasPrefix(lines[1], "  Worker One  bbbbbbbb  dormant") {
+	if !strings.HasPrefix(lines[1], "  Worker One  bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb  dormant") {
 		t.Fatalf("child: %q", lines[1])
 	}
-	if !strings.HasPrefix(lines[2], "Finance Specialist  cccccccc  active") {
+	if !strings.HasPrefix(lines[2], "Finance Specialist  cccccccc-cccc-4ccc-8ccc-cccccccccccc  active") {
 		t.Fatalf("sibling: %q", lines[2])
 	}
 }
