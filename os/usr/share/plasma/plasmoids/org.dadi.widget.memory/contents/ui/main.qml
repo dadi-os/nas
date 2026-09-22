@@ -81,6 +81,12 @@ PlasmoidItem {
             return String(n)
         }
 
+        function noun(n, singular, plural) {
+            if (n === 1)
+                return singular
+            return plural
+        }
+
         Timer {
             interval: Tokens.widgetPollMs
             running: true
@@ -95,10 +101,10 @@ PlasmoidItem {
 
             Repeater {
                 model: [
-                    { value: frame.fmt(frame.people), label: "PEOPLE" },
-                    { value: frame.fmt(frame.memories), label: "MEMORIES" },
-                    { value: frame.fmt(frame.places), label: "PLACES" },
-                    { value: frame.fmt(frame.plans), label: "PLANS" }
+                    { value: frame.fmt(frame.people), label: frame.noun(frame.people, "PERSON", "PEOPLE") },
+                    { value: frame.fmt(frame.memories), label: frame.noun(frame.memories, "MEMORY", "MEMORIES") },
+                    { value: frame.fmt(frame.places), label: frame.noun(frame.places, "PLACE", "PLACES") },
+                    { value: frame.fmt(frame.plans), label: frame.noun(frame.plans, "PLAN", "PLANS") }
                 ]
                 Item {
                     required property var modelData
