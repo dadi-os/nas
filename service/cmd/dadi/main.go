@@ -30,7 +30,8 @@ type toolsList struct {
 }
 
 type agentInfo struct {
-	ID            string  `json:"id"`
+	ID string `json:"id"`
+	// Name is the display alias of id (Dimaag keeps both equal).
 	Name          string  `json:"name"`
 	ParentAgentID *string `json:"parent_agent_id"`
 	Active        bool    `json:"active"`
@@ -126,11 +127,11 @@ func cmdHelp(name string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("dadi <tool> (--as-agent-id <uuid> | --as-dadi | --as-user) [--key value …]")
+		fmt.Println("dadi <tool> (--as-agent-id <id> | --as-dadi | --as-user) [--key value …]")
 		fmt.Println("dadi agents")
 		fmt.Println("dadi help [tool]")
 		fmt.Println()
-		fmt.Println("Execute requires one caller identity: --as-agent-id <uuid>, --as-dadi, or --as-user.")
+		fmt.Println("Execute requires one caller identity: --as-agent-id <kebab-id>, --as-dadi, or --as-user.")
 		fmt.Println()
 		for _, t := range list {
 			fmt.Printf("  %s\n    %s\n", t.Name, t.Description)
@@ -144,7 +145,7 @@ func cmdHelp(name string) error {
 	fmt.Println(detail.Name)
 	fmt.Println(detail.Description)
 	fmt.Println("Parameters:")
-	fmt.Println("  --as-agent-id (string) — agent UUID that holds the grant (see dadi agents)")
+	fmt.Println("  --as-agent-id (string) — kebab-case agent id that holds the grant (see dadi agents)")
 	fmt.Println("  --as-dadi — act as Dadi (router authority tools only)")
 	fmt.Println("  --as-user — act as the human (any tool, no grant check)")
 	fmt.Println("  Exactly one of --as-agent-id, --as-dadi, or --as-user is required.")
@@ -206,7 +207,7 @@ func takeCallerIdentity(input map[string]any) (string, error) {
 		return "", fmt.Errorf("pass only one of --as-agent-id, --as-dadi, and --as-user")
 	}
 	if n == 0 {
-		return "", fmt.Errorf("one of --as-agent-id <uuid>, --as-dadi, or --as-user is required")
+		return "", fmt.Errorf("one of --as-agent-id <kebab-id>, --as-dadi, or --as-user is required")
 	}
 	if hasAsDadi {
 		return "dadi", nil
@@ -273,7 +274,7 @@ func printAgentForest(agents []agentInfo) {
 		parent := *agent.ParentAgentID
 		byParent[parent] = append(byParent[parent], agent)
 	}
-	sort.Slice(roots, func(i, j int) bool { return roots[i].Name < roots[j].Name })
+	sort.Slice(roots, func(i, j int) bool { return roots[i].ID < roots[j].ID })
 	for _, root := range roots {
 		printAgentLine(root, 0)
 		printAgentChildren(root.ID, byParent, 1)
@@ -282,7 +283,7 @@ func printAgentForest(agents []agentInfo) {
 
 func printAgentChildren(parentID string, byParent map[string][]agentInfo, depth int) {
 	children := byParent[parentID]
-	sort.Slice(children, func(i, j int) bool { return children[i].Name < children[j].Name })
+	sort.Slice(children, func(i, j int) bool { return children[i].ID < children[j].ID })
 	for _, child := range children {
 		printAgentLine(child, depth)
 		printAgentChildren(child.ID, byParent, depth+1)
@@ -295,7 +296,7 @@ func printAgentLine(agent agentInfo, depth int) {
 		state = "active"
 	}
 	indent := strings.Repeat("  ", depth)
-	fmt.Printf("%s%s  %s  %s\n", indent, agent.Name, agent.ID, state)
+	fmt.Printf("%s%s  %s\n", indent, agent.ID, state)
 }
 
 func renderContent(content any) string {

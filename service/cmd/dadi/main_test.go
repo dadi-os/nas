@@ -28,9 +28,9 @@ func newToolFixture(t *testing.T) *toolFixture {
 		case r.Method == http.MethodGet && r.URL.Path == "/agents":
 			_, _ = io.WriteString(w, `{
 				"agents":[
-					{"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","name":"Coding Manager","parent_agent_id":null,"active":true},
-					{"id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","name":"Worker One","parent_agent_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","active":false},
-					{"id":"cccccccc-cccc-4ccc-8ccc-cccccccccccc","name":"Finance Specialist","parent_agent_id":null,"active":true}
+					{"id":"coding-manager","name":"coding-manager","parent_agent_id":null,"active":true},
+					{"id":"coding-worker-one","name":"coding-worker-one","parent_agent_id":"coding-manager","active":false},
+					{"id":"finance-specialist","name":"finance-specialist","parent_agent_id":null,"active":true}
 				]
 			}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/tools/nas_get_logs/execute":
@@ -71,9 +71,9 @@ func TestCompleteLine(t *testing.T) {
 	}
 	got = completeLine("dadi nas_get_logs --as-agent-id ")
 	if !containsAll(got, []string{
-		"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-		"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-		"cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+		"coding-manager",
+		"coding-worker-one",
+		"finance-specialist",
 	}) {
 		t.Fatalf("agent ids: %v", got)
 	}
@@ -128,7 +128,7 @@ func TestHelpAndExecute(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Stdout = w
-	if err := run([]string{"nas_get_logs", "--as-agent-id", "11111111-1111-4111-8111-111111111111", "--level", "error"}); err != nil {
+	if err := run([]string{"nas_get_logs", "--as-agent-id", "coding-manager", "--level", "error"}); err != nil {
 		os.Stdout = old
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestHelpAndExecute(t *testing.T) {
 	if !strings.Contains(string(out), "entries") {
 		t.Fatalf("execute: %s", out)
 	}
-	if f.lastExecute["as_agent_id"] != "11111111-1111-4111-8111-111111111111" {
+	if f.lastExecute["as_agent_id"] != "coding-manager" {
 		t.Fatalf("as_agent_id %+v", f.lastExecute)
 	}
 	if f.lastExecute["level"] != "error" {
@@ -168,7 +168,7 @@ func TestExecuteAsUser(t *testing.T) {
 
 func TestExecuteRejectsMultipleIdentityFlags(t *testing.T) {
 	_ = newToolFixture(t)
-	err := run([]string{"nas_get_logs", "--as-dadi", "--as-agent-id", "11111111-1111-4111-8111-111111111111"})
+	err := run([]string{"nas_get_logs", "--as-dadi", "--as-agent-id", "coding-manager"})
 	if err == nil || !strings.Contains(err.Error(), "pass only one") {
 		t.Fatalf("got %v", err)
 	}
@@ -214,13 +214,13 @@ func TestAgentsCommand(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("lines: %v", lines)
 	}
-	if !strings.HasPrefix(lines[0], "Coding Manager  aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa  active") {
+	if lines[0] != "coding-manager  active" {
 		t.Fatalf("root: %q", lines[0])
 	}
-	if !strings.HasPrefix(lines[1], "  Worker One  bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb  dormant") {
+	if lines[1] != "  coding-worker-one  dormant" {
 		t.Fatalf("child: %q", lines[1])
 	}
-	if !strings.HasPrefix(lines[2], "Finance Specialist  cccccccc-cccc-4ccc-8ccc-cccccccccccc  active") {
+	if lines[2] != "finance-specialist  active" {
 		t.Fatalf("sibling: %q", lines[2])
 	}
 }
