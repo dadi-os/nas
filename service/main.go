@@ -105,12 +105,13 @@ type provisionResponse struct {
 	Bundle string `json:"bundle"`
 }
 
+// credentialsBundle is the QR/paste payload for Hath join. Mesh CA is omitted so
+// the base64 fits a branded (ECC-H) QR; Hath fetches GET /ca after join. Provision
+// still requires the CA to exist so join is not handed a mesh that cannot trust HTTPS.
 type credentialsBundle struct {
 	ControlURL string `json:"control_url"`
 	AuthKey    string `json:"auth_key"`
 	NodeName   string `json:"node_name"`
-	// CaPem is the mesh CA certificate (PEM). Hath installs it so https://chaavi.dadi works.
-	CaPem string `json:"ca_pem,omitempty"`
 }
 
 func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userName string, state stateConfig) {
@@ -185,7 +186,6 @@ func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userNam
 		ControlURL: controlURL,
 		AuthKey:    authKey,
 		NodeName:   nodeName,
-		CaPem:      caPem,
 	})
 	if err != nil {
 		rollbackPendingNode(state.dir, pending, pendingKey)
