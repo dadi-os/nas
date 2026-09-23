@@ -317,7 +317,7 @@ Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale i
 | `POST` | `/provision` | `{ node_name }` | `{ bundle }` (base64 JSON: `control_url`, `auth_key`, `node_name` — small enough for QR) | `invalid_request`, `conflict` (409, name taken or pending), `provision_failed`, `internal_error` |
 | `GET` | `/ca` | — | mesh CA PEM (`application/x-pem-file`) | `not_found`, `internal_error` |
 
-`POST /provision` reserves `node_name` for about an hour in `$DADI_STATE_DIR/pending-nodes.json` so two setup codes cannot claim the same hostname before the node appears in Headscale. `GET /clients` merges those reservations (as `pending: true`) and drops them once Headscale lists the same name. The setup QR omits the mesh CA (size); provision still fails if the CA is missing. Hath installs trust after join via `GET /ca`.
+`POST /provision` reserves `node_name` for about an hour in `$DADI_STATE_DIR/pending-nodes.json` so two setup codes cannot claim the same hostname before the node appears in Headscale. `GET /clients` merges those reservations (as `pending: true`) and drops them once Headscale lists the same name. On the appliance it also enriches `online` / IPs from the host `tailscaled` LocalAPI (Headscale control-plane "online" goes false off-LAN even while DERP still works). The setup QR omits the mesh CA (size); provision still fails if the CA is missing. Hath installs trust after join via `GET /ca`.
 
 `GET /status` returns host meters (`cpu`, `memory`, `gpu`, `disk` for the state volume, `disks` for each physical drive with a mounted filesystem), module health, and `"errors": []` under Docker — searchable errors live at `GET /logs`.
 

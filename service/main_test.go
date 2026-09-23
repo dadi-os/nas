@@ -297,6 +297,43 @@ func TestParseHeadscaleNodesRejectsObject(t *testing.T) {
 	}
 }
 
+func TestEnrichClientsWithHostMesh(t *testing.T) {
+	ls := "2026-09-23T12:00:00Z"
+	clients := []meshClient{
+		{NodeName: "mac", Online: false, IPAddresses: []string{}, LastSeen: nil},
+		{NodeName: "phone", Online: false, IPAddresses: []string{"100.64.0.3"}},
+	}
+	got := enrichClientsWithHostMesh(clients, []hostMeshPeer{
+		{HostName: "os", Online: true, Active: true, TailscaleIPs: []string{"100.64.0.1"}},
+		{HostName: "mac", Online: false, Active: true, TailscaleIPs: []string{"100.64.0.2"}, LastSeen: ls},
+	})
+	byName := map[string]meshClient{}
+	for _, c := range got {
+		byName[c.NodeName] = c
+	}
+	mac := byName["mac"]
+	if !mac.Online || len(mac.IPAddresses) != 1 || mac.IPAddresses[0] != "100.64.0.2" {
+		t.Fatalf("mac %+v", mac)
+	}
+	if mac.LastSeen == nil || *mac.LastSeen != ls {
+		t.Fatalf("mac last_seen %+v", mac.LastSeen)
+	}
+	if _, ok := byName["os"]; !ok {
+		t.Fatal("expected os from host self")
+	}
+	if byName["phone"].Online {
+		t.Fatal("phone should stay offline without a host peer")
+	}
+
+	fresh := []meshClient{
+		{NodeName: "mac", Online: false, IPAddresses: []string{}, LastSeen: nil},
+	}
+	unchanged := enrichClientsWithHostMesh(fresh, nil)
+	if len(unchanged) != 1 || unchanged[0].Online {
+		t.Fatalf("nil peers must leave Headscale rows alone: %+v", unchanged)
+	}
+}
+
 func TestDiskStatusFromStatfs(t *testing.T) {
 	full := diskStatusFromStatfs(26497024, 0)
 	if full.UsedPercent != 100 {

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -68,7 +70,7 @@ func main() {
 		handleProvision(w, r, controlURL, userName, state)
 	})
 	mux.HandleFunc("GET /clients", func(w http.ResponseWriter, r *http.Request) {
-		handleListClients(w, r, userName, state.dir)
+		handleListClients(w, r, state.dir)
 	})
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		handleStatus(w, r, started, state.runtime, state.dir)
@@ -136,7 +138,7 @@ func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userNam
 	defer provisionMu.Unlock()
 
 	now := time.Now()
-	clients, err := listMeshClients(userName)
+	clients, err := listMeshClients()
 	if err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeProvisionFailed, err.Error())
 		return
@@ -277,11 +279,11 @@ type headscaleNode struct {
 }
 
 // handleListClients returns Headscale mesh nodes plus unexpired pending setup names.
-func handleListClients(w http.ResponseWriter, r *http.Request, userName, stateDir string) {
+func handleListClients(w http.ResponseWriter, r *http.Request, stateDir string) {
 	provisionMu.Lock()
 	defer provisionMu.Unlock()
 
-	clients, err := listMeshClients(userName)
+	clients, err := listMeshClients()
 	if err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 		return
@@ -300,9 +302,12 @@ func handleListClients(w http.ResponseWriter, r *http.Request, userName, stateDi
 	writeJSON(w, http.StatusOK, map[string]any{"clients": withPendingClients(clients, pending, now)})
 }
 
-// listMeshClients runs `headscale nodes list -o json` and maps nodes to meshClient values.
-func listMeshClients(userName string) ([]meshClient, error) {
-	out, err := exec.Command("headscale", "nodes", "list", "--user", userName, "-o", "json").Output()
+// listMeshClients runs `headscale nodes list -o json` for every user and maps
+// nodes to meshClient values. Host tailscaled LocalAPI then enriches online/IPs:
+// Headscale "online" tracks control-plane map sessions, which go false off-LAN
+// even while DERP/peer traffic still works.
+func listMeshClients() ([]meshClient, error) {
+	out, err := exec.Command("headscale", "nodes", "list", "-o", "json").Output()
 	if err != nil {
 		return nil, fmt.Errorf("list nodes: %w", err)
 	}
@@ -337,7 +342,24 @@ func listMeshClients(userName string) ([]meshClient, error) {
 			IPAddresses: ips,
 		})
 	}
-	return clients, nil
+	peers, err := optionalHostMeshPeers()
+	if err != nil {
+		return nil, err
+	}
+	return enrichClientsWithHostMesh(clients, peers), nil
+}
+
+// optionalHostMeshPeers loads Self + Peer from the host tailscaled LocalAPI when
+// the socket exists. Missing socket (compose without host mount) skips enrichment;
+// any other Stat or LocalAPI error fails the request.
+func optionalHostMeshPeers() ([]hostMeshPeer, error) {
+	if _, err := os.Stat(hostTailscaledSock); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("host tailscaled socket: %w", err)
+	}
+	return readHostMeshPeers()
 }
 
 // parseHeadscaleNodes decodes a JSON array from `headscale nodes list -o json`.
@@ -347,6 +369,143 @@ func parseHeadscaleNodes(out []byte) ([]headscaleNode, error) {
 		return nil, fmt.Errorf("parse nodes: %w", err)
 	}
 	return nodes, nil
+}
+
+const hostTailscaledSock = "/var/run/tailscale/tailscaled.sock"
+
+type hostMeshPeer struct {
+	HostName     string
+	Online       bool
+	Active       bool
+	TailscaleIPs []string
+	LastSeen     string
+}
+
+// enrichClientsWithHostMesh marks a client online when the host data plane still
+// has an active or online peer (or self), and fills missing IPs/last_seen.
+func enrichClientsWithHostMesh(clients []meshClient, peers []hostMeshPeer) []meshClient {
+	if len(peers) == 0 {
+		return clients
+	}
+	byName := make(map[string]hostMeshPeer, len(peers))
+	for _, p := range peers {
+		byName[strings.ToLower(p.HostName)] = p
+	}
+	seen := make(map[string]struct{}, len(clients))
+	for i := range clients {
+		key := strings.ToLower(clients[i].NodeName)
+		seen[key] = struct{}{}
+		p, ok := byName[key]
+		if !ok {
+			continue
+		}
+		if p.Online || p.Active {
+			clients[i].Online = true
+		}
+		if len(clients[i].IPAddresses) == 0 && len(p.TailscaleIPs) > 0 {
+			clients[i].IPAddresses = append([]string{}, p.TailscaleIPs...)
+		}
+		if clients[i].LastSeen == nil && p.LastSeen != "" && p.LastSeen != "0001-01-01T00:00:00Z" {
+			ls := p.LastSeen
+			clients[i].LastSeen = &ls
+		}
+	}
+	for _, p := range peers {
+		key := strings.ToLower(p.HostName)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		var lastSeen *string
+		if p.LastSeen != "" && p.LastSeen != "0001-01-01T00:00:00Z" {
+			ls := p.LastSeen
+			lastSeen = &ls
+		}
+		ips := p.TailscaleIPs
+		if ips == nil {
+			ips = []string{}
+		}
+		clients = append(clients, meshClient{
+			NodeName:    p.HostName,
+			Online:      p.Online || p.Active,
+			LastSeen:    lastSeen,
+			IPAddresses: ips,
+		})
+	}
+	sort.SliceStable(clients, func(i, j int) bool {
+		return clients[i].NodeName < clients[j].NodeName
+	})
+	return clients
+}
+
+// readHostMeshPeers loads Self + Peer entries from the host tailscaled LocalAPI.
+func readHostMeshPeers() ([]hostMeshPeer, error) {
+	client := &http.Client{
+		Timeout: 3 * time.Second,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, "unix", hostTailscaledSock)
+			},
+		},
+	}
+	req, err := http.NewRequest(http.MethodGet, "http://local-tailscaled.sock/localapi/v0/status", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("localapi status %d", resp.StatusCode)
+	}
+	var payload struct {
+		Self *struct {
+			HostName     string   `json:"HostName"`
+			Online       bool     `json:"Online"`
+			Active       bool     `json:"Active"`
+			TailscaleIPs []string `json:"TailscaleIPs"`
+			LastSeen     string   `json:"LastSeen"`
+		} `json:"Self"`
+		Peer map[string]struct {
+			HostName     string   `json:"HostName"`
+			Online       bool     `json:"Online"`
+			Active       bool     `json:"Active"`
+			TailscaleIPs []string `json:"TailscaleIPs"`
+			LastSeen     string   `json:"LastSeen"`
+		} `json:"Peer"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	out := make([]hostMeshPeer, 0, 1+len(payload.Peer))
+	if payload.Self != nil && strings.TrimSpace(payload.Self.HostName) != "" {
+		// Appliance self: LocalAPI answered, so treat Active as on-mesh regardless of Online.
+		out = append(out, hostMeshPeer{
+			HostName:     payload.Self.HostName,
+			Online:       payload.Self.Online,
+			Active:       true,
+			TailscaleIPs: payload.Self.TailscaleIPs,
+			LastSeen:     payload.Self.LastSeen,
+		})
+	}
+	for _, p := range payload.Peer {
+		if strings.TrimSpace(p.HostName) == "" {
+			continue
+		}
+		out = append(out, hostMeshPeer{
+			HostName:     p.HostName,
+			Online:       p.Online,
+			Active:       p.Active,
+			TailscaleIPs: p.TailscaleIPs,
+			LastSeen:     p.LastSeen,
+		})
+	}
+	return out, nil
 }
 
 type statusResponse struct {
