@@ -278,7 +278,7 @@ func (l *lineLogger) String() string {
 	return l.buf.String()
 }
 
-// startDetached starts name under setsid. When asDadi is true and runUID is set,
+// startDetached starts name in its own session. When asDadi is true and runUID is set,
 // the process runs as dadi via runuser; otherwise it keeps the current user (Xvfb).
 func (b *browserHost) startDetached(
 	browserID int,
@@ -295,8 +295,8 @@ func (b *browserHost) startDetached(
 		cmd = exec.Command("runuser", full...)
 	} else {
 		cmd = exec.Command(name, args...)
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
