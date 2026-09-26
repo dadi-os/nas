@@ -7,7 +7,7 @@ Wants=dadi-seed.service dwar.service yaad.service dimaag.service ghar.service ch
 Type=simple
 Environment=XDG_DATA_HOME=/var/lib
 ExecStartPre=/usr/bin/mkdir -p /var/lib/caddy
-ExecStart=/usr/local/bin/caddy run --config /etc/dadi/Caddyfile --adapter caddyfile
+ExecStart=/usr/bin/caddy run --config /etc/dadi/Caddyfile --adapter caddyfile
 Restart=always
 RestartSec=2
 

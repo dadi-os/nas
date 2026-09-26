@@ -6,7 +6,7 @@ Wants=loki.service
 [Service]
 Type=simple
 ExecStartPre=/usr/bin/mkdir -p /var/lib/alloy/data
-ExecStart=/usr/local/bin/alloy run --server.http.listen-addr=127.0.0.1:12345 --storage.path=/var/lib/alloy/data /etc/dadi/config.alloy
+ExecStart=/usr/bin/alloy run --server.http.listen-addr=127.0.0.1:12345 --storage.path=/var/lib/alloy/data /etc/dadi/config.alloy
 Restart=always
 RestartSec=2
 

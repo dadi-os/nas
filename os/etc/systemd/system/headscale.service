@@ -6,7 +6,7 @@ Wants=network-online.target dadi-seed.service
 [Service]
 Type=simple
 ExecStartPre=/usr/bin/mkdir -p /var/lib/headscale /run/headscale
-ExecStart=/usr/local/bin/headscale serve -c /var/lib/dadi/headscale/config.yaml
+ExecStart=/usr/bin/headscale serve -c /var/lib/dadi/headscale/config.yaml
 Restart=always
 RestartSec=2
 

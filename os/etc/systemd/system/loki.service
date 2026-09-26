@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStartPre=/usr/bin/mkdir -p /var/lib/loki/chunks /var/lib/loki/rules /var/lib/loki/compactor
-ExecStart=/usr/local/bin/loki -config.file=/etc/dadi/loki-config.yaml
+ExecStart=/usr/bin/loki -config.file=/etc/dadi/loki-config.yaml
 Restart=always
 RestartSec=2
 

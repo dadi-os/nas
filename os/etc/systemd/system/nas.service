@@ -11,7 +11,7 @@ Environment=LISTEN_ADDR=127.0.0.1:8092
 Environment=LOKI_URL=http://127.0.0.1:3100
 Environment=DADI_STATE_DIR=/var/lib/dadi
 Environment=DADI_RUNTIME=podman
-ExecStart=/usr/local/bin/nas
+ExecStart=/usr/bin/nas
 Restart=always
 RestartSec=2
 
