@@ -214,10 +214,12 @@ curl -sG 'http://nas.dadi/logs' \
 
 | Runtime | `modules` | `os` / `all` |
 | --- | --- | --- |
-| podman | `podman auto-update` | `bootc upgrade` (sets `reboot_required` when staged; does not reboot) |
+| podman | `podman auto-update` | `bootc upgrade`, then reboot when a deployment is staged |
 | compose | `compose pull` + `up -d` | `400 invalid_request` |
 
-Response: `{ "status": "ok", "scope": "...", "reboot_required": bool }`.
+The run happens in the background: `202` returns the run immediately (`{ "state": "running", "scope", "started_at", "reboot_required": false }`), so callers aren't cut off when `podman auto-update` restarts Dimaag. A second request while one is running gets `409 busy`. When the run stages a new bootc deployment, Nas runs `systemctl reboot` itself.
+
+`GET /pull_updates` returns the latest run: `state` is `idle`, `running`, `succeeded`, `rebooting`, or `failed`, plus `scope`, `started_at`, `finished_at`, `reboot_required`, and `error`. It lives in Nas memory and resets to `idle` when Nas restarts.
 
 On the appliance, `/usr/bin/dadi` is a Nas-built Go CLI that talks to Dimaag’s grantable tool registry. It requires `DIMAAG_URL` (login shells export `http://127.0.0.1:8083` via `/etc/profile.d/dadi-cli.sh`) and exactly one caller identity on execute: `--as-agent-id <kebab-id>`, `--as-dadi`, or `--as-user`. Flag values that look like JSON arrays or objects are parsed as such. Examples: `dadi help`, `dadi agents`, `dadi nas_get_logs --as-user --level error`, `dadi dimaag_spawn_agent --as-dadi --id finance-specialist --system_prompt "…"`, `dadi ghar_control_device --as-agent-id automation-specialist --device_id <uuid> --capability switchable --params '{"state":"on"}'`. Tab completion lists live tools, agent ids for `--as-agent-id`, and `--` parameters. When a stale `~/.local/bin/dadi` would shadow the appliance binary, profile/bashrc put `/usr/bin` ahead on `PATH`.
 

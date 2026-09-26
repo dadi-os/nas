@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -268,6 +269,108 @@ func TestPullUpdatesComposeRejectsOS(t *testing.T) {
 			t.Fatalf("scope %s type %s", scope, payload.Error.Type)
 		}
 	}
+}
+
+func TestPullUpdatesStatusIdleBeforeRun(t *testing.T) {
+	dir := t.TempDir()
+	s := stateConfig{dir: dir, runtime: "compose", composeDir: dir}
+	mux := http.NewServeMux()
+	registerConfigRoutes(mux, s)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pull_updates", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	}
+	var run updateRun
+	if err := json.NewDecoder(rec.Body).Decode(&run); err != nil {
+		t.Fatal(err)
+	}
+	if run.State != "idle" {
+		t.Fatalf("state %s", run.State)
+	}
+}
+
+func TestUpdaterRunsInBackgroundOneAtATime(t *testing.T) {
+	release := make(chan struct{})
+	u := &updater{
+		run: func(string) (bool, error) {
+			<-release
+			return false, nil
+		},
+		reboot: func() error { t.Error("reboot called without reboot_required"); return nil },
+		last:   updateRun{State: "idle"},
+	}
+
+	first, started := u.start("modules")
+	if !started || first.State != "running" || first.Scope != "modules" || first.StartedAt == "" {
+		t.Fatalf("first %+v started %v", first, started)
+	}
+	busy, started := u.start("all")
+	if started || busy.Scope != "modules" {
+		t.Fatalf("second start %+v started %v", busy, started)
+	}
+
+	close(release)
+	final := awaitState(t, u, "succeeded")
+	if final.RebootRequired || final.FinishedAt == "" || final.Error != "" {
+		t.Fatalf("final %+v", final)
+	}
+	if _, started := u.start("modules"); !started {
+		t.Fatal("start after finish refused")
+	}
+}
+
+func TestUpdaterRebootsWhenRequired(t *testing.T) {
+	rebooted := make(chan struct{}, 1)
+	u := &updater{
+		run:    func(string) (bool, error) { return true, nil },
+		reboot: func() error { rebooted <- struct{}{}; return nil },
+		last:   updateRun{State: "idle"},
+	}
+	u.start("all")
+	<-rebooted
+	final := awaitState(t, u, "rebooting")
+	if !final.RebootRequired || final.Error != "" {
+		t.Fatalf("final %+v", final)
+	}
+}
+
+func TestUpdaterRecordsFailure(t *testing.T) {
+	u := &updater{
+		run:    func(string) (bool, error) { return false, errors.New("podman auto-update: exit status 1") },
+		reboot: func() error { t.Error("reboot called after failed run"); return nil },
+		last:   updateRun{State: "idle"},
+	}
+	u.start("modules")
+	final := awaitState(t, u, "failed")
+	if !strings.Contains(final.Error, "auto-update") {
+		t.Fatalf("final %+v", final)
+	}
+
+	u = &updater{
+		run:    func(string) (bool, error) { return true, nil },
+		reboot: func() error { return errors.New("systemctl reboot: exit status 1") },
+		last:   updateRun{State: "idle"},
+	}
+	u.start("os")
+	final = awaitState(t, u, "failed")
+	if !final.RebootRequired || !strings.HasPrefix(final.Error, "reboot: ") {
+		t.Fatalf("final %+v", final)
+	}
+}
+
+func awaitState(t *testing.T, u *updater, want string) updateRun {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if run := u.snapshot(); run.State == want {
+			return run
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("update run never reached %s: %+v", want, u.snapshot())
+	return updateRun{}
 }
 
 func TestParseHeadscaleNodesArray(t *testing.T) {

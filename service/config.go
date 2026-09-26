@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Dwar (provider keys) and Chaavi (BW_*) have user-editable secrets.
@@ -89,6 +91,12 @@ func (s stateConfig) dwarConfigPath() string {
 }
 
 func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
+	updates := &updater{
+		run:    s.pullUpdates,
+		reboot: func() error { return runCmd("systemctl", "reboot") },
+		last:   updateRun{State: "idle"},
+	}
+
 	mux.HandleFunc("GET /modules/{name}/env", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if _, ok := moduleEnvNames[name]; !ok {
@@ -207,20 +215,20 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "scope must be modules, os, or all")
 			return
 		}
-		rebootRequired, err := s.pullUpdates(scope)
-		if err != nil {
-			if strings.Contains(err.Error(), "not available under compose") {
-				writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, err.Error())
-				return
-			}
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+		if s.runtime == "compose" && scope != "modules" {
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "bootc upgrade not available under compose")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"status":          "ok",
-			"scope":           scope,
-			"reboot_required": rebootRequired,
-		})
+		run, started := updates.start(scope)
+		if !started {
+			writeError(w, r, http.StatusConflict, CodeBusy, "an update is already running (scope "+run.Scope+")")
+			return
+		}
+		writeJSON(w, http.StatusAccepted, run)
+	})
+
+	mux.HandleFunc("GET /pull_updates", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, updates.snapshot())
 	})
 
 	mux.HandleFunc("GET /headscale/publish", func(w http.ResponseWriter, r *http.Request) {
@@ -316,14 +324,85 @@ func (s stateConfig) stackDown() error {
 	}
 }
 
-// pullUpdates applies module and/or OS updates. scope must be modules, os, or all.
-// Returns whether a reboot is required (bootc staged a new deployment). Does not reboot.
+// updateRun is the most recent pull_updates run. State is idle (never run), running,
+// succeeded, rebooting (a staged OS deployment is being booted into), or failed.
+type updateRun struct {
+	State          string `json:"state"`
+	Scope          string `json:"scope,omitempty"`
+	StartedAt      string `json:"started_at,omitempty"`
+	FinishedAt     string `json:"finished_at,omitempty"`
+	RebootRequired bool   `json:"reboot_required"`
+	Error          string `json:"error,omitempty"`
+}
+
+// updater runs pull_updates in the background so callers are not tied to modules
+// (Dimaag included) that podman auto-update restarts mid-run. One run at a time.
+// When run reports a reboot is required, reboot is called after the run settles.
+type updater struct {
+	run    func(scope string) (bool, error)
+	reboot func() error
+	mu     sync.Mutex
+	last   updateRun
+}
+
+// start launches a run for scope and returns it. When a run is already in flight it
+// returns that run and false.
+func (u *updater) start(scope string) (updateRun, bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.last.State == "running" {
+		return u.last, false
+	}
+	u.last = updateRun{State: "running", Scope: scope, StartedAt: time.Now().UTC().Format(time.RFC3339)}
+	go u.finish(scope)
+	return u.last, true
+}
+
+func (u *updater) finish(scope string) {
+	rebootRequired, err := u.run(scope)
+	u.settle(rebootRequired, err)
+	if err != nil {
+		slog.Error("pull_updates failed", "code", CodeInternal, "scope", scope, "err", err)
+		return
+	}
+	slog.Info("pull_updates succeeded", "scope", scope, "reboot_required", rebootRequired)
+	if !rebootRequired {
+		return
+	}
+	if err := u.reboot(); err != nil {
+		u.settle(true, fmt.Errorf("reboot: %w", err))
+		slog.Error("pull_updates reboot failed", "code", CodeInternal, "scope", scope, "err", err)
+	}
+}
+
+func (u *updater) settle(rebootRequired bool, err error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.last.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+	u.last.RebootRequired = rebootRequired
+	switch {
+	case err != nil:
+		u.last.State = "failed"
+		u.last.Error = err.Error()
+	case rebootRequired:
+		u.last.State = "rebooting"
+	default:
+		u.last.State = "succeeded"
+	}
+}
+
+func (u *updater) snapshot() updateRun {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.last
+}
+
+// pullUpdates applies module and/or OS updates. scope must be modules, os, or all
+// (compose supports modules only). Returns whether a reboot is required (bootc staged
+// a new deployment). Does not reboot.
 func (s stateConfig) pullUpdates(scope string) (rebootRequired bool, err error) {
 	switch s.runtime {
 	case "compose":
-		if scope == "os" || scope == "all" {
-			return false, fmt.Errorf("bootc upgrade not available under compose")
-		}
 		if err := s.composeCmd("pull"); err != nil {
 			return false, err
 		}
