@@ -178,7 +178,7 @@ Each browser is a headed Chromium on its own Xvfb display (not headless, not a V
 | CDP port | `9300 + n` (loopback only) |
 | Profile dir | `$DADI_STATE_DIR/browsers/<n>` — created on first spawn, **never deleted by Nas** (cookies/logins survive kill + reboot when the id is reused) |
 
-`POST /browsers` takes `{ "id"?: number }`. With no `id`, Nas picks the lowest `n >= 10` whose `/tmp/.X11-unix/X<n>` is absent, whose CDP port is free, and whose profile directory is missing or holds only Chromium singleton locks — a fresh login. With `id`, Nas starts that display when it is down and opens the existing profile, so cookies and logins from the last time that id ran are still there. `conflict` if that id is already running; `invalid_request` if `id < 10`. Spawns Xvfb as root (so it can bind `/tmp/.X11-unix`), then Chromium as `dadi` on the appliance (`DADI_RUNTIME=podman`) — Chromium refuses to run as root without `--no-sandbox`. Compose/dev keeps the current process user and adds `--no-sandbox` / `--disable-dev-shm-usage` because those hosts disable user namespaces. Window size 1920×1080; profile under `--user-data-dir` (and `HOME`). Both processes use `setsid` so a Nas restart does not take them down. Stderr is logged under the `nas` service with `browser=<n>`.
+`POST /browsers` takes `{ "id"?: number }`. With no `id`, Nas picks the lowest `n >= 10` whose `/tmp/.X11-unix/X<n>` is absent, whose CDP port is free, and whose profile directory is missing or holds only Chromium singleton locks — a fresh login. With `id`, Nas starts that display when it is down and opens the existing profile, so cookies and logins from the last time that id ran are still there. `conflict` if that id is already running; `invalid_request` if `id < 10`. Spawns Xvfb as root (so it can bind `/tmp/.X11-unix`), then Chromium as `dadi` on the appliance (`DADI_RUNTIME=podman`) — Chromium refuses to run as root without `--no-sandbox`. Compose/dev keeps the current process user and adds `--no-sandbox` / `--disable-dev-shm-usage` because those hosts disable user namespaces. Window size 1920×1080; profile under `--user-data-dir` (and `HOME`). Both processes use `setsid` so a Nas restart does not take them down. On the appliance each process runs in a transient scope under `dadi-browsers.slice` (`MemoryHigh=40%`, `MemoryMax=50%`), outside `nas.service`: browsers are capped as one pool, and when they hit the cap the kernel kills a browser, never a Dadi module. Stderr is logged under the `nas` service with `browser=<n>`.
 
 | Method | Path | Success | Errors |
 | --- | --- | --- | --- |
@@ -235,6 +235,8 @@ On the appliance, `/usr/bin/dadi` is a Nas-built Go CLI that talks to Dimaag’s
 | `caddy` | host systemd | `:80` mesh Host-header; `:443` public Headscale |
 | `nas` | host systemd | control API on `127.0.0.1:8092` |
 | `loki` / `alloy` | host systemd | logs |
+| `dadi-browsers.slice` | host slice | transient scopes for nas-spawned Xvfb + Chromium; `MemoryHigh=40%`, `MemoryMax=50%` |
+| `zram0` | host swap | `zram-generator`, size = RAM, zstd; there is no disk swap |
 | `sddm` + Plasma | host graphical | `sddm-wayland-plasma`; autologin `dadi`; no locker; bone glass desktop |
 | `dwar` / `yaad` / `dimaag` / `ghar` / `chaavi` (+ postgres / migrate / `chaavi-vault`) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8086` (`ghar` uses `Network=host`, binds loopback; Chaavi adapter `8085`, Vaultwarden `8086`) |
 

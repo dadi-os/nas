@@ -1,0 +1,6 @@
+[Unit]
+Description=Nas-managed Chromium and Xvfb, capped so the kernel kills a browser before any Dadi module
+
+[Slice]
+MemoryHigh=40%
+MemoryMax=50%

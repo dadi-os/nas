@@ -280,6 +280,8 @@ func (l *lineLogger) String() string {
 
 // startDetached starts name in its own session. When asDadi is true and runUID is set,
 // the process runs as dadi via runuser; otherwise it keeps the current user (Xvfb).
+// On the appliance (podman runtime) it runs in a transient scope under dadi-browsers.slice,
+// so browser memory is capped apart from nas.service and an OOM kills a browser, not a module.
 func (b *browserHost) startDetached(
 	browserID int,
 	procName string,
@@ -289,13 +291,14 @@ func (b *browserHost) startDetached(
 	asDadi bool,
 ) (*exec.Cmd, *lineLogger, error) {
 	log := &lineLogger{browser: browserID, proc: procName}
-	var cmd *exec.Cmd
+	argv := append([]string{name}, args...)
 	if asDadi && b.runUID >= 0 {
-		full := append([]string{"-u", dadiUsername, "--", "setsid", name}, args...)
-		cmd = exec.Command("runuser", full...)
-	} else {
-		cmd = exec.Command(name, args...)
+		argv = append([]string{"runuser", "-u", dadiUsername, "--", "setsid"}, argv...)
 	}
+	if b.host.runtime == "podman" {
+		argv = append([]string{"systemd-run", "--scope", "--quiet", "--collect", "--slice=dadi-browsers.slice", "--"}, argv...)
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)

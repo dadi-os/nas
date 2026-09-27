@@ -440,22 +440,25 @@ func enrichClientsWithHostMesh(clients []meshClient, peers []hostMeshPeer) []mes
 	return clients
 }
 
+// hostTailscaledClient is the one LocalAPI client for the process. A Transport per call
+// leaves its keep-alive connection open forever, leaking a socket in both Nas and tailscaled.
+var hostTailscaledClient = &http.Client{
+	Timeout: 3 * time.Second,
+	Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", hostTailscaledSock)
+		},
+	},
+}
+
 // readHostMeshPeers loads Self + Peer entries from the host tailscaled LocalAPI.
 func readHostMeshPeers() ([]hostMeshPeer, error) {
-	client := &http.Client{
-		Timeout: 3 * time.Second,
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				var d net.Dialer
-				return d.DialContext(ctx, "unix", hostTailscaledSock)
-			},
-		},
-	}
 	req, err := http.NewRequest(http.MethodGet, "http://local-tailscaled.sock/localapi/v0/status", nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.Do(req)
+	resp, err := hostTailscaledClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

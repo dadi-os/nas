@@ -23,6 +23,7 @@ PlasmoidItem {
         property var clients: []
         property var errors: []
         property bool statusReachable: false
+        property bool refreshing: false
 
         readonly property var moduleOrder: ["dwar", "yaad", "dimaag", "ghar", "chaavi", "nas", "hath"]
 
@@ -174,13 +175,18 @@ PlasmoidItem {
         }
 
         function refresh() {
+            if (frame.refreshing)
+                return
+            frame.refreshing = true
             let statusDone = false
             let clientsDone = false
             let logsDone = false
 
             function finishPiece() {
-                if (statusDone && clientsDone && logsDone)
+                if (statusDone && clientsDone && logsDone) {
+                    frame.refreshing = false
                     frame.updateChrome()
+                }
             }
 
             const st = new XMLHttpRequest()
