@@ -66,10 +66,10 @@ func TestCompleteLine(t *testing.T) {
 		t.Fatalf("top-level: %v", got)
 	}
 	got = completeLine("dadi nas_get_logs --")
-	if !containsAll(got, []string{"--as-agent-id", "--as-dadi", "--as-user", "--level", "--services"}) {
+	if !containsAll(got, []string{"--as-agent", "--as-router", "--level", "--services"}) {
 		t.Fatalf("flags: %v", got)
 	}
-	got = completeLine("dadi nas_get_logs --as-agent-id ")
+	got = completeLine("dadi nas_get_logs --as-agent ")
 	if !containsAll(got, []string{
 		"coding-manager",
 		"coding-worker-one",
@@ -119,7 +119,7 @@ func TestHelpAndExecute(t *testing.T) {
 	if !strings.Contains(text, "nas_get_logs") || !strings.Contains(text, "browser_spawn") {
 		t.Fatalf("help: %s", out)
 	}
-	if !strings.Contains(text, "dadi agents") || !strings.Contains(text, "--as-dadi") {
+	if !strings.Contains(text, "dadi agents") || !strings.Contains(text, "--as-router") {
 		t.Fatalf("help identity: %s", out)
 	}
 
@@ -128,7 +128,7 @@ func TestHelpAndExecute(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Stdout = w
-	if err := run([]string{"nas_get_logs", "--as-agent-id", "coding-manager", "--level", "error"}); err != nil {
+	if err := run([]string{"nas_get_logs", "--as-agent", "coding-manager", "--level", "error"}); err != nil {
 		os.Stdout = old
 		t.Fatal(err)
 	}
@@ -146,33 +146,19 @@ func TestHelpAndExecute(t *testing.T) {
 	}
 }
 
-func TestExecuteAsDadi(t *testing.T) {
+func TestExecuteAsRouter(t *testing.T) {
 	f := newToolFixture(t)
-	if err := run([]string{"nas_get_logs", "--as-dadi", "--level", "error"}); err != nil {
+	if err := run([]string{"nas_get_logs", "--as-router", "--level", "error"}); err != nil {
 		t.Fatal(err)
 	}
-	if f.lastExecute["as_agent_id"] != "dadi" {
+	if f.lastExecute["as_agent_id"] != "router" {
 		t.Fatalf("as_agent_id %+v", f.lastExecute)
 	}
 }
 
-func TestExecuteAsUser(t *testing.T) {
-	f := newToolFixture(t)
-	if err := run([]string{"nas_get_logs", "--as-user", "--level", "error"}); err != nil {
-		t.Fatal(err)
-	}
-	if f.lastExecute["as_agent_id"] != "user" {
-		t.Fatalf("as_agent_id %+v", f.lastExecute)
-	}
-}
-
-func TestExecuteRejectsMultipleIdentityFlags(t *testing.T) {
+func TestExecuteRejectsBothIdentityFlags(t *testing.T) {
 	_ = newToolFixture(t)
-	err := run([]string{"nas_get_logs", "--as-dadi", "--as-agent-id", "coding-manager"})
-	if err == nil || !strings.Contains(err.Error(), "pass only one") {
-		t.Fatalf("got %v", err)
-	}
-	err = run([]string{"nas_get_logs", "--as-user", "--as-dadi"})
+	err := run([]string{"nas_get_logs", "--as-router", "--as-agent", "coding-manager"})
 	if err == nil || !strings.Contains(err.Error(), "pass only one") {
 		t.Fatalf("got %v", err)
 	}
@@ -186,11 +172,16 @@ func TestMissingTool(t *testing.T) {
 	}
 }
 
-func TestExecuteRequiresCallerIdentity(t *testing.T) {
-	_ = newToolFixture(t)
-	err := run([]string{"nas_get_logs", "--level", "error"})
-	if err == nil || !strings.Contains(err.Error(), "--as-dadi") || !strings.Contains(err.Error(), "--as-user") {
-		t.Fatalf("got %v", err)
+func TestExecuteWithoutIdentityRunsAsUser(t *testing.T) {
+	f := newToolFixture(t)
+	if err := run([]string{"nas_get_logs", "--level", "error"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := f.lastExecute["as_agent_id"]; present {
+		t.Fatalf("as_agent_id should be omitted: %+v", f.lastExecute)
+	}
+	if f.lastExecute["level"] != "error" {
+		t.Fatalf("input %+v", f.lastExecute)
 	}
 }
 
@@ -239,7 +230,6 @@ func TestParseFlagsCoerceJSON(t *testing.T) {
 	f := newToolFixture(t)
 	if err := run([]string{
 		"nas_get_logs",
-		"--as-dadi",
 		"--keys", `["C-c"]`,
 		"--params", `{"state":"on"}`,
 	}); err != nil {

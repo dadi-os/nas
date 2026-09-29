@@ -61,13 +61,13 @@ func completeWords(prev []string, current string) []string {
 		return nil
 	}
 	flags, enums := schemaFlags(detail.InputSchema)
-	flags = append([]string{"--as-agent-id", "--as-dadi", "--as-user"}, flags...)
+	flags = append([]string{"--as-agent", "--as-router"}, flags...)
 	sort.Strings(flags)
 	if len(prev) > 1 {
 		last := prev[len(prev)-1]
 		if strings.HasPrefix(last, "--") {
 			key := strings.TrimPrefix(last, "--")
-			if key == "as-agent-id" || key == "as_agent_id" {
+			if key == "as-agent" || key == "as_agent" {
 				return filterPrefix(agentIDs(), current)
 			}
 			if vals, ok := enums[key]; ok {

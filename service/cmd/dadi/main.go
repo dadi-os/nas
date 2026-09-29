@@ -127,11 +127,11 @@ func cmdHelp(name string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("dadi <tool> (--as-agent-id <id> | --as-dadi | --as-user) [--key value …]")
+		fmt.Println("dadi <tool> [--as-agent <id> | --as-router] [--key value …]")
 		fmt.Println("dadi agents")
 		fmt.Println("dadi help [tool]")
 		fmt.Println()
-		fmt.Println("Execute requires one caller identity: --as-agent-id <kebab-id>, --as-dadi, or --as-user.")
+		fmt.Println("Runs as you (any tool, no grant check) unless --as-agent <kebab-id> or --as-router is given.")
 		fmt.Println()
 		for _, t := range list {
 			fmt.Printf("  %s\n    %s\n", t.Name, t.Description)
@@ -145,10 +145,9 @@ func cmdHelp(name string) error {
 	fmt.Println(detail.Name)
 	fmt.Println(detail.Description)
 	fmt.Println("Parameters:")
-	fmt.Println("  --as-agent-id (string) — kebab-case agent id that holds the grant (see dadi agents)")
-	fmt.Println("  --as-dadi — act as Dadi (router authority tools only)")
-	fmt.Println("  --as-user — act as the human (any tool, no grant check)")
-	fmt.Println("  Exactly one of --as-agent-id, --as-dadi, or --as-user is required.")
+	fmt.Println("  --as-agent (string) — act as this kebab-case agent id; it must hold the grant (see dadi agents)")
+	fmt.Println("  --as-router — act as the router (router authority tools only)")
+	fmt.Println("  With neither, runs as you: any tool, no grant check.")
 	fmt.Print(formatSchema(detail.InputSchema))
 	return nil
 }
@@ -161,7 +160,9 @@ func cmdExecute(name string, input map[string]any) error {
 	if err != nil {
 		return err
 	}
-	input["as_agent_id"] = asAgentID
+	if asAgentID != "" {
+		input["as_agent_id"] = asAgentID
+	}
 	raw, err := api(http.MethodPost, "/tools/"+urlPath(name)+"/execute", input)
 	if err != nil {
 		return err
@@ -179,43 +180,23 @@ func cmdExecute(name string, input map[string]any) error {
 }
 
 // takeCallerIdentity removes identity flags from the flag map and returns as_agent_id for Dimaag.
+// An empty result means no flag was given: the call runs as the user.
 func takeCallerIdentity(input map[string]any) (string, error) {
-	asAgentID, hasAsAgentID, err := takeStringFlag(input, "as_agent_id", "as-agent-id")
+	asAgent, hasAsAgent, err := takeStringFlag(input, "as_agent", "as-agent")
 	if err != nil {
 		return "", err
 	}
-	hasAsDadi, err := takeBoolFlag(input, "as_dadi", "as-dadi")
+	hasAsRouter, err := takeBoolFlag(input, "as_router", "as-router")
 	if err != nil {
 		return "", err
 	}
-	hasAsUser, err := takeBoolFlag(input, "as_user", "as-user")
-	if err != nil {
-		return "", err
+	if hasAsAgent && hasAsRouter {
+		return "", fmt.Errorf("pass only one of --as-agent and --as-router")
 	}
-
-	n := 0
-	if hasAsAgentID {
-		n++
+	if hasAsRouter {
+		return "router", nil
 	}
-	if hasAsDadi {
-		n++
-	}
-	if hasAsUser {
-		n++
-	}
-	if n > 1 {
-		return "", fmt.Errorf("pass only one of --as-agent-id, --as-dadi, and --as-user")
-	}
-	if n == 0 {
-		return "", fmt.Errorf("one of --as-agent-id <kebab-id>, --as-dadi, or --as-user is required")
-	}
-	if hasAsDadi {
-		return "dadi", nil
-	}
-	if hasAsUser {
-		return "user", nil
-	}
-	return asAgentID, nil
+	return asAgent, nil
 }
 
 func takeStringFlag(input map[string]any, keys ...string) (value string, ok bool, err error) {
