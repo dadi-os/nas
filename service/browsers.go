@@ -589,16 +589,21 @@ func (b *browserHost) requireDisplay(w http.ResponseWriter, r *http.Request, id 
 	return true
 }
 
+// handleDelete kills the browser if it is running and removes its profile, so a
+// deleted id comes back as a fresh login. A browser that died without a delete
+// (crash, host or Nas restart) keeps its profile and can be respawned by id.
 func (b *browserHost) handleDelete(w http.ResponseWriter, r *http.Request) {
 	id, ok := b.parseID(w, r)
 	if !ok {
 		return
 	}
-	if !b.processesExist(id) {
-		w.WriteHeader(http.StatusNoContent)
+	if b.processesExist(id) {
+		b.killBrowser(id)
+	}
+	if err := os.RemoveAll(b.profileDir(id)); err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 		return
 	}
-	b.killBrowser(id)
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -129,6 +129,9 @@ func TestBrowsersCreateListDelete(t *testing.T) {
 	if len(list) != 0 {
 		t.Fatalf("expected empty list, got %+v", list)
 	}
+	if _, err := os.Stat(bh.profileDir(10)); !os.IsNotExist(err) {
+		t.Fatalf("profile after delete: %v", err)
+	}
 }
 
 func TestBrowsersIDReuseAndProfile(t *testing.T) {
@@ -159,14 +162,7 @@ func TestBrowsersIDReuseAndProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, _ = doJSON(t, mux, http.MethodDelete, "/browsers/10", nil)
-	if code != http.StatusNoContent {
-		t.Fatalf("delete %d", code)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) && bh.processesExist(10) {
-		time.Sleep(100 * time.Millisecond)
-	}
+	bh.killBrowser(10)
 
 	code, body = doJSON(t, mux, http.MethodPost, "/browsers", map[string]any{})
 	if code != http.StatusOK {
@@ -210,6 +206,44 @@ func TestBrowsersIDReuseAndProfile(t *testing.T) {
 	code, body = doJSON(t, mux, http.MethodPost, "/browsers", map[string]any{"id": 3})
 	if code != http.StatusBadRequest {
 		t.Fatalf("low id status %d %s", code, body)
+	}
+}
+
+func TestBrowserDeleteStoppedRemovesProfile(t *testing.T) {
+	dir := t.TempDir()
+	state := stateConfig{dir: dir, runtime: "compose"}
+	host, err := newHostRuntime(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bh := newBrowserHost(host)
+	if bh.processesExist(10) {
+		t.Skip("display 10 is in use")
+	}
+	mux := http.NewServeMux()
+	bh.register(mux)
+
+	profile := bh.profileDir(10)
+	if err := os.MkdirAll(filepath.Join(profile, "Default"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile, "Default", "Cookies"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, body := doJSON(t, mux, http.MethodDelete, "/browsers/10", nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("delete %d %s", code, body)
+	}
+	if _, err := os.Stat(profile); !os.IsNotExist(err) {
+		t.Fatalf("profile after delete: %v", err)
+	}
+	id, err := bh.nextFreshID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != 10 {
+		t.Fatalf("deleted id should be fresh again, got %d", id)
 	}
 }
 
