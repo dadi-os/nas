@@ -80,9 +80,9 @@ func TestParseLokiRangeNewestFirstAcrossStreams(t *testing.T) {
 					]
 				},
 				{
-					"stream": {"service": "dimaag"},
+					"stream": {"service": "hath"},
 					"values": [
-						["1700000002000000000", "{\"time\":\"2024-01-01T00:00:02Z\",\"level\":\"error\",\"service\":\"dimaag\",\"msg\":\"newer\"}"]
+						["1700000002000000000", "{\"time\":\"2024-01-01T00:00:02Z\",\"level\":\"error\",\"service\":\"hath\",\"msg\":\"newer\"}"]
 					]
 				}
 			]
@@ -130,8 +130,8 @@ func TestKnownLogServicesIncludesChaavi(t *testing.T) {
 }
 
 func TestMergeLogServicesUnionsAndSorts(t *testing.T) {
-	got := mergeLogServices([]string{"yaad", "nas", "chaavi"}, []string{"caddy", "yaad", "hath"})
-	want := []string{"caddy", "chaavi", "hath", "nas", "yaad"}
+	got := mergeLogServices([]string{"yaad", "nas", "chaavi"}, []string{"caddy", "yaad", "thaali"})
+	want := []string{"caddy", "chaavi", "nas", "thaali", "yaad"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v", got)
 	}

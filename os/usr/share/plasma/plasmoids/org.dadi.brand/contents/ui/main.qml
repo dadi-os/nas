@@ -136,7 +136,7 @@ PlasmoidItem {
                     Layout.alignment: Qt.AlignHCenter
                 }
                 Text {
-                    text: "Hath lives on other devices. This machine is the OS."
+                    text: "The dadi apps live on your other devices. This machine is the OS."
                     color: "#8a8e87"
                     font.pixelSize: 12
                     wrapMode: Text.WordWrap

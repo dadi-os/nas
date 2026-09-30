@@ -7,8 +7,8 @@ if [ -x /var/lib/dadi/bin/dadi ]; then
 elif [ -x "${HOME}/.local/bin/dadi" ] && [ -x /usr/bin/dadi ]; then
   PATH="/usr/bin:${PATH}"
 fi
-# Host CLI talks to Dimaag on the appliance loopback publish port.
-export DIMAAG_URL=http://127.0.0.1:8083
+# Host CLI talks to Hath on the appliance loopback publish port.
+export HATH_URL=http://127.0.0.1:8083
 if [ -n "${BASH_VERSION-}" ] && [ -n "${PS1-}" ]; then
   _dadi_bin="$(command -v dadi 2>/dev/null)" || true
   if [ -n "${_dadi_bin}" ]; then

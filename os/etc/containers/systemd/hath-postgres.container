@@ -5,13 +5,13 @@ Requires=dadi-seed.service
 [Container]
 Image=docker.io/library/postgres:18
 
-ContainerName=dimaag-postgres
+ContainerName=hath-postgres
 Network=dadi.network
-Environment=POSTGRES_USER=dimaag
-Environment=POSTGRES_DB=dimaag
-Environment=POSTGRES_PASSWORD=dimaag
-Volume=dimaag_pg.volume:/var/lib/postgresql
-HealthCmd=pg_isready -U dimaag -d dimaag
+Environment=POSTGRES_USER=hath
+Environment=POSTGRES_DB=hath
+Environment=POSTGRES_PASSWORD=hath
+Volume=hath_pg.volume:/var/lib/postgresql
+HealthCmd=pg_isready -U hath -d hath
 HealthInterval=2s
 HealthTimeout=5s
 HealthRetries=20

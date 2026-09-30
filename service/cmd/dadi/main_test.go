@@ -50,7 +50,7 @@ func newToolFixture(t *testing.T) *toolFixture {
 		}
 	}))
 	t.Cleanup(f.server.Close)
-	dimaagBase = f.server.URL
+	hathBase = f.server.URL
 	return f
 }
 
@@ -260,17 +260,17 @@ func TestParseFlagsCoerceJSON(t *testing.T) {
 	}
 }
 
-func TestLoadDimaagBaseRequiresEnv(t *testing.T) {
-	t.Setenv("DIMAAG_URL", "")
-	if _, err := loadDimaagBase(); err == nil {
+func TestLoadHathBaseRequiresEnv(t *testing.T) {
+	t.Setenv("HATH_URL", "")
+	if _, err := loadHathBase(); err == nil {
 		t.Fatal("expected error")
 	}
-	t.Setenv("DIMAAG_URL", " http://dimaag.example/ ")
-	got, err := loadDimaagBase()
+	t.Setenv("HATH_URL", " http://hath.example/ ")
+	got, err := loadHathBase()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "http://dimaag.example" {
+	if got != "http://hath.example" {
 		t.Fatalf("got %q", got)
 	}
 }

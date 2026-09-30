@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-// dimaagBase is the Dimaag origin used by API calls. main sets it from DIMAAG_URL; tests may override.
-var dimaagBase string
+// hathBase is the Hath origin used by API calls. main sets it from HATH_URL; tests may override.
+var hathBase string
 
 var httpClient = &http.Client{Timeout: 120 * time.Second}
 
@@ -31,7 +31,7 @@ type toolsList struct {
 
 type agentInfo struct {
 	ID string `json:"id"`
-	// Name is the display alias of id (Dimaag keeps both equal).
+	// Name is the display alias of id (Hath keeps both equal).
 	Name          string  `json:"name"`
 	ParentAgentID *string `json:"parent_agent_id"`
 	Active        bool    `json:"active"`
@@ -55,12 +55,12 @@ type apiError struct {
 }
 
 func main() {
-	base, err := loadDimaagBase()
+	base, err := loadHathBase()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "dadi:", err)
 		os.Exit(1)
 	}
-	dimaagBase = base
+	hathBase = base
 	if os.Getenv("COMP_LINE") != "" {
 		runComplete()
 		return
@@ -76,11 +76,11 @@ func main() {
 	}
 }
 
-// loadDimaagBase reads DIMAAG_URL (required, no default).
-func loadDimaagBase() (string, error) {
-	u := strings.TrimSpace(os.Getenv("DIMAAG_URL"))
+// loadHathBase reads HATH_URL (required, no default).
+func loadHathBase() (string, error) {
+	u := strings.TrimSpace(os.Getenv("HATH_URL"))
 	if u == "" {
-		return "", fmt.Errorf("DIMAAG_URL is required")
+		return "", fmt.Errorf("HATH_URL is required")
 	}
 	return strings.TrimRight(u, "/"), nil
 }
@@ -179,7 +179,7 @@ func cmdExecute(name string, input map[string]any) error {
 	return nil
 }
 
-// takeCallerIdentity removes identity flags from the flag map and returns as_agent_id for Dimaag.
+// takeCallerIdentity removes identity flags from the flag map and returns as_agent_id for Hath.
 // An empty result means no flag was given: the call runs as the user.
 func takeCallerIdentity(input map[string]any) (string, error) {
 	asAgent, hasAsAgent, err := takeStringFlag(input, "as_agent", "as-agent")
@@ -358,7 +358,7 @@ func api(method, path string, payload any) ([]byte, error) {
 		}
 		body = bytes.NewReader(raw)
 	}
-	req, err := http.NewRequest(method, dimaagBase+path, body)
+	req, err := http.NewRequest(method, hathBase+path, body)
 	if err != nil {
 		return nil, err
 	}
@@ -383,7 +383,7 @@ func api(method, path string, payload any) ([]byte, error) {
 			}
 			return nil, fmt.Errorf("%s", ae.Error.Type)
 		}
-		return nil, fmt.Errorf("dimaag %s", strings.TrimSpace(resp.Status))
+		return nil, fmt.Errorf("hath %s", strings.TrimSpace(resp.Status))
 	}
 	return data, nil
 }

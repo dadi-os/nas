@@ -107,8 +107,8 @@ type provisionResponse struct {
 	Bundle string `json:"bundle"`
 }
 
-// credentialsBundle is the QR/paste payload for Hath join. Mesh CA is omitted so
-// the base64 fits a branded (ECC-H) QR; Hath fetches GET /ca after join. Provision
+// credentialsBundle is the QR/paste payload a device joins with. Mesh CA is omitted so
+// the base64 fits a branded (ECC-H) QR; the device fetches GET /ca after join. Provision
 // still requires the CA to exist so join is not handed a mesh that cannot trust HTTPS.
 type credentialsBundle struct {
 	ControlURL string `json:"control_url"`
@@ -200,7 +200,7 @@ func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userNam
 	})
 }
 
-// handleMeshCA serves the mesh CA PEM for Hath trust install (and re-join without re-provision).
+// handleMeshCA serves the mesh CA PEM for device trust install (and re-join without re-provision).
 func handleMeshCA(w http.ResponseWriter, r *http.Request, state stateConfig) {
 	pem, err := state.readChaaviCAPem()
 	if err != nil {
@@ -487,7 +487,6 @@ func readHostMeshPeers() ([]hostMeshPeer, error) {
 	}
 	out := make([]hostMeshPeer, 0, 1+len(payload.Peer))
 	if payload.Self != nil && strings.TrimSpace(payload.Self.HostName) != "" {
-		// Appliance self: LocalAPI answered, so treat Active as on-mesh regardless of Online.
 		out = append(out, hostMeshPeer{
 			HostName:     payload.Self.HostName,
 			Online:       payload.Self.Online,
@@ -567,7 +566,7 @@ func healthTargets(runtime string) []struct {
 			url  string
 		}{
 			{name: "yaad", url: "http://127.0.0.1:8082/health"},
-			{name: "dimaag", url: "http://127.0.0.1:8083/health"},
+			{name: "hath", url: "http://127.0.0.1:8083/health"},
 			{name: "dwar", url: "http://127.0.0.1:8081/health"},
 			{name: "ghar", url: "http://127.0.0.1:8084/health"},
 			{name: "chaavi", url: "http://127.0.0.1:8085/health"},
@@ -578,7 +577,7 @@ func healthTargets(runtime string) []struct {
 		url  string
 	}{
 		{name: "yaad", url: "http://yaad:8080/health"},
-		{name: "dimaag", url: "http://dimaag:8080/health"},
+		{name: "hath", url: "http://hath:8080/health"},
 		{name: "dwar", url: "http://dwar:8080/health"},
 		{name: "ghar", url: "http://ghar:8080/health"},
 		{name: "chaavi", url: "http://chaavi:8080/health"},
@@ -895,11 +894,11 @@ type lokiRangeResponse struct {
 }
 
 var jsonLogServices = map[string]struct{}{
-	"dimaag": {},
+	"hath": {},
 	"yaad":   {},
 	"dwar":   {},
 	"nas":    {},
-	"hath":   {},
+	"thaali": {},
 	"ghar":   {},
 	"chaavi": {},
 }

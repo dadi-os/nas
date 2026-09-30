@@ -4,7 +4,7 @@
     "KPlugin": {
         "Authors": [{"Name": "dadi"}],
         "Category": "System Information",
-        "Description": "Agent ring from Dimaag",
+        "Description": "Agent ring from Hath",
         "Icon": "dadi",
         "Id": "org.dadi.widget.agents",
         "License": "MIT",

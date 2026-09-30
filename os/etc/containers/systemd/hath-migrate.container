@@ -1,0 +1,20 @@
+[Unit]
+After=dadi-seed.service hath-postgres.service
+Requires=dadi-seed.service
+BindsTo=hath-postgres.service
+
+[Container]
+Image=ghcr.io/dadi-os/hath:latest
+ContainerName=hath-migrate
+Network=dadi.network
+Environment=DATABASE_URL=postgres://hath:hath@hath-postgres:5432/hath
+Exec=node dist/db/migrate.js
+AutoUpdate=registry
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+WantedBy=hath-postgres.service

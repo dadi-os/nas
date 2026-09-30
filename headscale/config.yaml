@@ -1,4 +1,4 @@
-# Dev Headscale. server_url is what clients (Hath on the Mac host) dial —
+# Dev Headscale. server_url is what clients (Thaali on the Mac host) dial —
 # production replaces this via the provisioning bundle, not a code change.
 server_url: http://localhost:8080
 listen_addr: 0.0.0.0:8080
@@ -44,7 +44,7 @@ dns:
     - name: "yaad.dadi"
       type: "A"
       value: "100.64.0.1"
-    - name: "dimaag.dadi"
+    - name: "hath.dadi"
       type: "A"
       value: "100.64.0.1"
     - name: "nas.dadi"

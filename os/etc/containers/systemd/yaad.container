@@ -11,7 +11,7 @@ Network=dadi.network
 PublishPort=127.0.0.1:8082:8080
 AddHost=dwar.dadi:host-gateway
 AddHost=yaad.dadi:host-gateway
-AddHost=dimaag.dadi:host-gateway
+AddHost=hath.dadi:host-gateway
 AddHost=nas.dadi:host-gateway
 Environment=DATABASE_URL=postgres://yaad:yaad@yaad-postgres:5432/yaad
 AutoUpdate=registry

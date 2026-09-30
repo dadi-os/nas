@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: nas-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -43,24 +44,24 @@ jobs:
           set -euo pipefail
           grep -q '^Notify=healthy$' os/etc/containers/systemd/ghar-postgres.container
           grep -q '^Notify=healthy$' os/etc/containers/systemd/yaad-postgres.container
-          grep -q '^Notify=healthy$' os/etc/containers/systemd/dimaag-postgres.container
+          grep -q '^Notify=healthy$' os/etc/containers/systemd/hath-postgres.container
           grep -q '^RunInit=true$' os/etc/containers/systemd/ghar-postgres.container
           grep -q '^RunInit=true$' os/etc/containers/systemd/yaad-postgres.container
-          grep -q '^RunInit=true$' os/etc/containers/systemd/dimaag-postgres.container
+          grep -q '^RunInit=true$' os/etc/containers/systemd/hath-postgres.container
           grep -q '^TimeoutStartSec=300$' os/etc/containers/systemd/ghar-postgres.container
           grep -q '^TimeoutStartSec=300$' os/etc/containers/systemd/yaad-postgres.container
-          grep -q '^TimeoutStartSec=300$' os/etc/containers/systemd/dimaag-postgres.container
+          grep -q '^TimeoutStartSec=300$' os/etc/containers/systemd/hath-postgres.container
           grep -q '^TimeoutStopSec=180$' os/etc/containers/systemd/ghar-postgres.container
           grep -q '^TimeoutStopSec=180$' os/etc/containers/systemd/yaad-postgres.container
-          grep -q '^TimeoutStopSec=180$' os/etc/containers/systemd/dimaag-postgres.container
+          grep -q '^TimeoutStopSec=180$' os/etc/containers/systemd/hath-postgres.container
           grep -q '^BindsTo=yaad-postgres.service$' os/etc/containers/systemd/yaad.container
           grep -q '^BindsTo=yaad-postgres.service$' os/etc/containers/systemd/yaad-migrate.container
           grep -q '^WantedBy=yaad-postgres.service$' os/etc/containers/systemd/yaad.container
           grep -q '^WantedBy=yaad-postgres.service$' os/etc/containers/systemd/yaad-migrate.container
-          grep -q '^BindsTo=dimaag-postgres.service$' os/etc/containers/systemd/dimaag.container
-          grep -q '^BindsTo=dimaag-postgres.service$' os/etc/containers/systemd/dimaag-migrate.container
-          grep -q '^WantedBy=dimaag-postgres.service$' os/etc/containers/systemd/dimaag.container
-          grep -q '^WantedBy=dimaag-postgres.service$' os/etc/containers/systemd/dimaag-migrate.container
+          grep -q '^BindsTo=hath-postgres.service$' os/etc/containers/systemd/hath.container
+          grep -q '^BindsTo=hath-postgres.service$' os/etc/containers/systemd/hath-migrate.container
+          grep -q '^WantedBy=hath-postgres.service$' os/etc/containers/systemd/hath.container
+          grep -q '^WantedBy=hath-postgres.service$' os/etc/containers/systemd/hath-migrate.container
           grep -q '^BindsTo=ghar-postgres.service$' os/etc/containers/systemd/ghar.container
           grep -q '^BindsTo=ghar-postgres.service$' os/etc/containers/systemd/ghar-migrate.container
           grep -q '^WantedBy=ghar-postgres.service$' os/etc/containers/systemd/ghar.container
@@ -86,3 +87,207 @@ jobs:
 
       - name: Vet
         run: docker run --rm nas-service-test go vet ./...
+
+  nas-image:
+    needs: ci
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      run: ${{ steps.changes.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect nas changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" \
+            | grep -qE '^(os/|service/|\.github/workflows/ci\.yml)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR
+        if: steps.changes.outputs.run == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: steps.changes.outputs.run == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push nas
+        if: steps.changes.outputs.run == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./os/Containerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/nas:latest
+            ghcr.io/${{ github.repository_owner }}/nas:${{ github.sha }}
+
+  nas-iso:
+    needs: nas-image
+    if: needs.nas-image.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require LUKS passphrase secret
+        env:
+          DADIOS_LUKS_PASSPHRASE: ${{ secrets.DADIOS_LUKS_PASSPHRASE }}
+        run: |
+          if [ -z "${DADIOS_LUKS_PASSPHRASE}" ]; then
+            echo "Set repo secret DADIOS_LUKS_PASSPHRASE before building the installer ISO." >&2
+            exit 1
+          fi
+          # Kickstart --passphrase=... breaks on these characters.
+          python3 - <<'PY'
+          import os, sys
+          secret = os.environ["DADIOS_LUKS_PASSPHRASE"]
+          bad = set('"\\\n\r#')
+          if any(c in secret for c in bad):
+              sys.exit("DADIOS_LUKS_PASSPHRASE must not contain quotes, backslash, #, or newlines")
+          PY
+
+      - name: Render installer config
+        env:
+          DADIOS_LUKS_PASSPHRASE: ${{ secrets.DADIOS_LUKS_PASSPHRASE }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          src = Path("os/installer/config.toml").read_text()
+          secret = os.environ["DADIOS_LUKS_PASSPHRASE"]
+          Path("os/installer/config.rendered.toml").write_text(
+              src.replace("__LUKS_PASSPHRASE__", secret)
+          )
+          PY
+
+      - name: Free disk space
+        run: |
+          # bootc-image-builder needs tens of GB; ubuntu-latest is tight once Plasma lands.
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /usr/local/.ghcup \
+            /usr/share/swift \
+            /usr/local/share/powershell \
+            /usr/share/miniconda \
+            /usr/local/lib/node_modules \
+            /opt/hostedtoolcache
+          sudo docker system prune -af
+          df -h
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull nas
+        run: sudo podman pull "ghcr.io/${{ github.repository_owner }}/nas:${{ github.sha }}"
+
+      - name: Tag latest for installer payload
+        run: |
+          sudo podman tag \
+            "ghcr.io/${{ github.repository_owner }}/nas:${{ github.sha }}" \
+            "ghcr.io/${{ github.repository_owner }}/nas:latest"
+
+      - name: Build anaconda ISO
+        run: |
+          mkdir -p os/installer/output
+          df -h
+          sudo podman run --rm --privileged \
+            --security-opt label=type:unconfined_t \
+            -v "$PWD/os/installer/config.rendered.toml:/config.toml:ro" \
+            -v "$PWD/os/installer/output:/output" \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            --type anaconda-iso \
+            --rootfs xfs \
+            --use-librepo=True \
+            --progress verbose \
+            "ghcr.io/${{ github.repository_owner }}/nas:latest"
+
+      - name: Stage ISO artifact
+        run: |
+          iso="$(find os/installer/output -name '*.iso' -type f | head -n 1)"
+          if [ -z "$iso" ]; then
+            echo "No ISO produced under os/installer/output" >&2
+            find os/installer/output -type f >&2
+            exit 1
+          fi
+          cp "$iso" os/installer/output/dadiOS-amd64.iso
+          ls -lh os/installer/output/dadiOS-amd64.iso
+          # GitHub release assets must be < 2 GiB; Plasma installer is ~3.4G.
+          split -b 1400M -d \
+            os/installer/output/dadiOS-amd64.iso \
+            os/installer/output/dadiOS-amd64.iso.
+          rm -f os/installer/output/dadiOS-amd64.iso
+          ls -lh os/installer/output/dadiOS-amd64.iso.*
+          sha256sum os/installer/output/dadiOS-amd64.iso.* \
+            | tee os/installer/output/SHA256SUMS
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dadiOS-${{ github.sha }}
+          name: dadiOS ${{ github.sha }}
+          body: |
+            Installer ISO for dadiOS (`nas`).
+
+            Boot with a keyboard: the installer **asks which disk to wipe** (type `YES` to confirm). Other disks are left alone.
+            LUKS passphrase comes from `DADIOS_LUKS_PASSPHRASE`.
+            OS image: `ghcr.io/${{ github.repository_owner }}/nas:${{ github.sha }}`
+
+            The ISO is split for GitHub's 2 GiB asset limit. Reassemble, then flash:
+            ```
+            cat dadiOS-amd64.iso.* > dadiOS-amd64.iso
+            ```
+          files: |
+            os/installer/output/dadiOS-amd64.iso.*
+            os/installer/output/SHA256SUMS
+          fail_on_unmatched_files: true
+
+      - name: Update dadiOS-latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dadiOS-latest
+          name: dadiOS latest
+          body: |
+            Latest dadiOS installer ISO (from `${{ github.sha }}`).
+
+            Boot with a keyboard: the installer **asks which disk to wipe** (type `YES` to confirm).
+            OS image: `ghcr.io/${{ github.repository_owner }}/nas:${{ github.sha }}`
+
+            The ISO is split for GitHub's 2 GiB asset limit. Reassemble, then flash:
+            ```
+            cat dadiOS-amd64.iso.* > dadiOS-amd64.iso
+            ```
+          files: |
+            os/installer/output/dadiOS-amd64.iso.*
+            os/installer/output/SHA256SUMS
+          fail_on_unmatched_files: true
+          overwrite_files: true

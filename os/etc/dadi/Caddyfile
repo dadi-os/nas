@@ -18,7 +18,7 @@ http://yaad.dadi {
 	reverse_proxy 127.0.0.1:8082
 }
 
-http://dimaag.dadi {
+http://hath.dadi {
 	import mesh_only
 	reverse_proxy 127.0.0.1:8083
 }
@@ -28,7 +28,7 @@ http://ghar.dadi {
 	reverse_proxy 127.0.0.1:8084
 }
 
-# Hath / Dimaag keep cleartext /v1 + /health. Vault UI redirects to HTTPS
+# Thaali / Hath keep cleartext /v1 + /health. Vault UI redirects to HTTPS
 # (Bitwarden Subtle Crypto / clients require a secure context).
 http://chaavi.dadi {
 	import mesh_only

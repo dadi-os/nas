@@ -34,6 +34,6 @@ QtObject {
     readonly property int widgetPollMs: 1000
     readonly property string nasBase: "http://127.0.0.1:8092"
     readonly property string yaadBase: "http://127.0.0.1:8082"
-    readonly property string dimaagBase: "http://127.0.0.1:8083"
+    readonly property string hathBase: "http://127.0.0.1:8083"
     readonly property string gharBase: "http://127.0.0.1:8084"
 }

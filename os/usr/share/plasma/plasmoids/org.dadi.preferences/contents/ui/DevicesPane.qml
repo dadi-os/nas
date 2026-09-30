@@ -176,7 +176,7 @@ Item {
             font.letterSpacing: -0.3
         }
         Text {
-            text: "Hath clients on this mesh."
+            text: "Devices connected to dadi."
             color: "#8a8e87"
             font.pixelSize: 13
             wrapMode: Text.WordWrap
@@ -200,7 +200,7 @@ Item {
 
                 Text {
                     width: parent.width
-                    text: "No Hath on this mesh yet. Add one and scan the setup code from that device."
+                    text: "No devices yet. Add one and scan the setup code with the dadi app on it."
                     color: "#8a8e87"
                     font.pixelSize: 13
                     wrapMode: Text.WordWrap
@@ -208,7 +208,7 @@ Item {
                 }
                 DadiButton {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: "Add Hath"
+                    text: "Add device"
                     onClicked: root.startPairing()
                 }
             }
@@ -281,7 +281,7 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.left: parent.left
                             anchors.leftMargin: 20
-                            text: "Add Hath"
+                            text: "Add device"
                             onClicked: root.startPairing()
                         }
                     }
@@ -308,7 +308,7 @@ Item {
             spacing: 12
 
             Text {
-                text: "Add Hath"
+                text: "Add device"
                 color: "#141511"
                 font.pixelSize: 22
                 font.weight: Font.DemiBold
@@ -318,7 +318,7 @@ Item {
             Text {
                 text: root.qrPath === ""
                       ? "Name it, then create a code to scan."
-                      : "Scan with Hath. Single-use, about an hour."
+                      : "Scan with the dadi app. Single-use, about an hour."
                 color: "#8a8e87"
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap

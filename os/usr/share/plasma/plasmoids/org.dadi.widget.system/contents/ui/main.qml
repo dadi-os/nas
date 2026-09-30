@@ -25,7 +25,7 @@ PlasmoidItem {
         property bool statusReachable: false
         property bool refreshing: false
 
-        readonly property var moduleOrder: ["dwar", "yaad", "dimaag", "ghar", "chaavi", "nas", "hath"]
+        readonly property var moduleOrder: ["dwar", "yaad", "hath", "ghar", "chaavi", "nas", "thaali"]
 
         function erredNames() {
             const names = {}
@@ -47,7 +47,7 @@ PlasmoidItem {
             const seen = {}
             for (let i = 0; i < moduleOrder.length; i++) {
                 const name = moduleOrder[i]
-                if (name === "hath" && byName[name] === undefined)
+                if (name === "thaali" && byName[name] === undefined)
                     continue
                 const healthy = frame.statusReachable && (name === "nas" || byName[name] === true)
                 rows.push({ name: name, ok: healthy && !erred[name] })

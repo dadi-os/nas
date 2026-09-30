@@ -40,7 +40,7 @@ dns:
     - name: "yaad.dadi"
       type: "A"
       value: "100.64.0.1"
-    - name: "dimaag.dadi"
+    - name: "hath.dadi"
       type: "A"
       value: "100.64.0.1"
     - name: "nas.dadi"

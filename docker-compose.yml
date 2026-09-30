@@ -17,17 +17,17 @@ services:
         aliases:
           - dwar.dadi
           - yaad.dadi
-          - dimaag.dadi
+          - hath.dadi
           - ghar.dadi
           - chaavi.dadi
           - nas.dadi
-          - hath.dadi
+          - thaali.dadi
     depends_on:
       dwar:
         condition: service_healthy
       yaad:
         condition: service_healthy
-      dimaag:
+      hath:
         condition: service_healthy
       ghar:
         condition: service_healthy
@@ -37,7 +37,7 @@ services:
         condition: service_healthy
       nas-service:
         condition: service_healthy
-      hath:
+      thaali:
         condition: service_healthy
 
   dwar:
@@ -122,46 +122,46 @@ services:
         condition: service_completed_successfully
     networks: [dadi]
 
-  dimaag-postgres:
+  hath-postgres:
     image: docker.io/library/postgres:18
     init: true
     environment:
-      POSTGRES_USER: dimaag
-      POSTGRES_DB: dimaag
-      POSTGRES_PASSWORD: dimaag
+      POSTGRES_USER: hath
+      POSTGRES_DB: hath
+      POSTGRES_PASSWORD: hath
     volumes:
-      - dimaag_pg:/var/lib/postgresql
+      - hath_pg:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dimaag -d dimaag"]
+      test: ["CMD-SHELL", "pg_isready -U hath -d hath"]
       interval: 2s
       timeout: 5s
       retries: 20
     networks: [dadi]
 
-  dimaag-migrate:
+  hath-migrate:
     build:
-      context: ../dimaag
+      context: ../hath
       target: dev
     environment:
-      DATABASE_URL: postgres://dimaag:dimaag@dimaag-postgres:5432/dimaag
+      DATABASE_URL: postgres://hath:hath@hath-postgres:5432/hath
     volumes:
-      - ../dimaag:/app
+      - ../hath:/app
       - /app/node_modules
     command: ["npm", "run", "db:migrate"]
     depends_on:
-      dimaag-postgres:
+      hath-postgres:
         condition: service_healthy
     networks: [dadi]
     restart: "no"
 
-  dimaag:
+  hath:
     build:
-      context: ../dimaag
+      context: ../hath
       target: dev
     environment:
-      DATABASE_URL: postgres://dimaag:dimaag@dimaag-postgres:5432/dimaag
+      DATABASE_URL: postgres://hath:hath@hath-postgres:5432/hath
     volumes:
-      - ../dimaag:/app
+      - ../hath:/app
       - /app/node_modules
     expose: ["8080"]
     healthcheck:
@@ -176,9 +176,9 @@ services:
       timeout: 5s
       retries: 30
     depends_on:
-      dimaag-postgres:
+      hath-postgres:
         condition: service_healthy
-      dimaag-migrate:
+      hath-migrate:
         condition: service_completed_successfully
     networks: [dadi]
 
@@ -366,7 +366,7 @@ services:
       - ./headscale/config.yaml:/etc/headscale/config.yaml:ro
       - headscale_data:/var/lib/headscale
       - headscale_run:/var/run/headscale
-      # Dwar + Chaavi secrets — Yaad/Dimaag Postgres is baked into this compose file.
+      # Dwar + Chaavi secrets — Yaad/Hath Postgres is baked into this compose file.
       - ../dwar/.env:/var/lib/dadi/modules/dwar/.env
       - ../dwar/config.toml:/var/lib/dadi/modules/dwar/config.toml
       - ../chaavi/.env:/var/lib/dadi/modules/chaavi/.env
@@ -391,13 +391,13 @@ services:
         condition: service_started
     networks: [dadi]
 
-  # Browser Hath (Vite). Prod Hath remains the Tauri app on other devices.
-  hath:
+  # Browser Thaali (Vite). Prod Thaali is the Tauri app on other computers.
+  thaali:
     build:
-      context: ../hath
+      context: ../thaali
       target: dev
     volumes:
-      - ../hath:/app
+      - ../thaali:/app
       - /app/node_modules
     expose: ["8080"]
     healthcheck:
@@ -443,7 +443,7 @@ networks:
 
 volumes:
   yaad_pg:
-  dimaag_pg:
+  hath_pg:
   ghar_pg:
   ghar_matter:
   chaavi_vault:

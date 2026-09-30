@@ -3,59 +3,59 @@
 	auto_https off
 }
 
-# Browser Hath at http://hath.dadi calls the mesh hosts cross-origin.
-(cors_hath) {
+# Browser Thaali at http://thaali.dadi calls the mesh hosts cross-origin.
+(cors_thaali) {
 	@cors_preflight {
 		method OPTIONS
-		header Origin http://hath.dadi
+		header Origin http://thaali.dadi
 	}
 	handle @cors_preflight {
-		header Access-Control-Allow-Origin "http://hath.dadi"
+		header Access-Control-Allow-Origin "http://thaali.dadi"
 		header Access-Control-Allow-Methods "GET, POST, PUT, OPTIONS"
 		header Access-Control-Allow-Headers "*"
 		header Access-Control-Max-Age "86400"
 		respond "" 204
 	}
-	@cors_origin header Origin http://hath.dadi
-	header @cors_origin Access-Control-Allow-Origin "http://hath.dadi"
+	@cors_origin header Origin http://thaali.dadi
+	header @cors_origin Access-Control-Allow-Origin "http://thaali.dadi"
 	header @cors_origin Vary Origin
 }
 
-http://hath.dadi {
-	reverse_proxy hath:8080
+http://thaali.dadi {
+	reverse_proxy thaali:8080
 }
 
 http://dwar.dadi {
-	import cors_hath
+	import cors_thaali
 	handle {
 		reverse_proxy dwar:8080
 	}
 }
 
 http://yaad.dadi {
-	import cors_hath
+	import cors_thaali
 	handle {
 		reverse_proxy yaad:8080
 	}
 }
 
-http://dimaag.dadi {
-	import cors_hath
+http://hath.dadi {
+	import cors_thaali
 	handle {
-		reverse_proxy dimaag:8080
+		reverse_proxy hath:8080
 	}
 }
 
 http://ghar.dadi {
-	import cors_hath
+	import cors_thaali
 	handle {
 		reverse_proxy ghar:8080
 	}
 }
 
-# API stays on HTTP for meshproxy / browser Hath. Vault UI is HTTPS.
+# API stays on HTTP for meshproxy / browser Thaali. Vault UI is HTTPS.
 http://chaavi.dadi {
-	import cors_hath
+	import cors_thaali
 	handle /v1* {
 		reverse_proxy chaavi:8080
 	}
@@ -69,7 +69,7 @@ http://chaavi.dadi {
 
 https://chaavi.dadi {
 	tls /var/lib/dadi/caddy/tls/chaavi.crt /var/lib/dadi/caddy/tls/chaavi.key
-	import cors_hath
+	import cors_thaali
 	handle /v1* {
 		reverse_proxy chaavi:8080
 	}
@@ -82,7 +82,7 @@ https://chaavi.dadi {
 }
 
 http://nas.dadi {
-	import cors_hath
+	import cors_thaali
 	handle {
 		reverse_proxy nas-service:8080
 	}

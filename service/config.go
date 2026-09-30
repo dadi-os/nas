@@ -15,7 +15,7 @@ import (
 )
 
 // Dwar (provider keys) and Chaavi (BW_*) have user-editable secrets.
-// Yaad/Dimaag/Ghar Postgres credentials are baked into compose/quadlets.
+// Yaad/Hath/Ghar Postgres credentials are baked into compose/quadlets.
 var moduleEnvNames = map[string]struct{}{
 	"dwar":   {},
 	"chaavi": {},
@@ -25,7 +25,7 @@ var moduleEnvNames = map[string]struct{}{
 var moduleUnit = map[string]string{
 	"dwar":         "dwar",
 	"yaad":         "yaad",
-	"dimaag":       "dimaag",
+	"hath":       "hath",
 	"ghar":         "ghar",
 	"chaavi":       "chaavi",
 	"chaavi-vault": "chaavi-vault",
@@ -41,7 +41,7 @@ var moduleUnit = map[string]string{
 var composeService = map[string]string{
 	"dwar":         "dwar",
 	"yaad":         "yaad",
-	"dimaag":       "dimaag",
+	"hath":       "hath",
 	"ghar":         "ghar",
 	"chaavi":       "chaavi",
 	"chaavi-vault": "chaavi-vault",
@@ -285,9 +285,9 @@ func (s stateConfig) stackUp() error {
 	case "podman":
 		_ = hostSystemctl("start", "dadi-seed.service")
 		units := []string{
-			"yaad-postgres", "dimaag-postgres", "ghar-postgres", "chaavi-vault", "headscale.service", "loki.service",
-			"yaad-migrate", "dimaag-migrate", "ghar-migrate",
-			"yaad", "dimaag", "dwar", "ghar", "chaavi", "bootstrap.service",
+			"yaad-postgres", "hath-postgres", "ghar-postgres", "chaavi-vault", "headscale.service", "loki.service",
+			"yaad-migrate", "hath-migrate", "ghar-migrate",
+			"yaad", "hath", "dwar", "ghar", "chaavi", "bootstrap.service",
 			"nas.service", "caddy.service", "alloy.service",
 			"tailscaled.service", "dadi-tailscale.service",
 		}
@@ -309,9 +309,9 @@ func (s stateConfig) stackDown() error {
 	case "podman":
 		units := []string{
 			"dadi-tailscale.service", "caddy.service", "nas.service", "alloy.service",
-			"dwar", "yaad", "dimaag", "ghar", "chaavi", "bootstrap.service",
-			"yaad-migrate", "dimaag-migrate", "ghar-migrate",
-			"yaad-postgres", "dimaag-postgres", "ghar-postgres", "chaavi-vault", "headscale.service", "loki.service",
+			"dwar", "yaad", "hath", "ghar", "chaavi", "bootstrap.service",
+			"yaad-migrate", "hath-migrate", "ghar-migrate",
+			"yaad-postgres", "hath-postgres", "ghar-postgres", "chaavi-vault", "headscale.service", "loki.service",
 		}
 		for _, u := range units {
 			_ = hostSystemctl("stop", u)
@@ -336,7 +336,7 @@ type updateRun struct {
 }
 
 // updater runs pull_updates in the background so callers are not tied to modules
-// (Dimaag included) that podman auto-update restarts mid-run. One run at a time.
+// (Hath included) that podman auto-update restarts mid-run. One run at a time.
 // When run reports a reboot is required, reboot is called after the run settles.
 type updater struct {
 	run    func(scope string) (bool, error)

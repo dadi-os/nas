@@ -2,7 +2,7 @@
 
 Nas is the OS and infrastructure layer for dadi. It owns topology — which services exist, how they are networked and named, how they start, and how logs are collected and queried. It is the composition layer: the only place the full system is written down.
 
-**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box UI is Plasma **bone glass** (leaf field, translucent panels, દાદી brand, crest widgets, Preferences). Hath is for other devices only. App modules (`dwar`, `yaad`, `dimaag`, `ghar`, `chaavi`) stay as containers and update via `podman-auto-update` with no reboot.
+**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box UI is Plasma **bone glass** (leaf field, translucent panels, દાદી brand, crest widgets, Preferences). The dadi apps are for other devices only. App modules (`dwar`, `yaad`, `hath`, `ghar`, `chaavi`) stay as containers and update via `podman-auto-update` with no reboot.
 
 ## Dependencies
 
@@ -42,50 +42,76 @@ Required on the control service (fail at startup if missing):
 | `DADI_RUNTIME` | `podman` or `compose` |
 | `DADI_COMPOSE_DIR` | Required when `DADI_RUNTIME=compose` |
 
+`.env.example` lists these, the optional `CHROMIUM_BIN`, and the CLI’s `HATH_URL`.
+
 `POST /provision` mints `control_url` at issue time: compose uses `http://localhost:8080`; the appliance uses `http://<lan>:8080` from the host LAN IPv4 (Headscale `server_url` is rewritten). There is no stored control-URL preference and no Cloudflare tunnel token.
 
-Module secrets live in sibling `../dwar/.env` and `../chaavi/.env` in compose, and under `DADI_STATE_DIR/modules/{dwar,chaavi}/` on the appliance. Preferences → Dwar and Preferences → Chaavi edit those files and restart the module. Chaavi’s `BW_CLIENTID`, `BW_CLIENTSECRET`, and `BW_PASSWORD` are Chaavi module env — not Dwar keys. `VAULT_URL` is set on the container (compose `environment` / quadlet `Environment`), not the env file. Vaultwarden stores the encrypted vault in the `chaavi_vault` volume. Yaad/Dimaag/Ghar Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar or Chaavi values. Empty Chaavi keys are valid; Chaavi boots and fails the request that needs them.
+Module secrets live in sibling `../dwar/.env` and `../chaavi/.env` in compose, and under `DADI_STATE_DIR/modules/{dwar,chaavi}/` on the appliance. Preferences → Dwar and Preferences → Chaavi edit those files and restart the module. Chaavi’s `BW_CLIENTID`, `BW_CLIENTSECRET`, and `BW_PASSWORD` are Chaavi module env — not Dwar keys. `VAULT_URL` is set on the container (compose `environment` / quadlet `Environment`), not the env file. Vaultwarden stores the encrypted vault in the `chaavi_vault` volume. Yaad/Hath/Ghar Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar or Chaavi values. Empty Chaavi keys are valid; Chaavi boots and fails the request that needs them.
 
 ## Local run
 
-Dev is **headless Compose** on a Mac — no Plasma, no Tauri, no Overmind. The module stack plus browser Hath come up together; open `http://hath.dadi`.
+Dev is **headless Compose** on a Mac — no Plasma, no Tauri, no Overmind. The module stack plus browser Thaali come up together; open `http://thaali.dadi`.
 
-One-time: `/etc/hosts` must resolve `*.dadi` (including `hath.dadi` and `chaavi.dadi`) to localhost; Docker running; `../dwar/.env` and `../chaavi/.env` present (copy from each repo’s `.env.example` if missing). Then:
+After the one-time host setup below:
 
 ```sh
 docker compose up --build
-# → http://hath.dadi
+# → http://thaali.dadi
 
 docker compose down       # stop containers
 docker compose down -v    # also destroy volumes
 ```
 
-Tauri Hath (mesh / provisioning work) is separate: `cd ../hath && net/build.sh && npm run tauri dev`.
+Tauri Thaali (mesh / provisioning work) is separate: `cd ../thaali && net/build-tailscale.sh && npm run tauri dev`.
+
+### One-time host setup (dev Mac)
+
+Add to `/etc/hosts`:
+
+```
+127.0.0.1  dwar.dadi yaad.dadi hath.dadi ghar.dadi chaavi.dadi nas.dadi thaali.dadi
+```
+
+Copy Dwar and Chaavi env if missing:
+
+```sh
+cp ../dwar/.env.example ../dwar/.env
+cp ../chaavi/.env.example ../chaavi/.env
+```
+
+Yaad, Hath, and Ghar need no `.env` — Nas injects fixed local Postgres credentials. Chaavi still needs `../chaavi/.env` (blank `BW_*` until set in Preferences → Chaavi, or by editing the file); `VAULT_URL` is injected by compose.
+
+Docker Desktop (or equivalent) must be running. No Overmind / tmux.
+
+### Working on one module
+
+Edit sibling directories (`../yaad`, …). Bind mounts + watchers pick up changes. Start a subset with `docker compose up yaad yaad-postgres` when you only need those containers. For UI-only work: `docker compose up thaali caddy nas-service …` or just `docker compose up --build` and open `http://thaali.dadi`.
 
 ## CI / CD
 
 | Workflow | When | What |
 | --- | --- | --- |
-| `ci.yml` | PR + push to `main` | Build `service` Dockerfile `--target test`; `go test` / `go vet`; reject unqualified `Image=` in quadlets |
-| `cd.yml` | `os/**` or `service/**` on `main` (or dispatch) | Build/push `nas` image; build LUKS installer ISO; publish `dadiOS-*` releases |
+| `ci.yml` → `ci` | PR + push to `main` | Build `service` Dockerfile `--target test`; `go test` / `go vet`; reject unqualified `Image=` in quadlets |
+| `ci.yml` → `nas-image` | `main` (or dispatch) after `ci`, when `os/**`, `service/**` or the workflow changed | Build/push `ghcr.io/dadi-os/nas:latest` + sha tag |
+| `ci.yml` → `nas-iso` | after `nas-image` pushed | Build the LUKS installer ISO; publish `dadiOS-<sha>` and `dadiOS-latest` releases |
 
-Concurrency cancels superseded CI runs on the same ref.
+Concurrency cancels superseded runs on the same ref.
 
 ## Logging contract (source of truth)
 
-All dadi modules emit **one JSON object per line** on stdout. Dev Alloy scrapes Docker container logs only (no Hath file tail — browser Hath logs stay in the browser console).
+All dadi modules emit **one JSON object per line** on stdout. Dev Alloy scrapes Docker container logs only (no Thaali file tail — browser Thaali logs stay in the browser console).
 
 | Field | Meaning |
 | --- | --- |
 | `time` | RFC3339 / RFC3339Nano UTC |
 | `level` | `debug` \| `info` \| `warn` \| `error` |
-| `service` | `nas` \| `dwar` \| `yaad` \| `dimaag` \| `hath` \| `ghar` \| `chaavi` |
+| `service` | `nas` \| `dwar` \| `yaad` \| `hath` \| `thaali` \| `ghar` \| `chaavi` |
 | `msg` | Human message; may include `\n` for multi-line detail |
 | `code` | Stable error/event code when applicable |
 | `request_id` | Per-request correlation id |
 | `method`, `path`, `status`, `duration_ms` | HTTP request summary (one line per request) |
 
-Alloy drops non-JSON lines for app services and drops infra noise (postgres, headscale, alloy, loki, caddy, hath Vite, …). Do not emit npm/tsx banners, uvicorn access spam, or Fastify boot chatter as the primary signal.
+Alloy drops non-JSON lines for app services and drops infra noise (postgres, headscale, alloy, loki, caddy, thaali Vite, …). Do not emit npm/tsx banners, uvicorn access spam, or Fastify boot chatter as the primary signal.
 
 ### Shared error codes
 
@@ -217,11 +243,11 @@ curl -sG 'http://nas.dadi/logs' \
 | podman | `podman auto-update` | `bootc upgrade`, then reboot when a deployment is staged |
 | compose | `compose pull` + `up -d` | `400 invalid_request` |
 
-The run happens in the background: `202` returns the run immediately (`{ "state": "running", "scope", "started_at", "reboot_required": false }`), so callers aren't cut off when `podman auto-update` restarts Dimaag. A second request while one is running gets `409 busy`. When the run stages a new bootc deployment, Nas runs `systemctl reboot` itself.
+The run happens in the background: `202` returns the run immediately (`{ "state": "running", "scope", "started_at", "reboot_required": false }`), so callers aren't cut off when `podman auto-update` restarts Hath. A second request while one is running gets `409 busy`. When the run stages a new bootc deployment, Nas runs `systemctl reboot` itself.
 
 `GET /pull_updates` returns the latest run: `state` is `idle`, `running`, `succeeded`, `rebooting`, or `failed`, plus `scope`, `started_at`, `finished_at`, `reboot_required`, and `error`. It lives in Nas memory and resets to `idle` when Nas restarts.
 
-On the appliance, `/usr/bin/dadi` is a Nas-built Go CLI that talks to Dimaag’s grantable tool registry. It requires `DIMAAG_URL` (login shells export `http://127.0.0.1:8083` via `/etc/profile.d/dadi-cli.sh`) and runs as the user (any tool, no grant check) unless a caller identity is given: `--as-agent <kebab-id>` or `--as-router`. Flag values that look like JSON arrays or objects are parsed as such. Examples: `dadi help`, `dadi agents`, `dadi nas_get_logs --level error`, `dadi dimaag_spawn_agent --as-router --id finance-specialist --system_prompt "…"`, `dadi ghar_control_device --as-agent automation-specialist --device_id <uuid> --capability switchable --params '{"state":"on"}'`. Tab completion lists live tools, agent ids for `--as-agent`, and `--` parameters. When a stale `~/.local/bin/dadi` would shadow the appliance binary, profile/bashrc put `/usr/bin` ahead on `PATH`.
+On the appliance, `/usr/bin/dadi` is a Nas-built Go CLI that talks to Hath’s grantable tool registry. It requires `HATH_URL` (login shells export `http://127.0.0.1:8083` via `/etc/profile.d/dadi-cli.sh`) and runs as the user (any tool, no grant check) unless a caller identity is given: `--as-agent <kebab-id>` or `--as-router`. Flag values that look like JSON arrays or objects are parsed as such. Examples: `dadi help`, `dadi agents`, `dadi nas_get_logs --level error`, `dadi hath_spawn_agent --as-router --id finance-specialist --system_prompt "…"`, `dadi ghar_control_device --as-agent automation-specialist --device_id <uuid> --capability switchable --params '{"state":"on"}'`. Tab completion lists live tools, agent ids for `--as-agent`, and `--` parameters. When a stale `~/.local/bin/dadi` would shadow the appliance binary, profile/bashrc put `/usr/bin` ahead on `PATH`.
 
 ## Topology
 
@@ -238,17 +264,17 @@ On the appliance, `/usr/bin/dadi` is a Nas-built Go CLI that talks to Dimaag’s
 | `dadi-browsers.slice` | host slice | transient scopes for nas-spawned Xvfb + Chromium; `MemoryHigh=40%`, `MemoryMax=50%` |
 | `zram0` | host swap | `zram-generator`, size = RAM, zstd; there is no disk swap |
 | `sddm` + Plasma | host graphical | `sddm-wayland-plasma`; autologin `dadi`; no locker; bone glass desktop |
-| `dwar` / `yaad` / `dimaag` / `ghar` / `chaavi` (+ postgres / migrate / `chaavi-vault`) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8086` (`ghar` uses `Network=host`, binds loopback; Chaavi adapter `8085`, Vaultwarden `8086`) |
+| `dwar` / `yaad` / `hath` / `ghar` / `chaavi` (+ postgres / migrate / `chaavi-vault`) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8086` (`ghar` uses `Network=host`, binds loopback; Chaavi adapter `8085`, Vaultwarden `8086`) |
 
-Postgres quadlets set `RunInit=true` so the `pg_isready` health check is reaped by init. PostgreSQL 18 is otherwise PID 1 and crash-recovers when that child dies. `yaad`, `dimaag`, and `ghar`, and their migrate units, `BindsTo` their postgres unit and are `WantedBy` it, so a postgres restart stops them and starts them again. Those postgres units allow 300s to start and 180s to stop. Dev Compose sets `init: true` on the same three databases.
+Postgres quadlets set `RunInit=true` so the `pg_isready` health check is reaped by init. PostgreSQL 18 is otherwise PID 1 and crash-recovers when that child dies. `yaad`, `hath`, and `ghar`, and their migrate units, `BindsTo` their postgres unit and are `WantedBy` it, so a postgres restart stops them and starts them again. Those postgres units allow 300s to start and 180s to stop. Dev Compose sets `init: true` on the same three databases.
 
 ### Development (Mac Compose, headless)
 
 | Service | Image source | Internal address |
 | --- | --- | --- |
-| `caddy` | `caddy:2-alpine` | host port 80; CORS for `Origin: http://hath.dadi` |
-| `hath` | `../hath` `dev` target (Vite) | `*:8080` → `http://hath.dadi` |
-| `dwar` / `yaad` / `dimaag` / `ghar` / `chaavi` | sibling builds, `dev` target (`chaavi-vault` is `vaultwarden/server:1.37.2-alpine`) | `*:8080` (Matter does not work on Mac Docker); Chaavi at `http://chaavi.dadi` |
+| `caddy` | `caddy:2-alpine` | host port 80; CORS for `Origin: http://thaali.dadi` |
+| `thaali` | `../thaali` `dev` target (Vite) | `*:8080` → `http://thaali.dadi` |
+| `dwar` / `yaad` / `hath` / `ghar` / `chaavi` | sibling builds, `dev` target (`chaavi-vault` is `vaultwarden/server:1.37.2-alpine`) | `*:8080` (Matter does not work on Mac Docker); Chaavi at `http://chaavi.dadi` |
 | `nas-service` | `./service` | host `8092` |
 | `loki` / `alloy` | official images | log pipeline |
 | `headscale` / `tailscale` | official images | mesh |
@@ -258,7 +284,7 @@ Postgres quadlets set `RunInit=true` so the `pg_isready` health check is reaped 
 | Development | Docker Compose on a Mac (headless) | `docker-compose.yml` |
 | Production | bootc host systemd + podman modules | units + quadlets under `/etc/containers/systemd/` |
 
-Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under test is browser Hath. Chaavi is `http://chaavi.dadi` for `/v1*` + `/health` (adapter) and `https://chaavi.dadi` for the Bitwarden web vault / extension (mesh CA under `$DADI_STATE_DIR/caddy/tls/`; Hath installs it on join). Nas restart names are `chaavi` and `chaavi-vault` (Dimaag’s `restart-module` tool is updated in that repo).
+Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under test is browser Thaali. Chaavi is `http://chaavi.dadi` for `/v1*` + `/health` (adapter) and `https://chaavi.dadi` for the Bitwarden web vault / extension (mesh CA under `$DADI_STATE_DIR/caddy/tls/`; Thaali installs it on join). Nas restart names are `chaavi` and `chaavi-vault` (Hath’s `restart-module` tool is updated in that repo).
 
 ### First install
 
@@ -271,9 +297,11 @@ CD builds an Anaconda ISO whenever `os/**` or `service/**` changes and publishes
 5. SDDM (`sddm-wayland-plasma`, not Plasma Login Manager) autologins as `dadi` into Plasma. There is no lock screen; lid close and idle do not sleep or show a greeter.
 6. Add an SSH user in Preferences → Users (`POST /access/users`). SSH as that user with the password you set. `dadi` is not allowed to SSH.
 7. Headscale is published on the LAN (`GET /headscale/publish`). The setup QR embeds that live `http://<lan>:8080` URL — not a domain and not a WAN address.
-8. Provision Hath clients: on the box open **Preferences → Devices**, name the node, show the QR. Scan from Hath on the same LAN. Node names must be unique. Re-provision after a LAN address change.
+8. Add devices: on the box open **Preferences → Devices**, name the device, show the QR. Scan it with the dadi app (desktop or phone) on the same LAN. Node names must be unique. Re-provision after a LAN address change.
 
 Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`. If a firmware/Secure Boot change forces the LUKS passphrase again, write the ISO passphrase to `/var/lib/dadi/luks-enroll.key` with `printf '%s'` (no newline), `chmod 400`, and `systemctl start dadi-tpm-enroll` (the unit wipes the old TPM slot, reseals PCR 7, and shreds the key).
+
+Dev Compose data is disposable: `docker compose down -v` and start fresh.
 
 ### Host firewall (nftables)
 
@@ -281,7 +309,7 @@ Ruleset: `/etc/nftables/dadi.nft` (loaded by `nftables.service`). Default-deny i
 
 ## Desktop (dadiOS)
 
-Plasma on the box only — Hath is for other devices. Visual system is **bone glass** (aligned with Hath `src/styles/tokens.css`): light field, frosted veil panels, sage accent, brand mark **દાદી** only (no Latin “DADI” / “OS” in chrome).
+Plasma on the box only — the dadi apps are for other devices. Visual system is **bone glass** (aligned with Thaali `src/styles/tokens.css`): light field, frosted veil panels, sage accent, brand mark **દાદી** only (no Latin “DADI” / “OS” in chrome).
 
 | Layer | Spec |
 | --- | --- |
@@ -302,8 +330,8 @@ Plasma on the box only — Hath is for other devices. Visual system is **bone gl
 | --- | --- |
 | Look-and-feel | `org.dadi.desktop` — translucent top bar (32px), floating dock, crest widgets |
 | Brand | plasmoid `org.dadi.brand` — wordmark opens Preferences; right-click for about / power |
-| Widgets | `org.dadi.widget.{agents,memory,timeline,ghar,system}` — liquid glass (GPL-3 shaders from liquidglass-kde-widgets) + Hath data |
-| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (users / dwar / chaavi / devices / desktop → `DADI_STATE_DIR`; Devices mints `POST /provision` QR for Hath) |
+| Widgets | `org.dadi.widget.{agents,memory,timeline,ghar,system}` — liquid glass (GPL-3 shaders from liquidglass-kde-widgets) + Thaali data |
+| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (users / dwar / chaavi / devices / desktop → `DADI_STATE_DIR`; Devices mints `POST /provision` QR for a device) |
 | Wallpaper | `Dadi` (`/usr/share/wallpapers/Dadi/`) |
 | Wake / lid | immutable `action/lock_screen=false`, `kscreenlockerrc`, PowerDevil profiles, `dadi-inhibit-idle.service`, `logind.conf.d/dadi-lid.conf` |
 | TPM | `dadi-tpm-enroll.service` → PCR 7 via `/var/lib/dadi/luks-enroll.key` (shredded after seal; 45s cap; no TTY wait) |
@@ -317,33 +345,10 @@ Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale i
 
 | Method | Path | Body | Success | Errors |
 | --- | --- | --- | --- | --- |
-| `GET` | `/clients` | — | `{ clients: [{ node_name, online, pending, last_seen, ip_addresses }] }` (`pending` is a setup name reserved ~1h until a Hath joins) | `internal_error` |
+| `GET` | `/clients` | — | `{ clients: [{ node_name, online, pending, last_seen, ip_addresses }] }` (`pending` is a setup name reserved ~1h until the device joins) | `internal_error` |
 | `POST` | `/provision` | `{ node_name }` | `{ bundle }` (base64 JSON: `control_url`, `auth_key`, `node_name` — small enough for QR) | `invalid_request`, `conflict` (409, name taken or pending), `provision_failed`, `internal_error` |
 | `GET` | `/ca` | — | mesh CA PEM (`application/x-pem-file`) | `not_found`, `internal_error` |
 
-`POST /provision` reserves `node_name` for about an hour in `$DADI_STATE_DIR/pending-nodes.json` so two setup codes cannot claim the same hostname before the node appears in Headscale. `GET /clients` merges those reservations (as `pending: true`) and drops them once Headscale lists the same name. On the appliance it also enriches `online` / IPs from the host `tailscaled` LocalAPI (Headscale control-plane "online" goes false off-LAN even while DERP still works). The setup QR omits the mesh CA (size); provision still fails if the CA is missing. Hath installs trust after join via `GET /ca`.
+`POST /provision` reserves `node_name` for about an hour in `$DADI_STATE_DIR/pending-nodes.json` so two setup codes cannot claim the same hostname before the node appears in Headscale. `GET /clients` merges those reservations (as `pending: true`) and drops them once Headscale lists the same name. On the appliance it also enriches `online` / IPs from the host `tailscaled` LocalAPI (Headscale control-plane "online" goes false off-LAN even while DERP still works). The setup QR omits the mesh CA (size); provision still fails if the CA is missing. Thaali installs trust after join via `GET /ca`.
 
 `GET /status` returns host meters (`cpu`, `memory`, `gpu`, `disk` for the state volume, `disks` for each physical drive with a mounted filesystem), module health, and `"errors": []` under Docker — searchable errors live at `GET /logs`.
-
-## One-time host setup (dev Mac)
-
-Add to `/etc/hosts`:
-
-```
-127.0.0.1  dwar.dadi yaad.dadi dimaag.dadi ghar.dadi chaavi.dadi nas.dadi hath.dadi
-```
-
-Copy Dwar and Chaavi env if missing:
-
-```sh
-cp ../dwar/.env.example ../dwar/.env
-cp ../chaavi/.env.example ../chaavi/.env
-```
-
-Yaad, Dimaag, and Ghar need no `.env` — Nas injects fixed local Postgres credentials. Chaavi still needs `../chaavi/.env` (blank `BW_*` until set in Preferences → Chaavi, or by editing the file); `VAULT_URL` is injected by compose.
-
-Docker Desktop (or equivalent) must be running. No Overmind / tmux.
-
-## Working on one module
-
-Edit sibling directories (`../yaad`, …). Bind mounts + watchers pick up changes. Start a subset with `docker compose up yaad yaad-postgres` when you only need those containers. For UI-only work: `docker compose up hath caddy nas-service …` or just `docker compose up --build` and open `http://hath.dadi`.

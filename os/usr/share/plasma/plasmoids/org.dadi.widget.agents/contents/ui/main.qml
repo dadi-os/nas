@@ -144,7 +144,7 @@ PlasmoidItem {
                 if (xhr.readyState !== XMLHttpRequest.DONE)
                     return
                 if (xhr.status !== 200) {
-                    frame.status = xhr.status === 0 ? "dimaag unreachable" : ("dimaag " + xhr.status)
+                    frame.status = xhr.status === 0 ? "hath unreachable" : ("hath " + xhr.status)
                     frame.kicker = ""
                     frame.nodes = []
                     frame.links = []
@@ -199,7 +199,7 @@ PlasmoidItem {
                     frame.kicker = ""
                 }
             }
-            xhr.open("GET", Tokens.dimaagBase + "/agents")
+            xhr.open("GET", Tokens.hathBase + "/agents")
             xhr.send()
         }
 

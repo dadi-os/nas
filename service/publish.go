@@ -25,7 +25,7 @@ var (
 	extraRecordNameRe = regexp.MustCompile(`(?m)^\s+-\s+name:\s+"([^"]+)"`)
 )
 
-// controlHostname is the hostname Hath/Tailscale dial from a control plane URL.
+// controlHostname is the hostname devices/Tailscale dial from a control plane URL.
 func controlHostname(controlURL string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(controlURL))
 	if err != nil {
@@ -38,7 +38,7 @@ func controlHostname(controlURL string) (string, error) {
 	return host, nil
 }
 
-// applianceControlURL is the Headscale URL Hath dials at the given IPv4.
+// applianceControlURL is the Headscale URL devices dial at the given IPv4.
 func applianceControlURL(ip string) string {
 	return "http://" + ip + ":8080"
 }
@@ -73,7 +73,7 @@ type publishStatus struct {
 	LANIP      string `json:"lan_ip,omitempty"`
 }
 
-// mintControlURL returns the Headscale URL Hath should dial. Compose uses
+// mintControlURL returns the Headscale URL devices should dial. Compose uses
 // loopback. The appliance uses http://<lan>:8080 from the host LAN IPv4
 // and sets Headscale server_url to that URL.
 func (s stateConfig) mintControlURL() (string, error) {
