@@ -40,7 +40,7 @@ Item {
         reasonProvider.text = r.provider || ""
         reasonModel.text = r.model || ""
         reasonTokens.text = r.max_tokens !== undefined ? String(r.max_tokens) : ""
-        reasonThink.text = r.thinking_budget !== undefined ? String(r.thinking_budget) : ""
+        reasonEffort.text = r.effort || ""
         const conv = (c.chat && c.chat.conversation) || {}
         convProvider.text = conv.provider || ""
         convModel.text = conv.model || ""
@@ -96,7 +96,7 @@ Item {
                         provider: reasonProvider.text,
                         model: reasonModel.text,
                         max_tokens: Number(reasonTokens.text),
-                        thinking_budget: Number(reasonThink.text)
+                        effort: reasonEffort.text
                     },
                     conversation: {
                         provider: convProvider.text,
@@ -209,7 +209,7 @@ Item {
             FormRow { id: reasonProvider; label: "Provider" }
             FormRow { id: reasonModel; label: "Model" }
             FormRow { id: reasonTokens; label: "Max tokens" }
-            FormRow { id: reasonThink; label: "Thinking budget" }
+            FormRow { id: reasonEffort; label: "Effort (low, medium, high, xhigh, max)" }
 
             Text { text: "Conversation"; color: "#8a8e87"; font.pixelSize: 12; Layout.topMargin: 8 }
             FormRow { id: convProvider; label: "Provider" }

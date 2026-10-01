@@ -42,7 +42,7 @@ func validSettings() dwarSettings {
 	s.Config.Chat.Reasoning.Provider = "anthropic"
 	s.Config.Chat.Reasoning.Model = "claude-sonnet-5"
 	s.Config.Chat.Reasoning.MaxTokens = 16384
-	s.Config.Chat.Reasoning.ThinkingBudget = 4096
+	s.Config.Chat.Reasoning.Effort = "medium"
 	s.Config.Chat.Conversation.Provider = "gemini"
 	s.Config.Chat.Conversation.Model = "gemini-3.6-flash"
 	s.Config.Chat.Conversation.MaxTokens = 4096
@@ -82,6 +82,26 @@ func TestValidateDwarSettings(t *testing.T) {
 	}
 }
 
+func TestValidateDwarSettingsEffortMatchesProvider(t *testing.T) {
+	for _, tc := range []struct {
+		provider, effort string
+		ok               bool
+	}{
+		{"anthropic", "medium", true},
+		{"anthropic", "", false},
+		{"anthropic", "huge", false},
+		{"gemini", "", true},
+		{"gemini", "medium", false},
+	} {
+		s := validSettings()
+		s.Config.Chat.Reasoning.Provider = tc.provider
+		s.Config.Chat.Reasoning.Effort = tc.effort
+		if err := validateDwarSettings(s); (err == nil) != tc.ok {
+			t.Fatalf("%s/%q: err=%v", tc.provider, tc.effort, err)
+		}
+	}
+}
+
 func TestReadWriteDwarSettingsRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
@@ -107,7 +127,7 @@ func TestReadWriteDwarSettingsRoundTrip(t *testing.T) {
 	if !strings.Contains(string(body), "KEEP_ME=yes") {
 		t.Fatalf("lost extra key: %s", body)
 	}
-	if got.Config.Chat.Reasoning.Model != "claude-sonnet-5" {
+	if got.Config.Chat.Reasoning.Model != "claude-sonnet-5" || got.Config.Chat.Reasoning.Effort != "medium" {
 		t.Fatalf("config: %+v", got.Config.Chat.Reasoning)
 	}
 	if got.Config.Retry.TimeoutSeconds != 300 {

@@ -33,11 +33,14 @@ type dwarEnvFile struct {
 }
 
 type dwarChatReasoning struct {
-	Provider       string `json:"provider" toml:"provider"`
-	Model          string `json:"model" toml:"model"`
-	MaxTokens      int    `json:"max_tokens" toml:"max_tokens"`
-	ThinkingBudget int    `json:"thinking_budget" toml:"thinking_budget"`
+	Provider  string `json:"provider" toml:"provider"`
+	Model     string `json:"model" toml:"model"`
+	MaxTokens int    `json:"max_tokens" toml:"max_tokens"`
+	Effort    string `json:"effort" toml:"effort,omitempty"`
 }
+
+// dwarEfforts are the Anthropic thinking effort levels Dwar accepts for an anthropic reasoning lane.
+var dwarEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 type dwarChatLane struct {
 	Provider  string `json:"provider" toml:"provider"`
@@ -174,7 +177,7 @@ func overlayEnv(existing map[string]string, env dwarEnvFile) map[string]string {
 	return out
 }
 
-// validateDwarSettings rejects empty providers/models and non-positive numeric fields.
+// validateDwarSettings rejects empty providers/models, non-positive numeric fields, and an effort that does not match the reasoning provider.
 func validateDwarSettings(s dwarSettings) error {
 	c := s.Config
 	if c.Chat.Reasoning.Provider == "" || c.Chat.Reasoning.Model == "" {
@@ -183,8 +186,11 @@ func validateDwarSettings(s dwarSettings) error {
 	if c.Chat.Reasoning.MaxTokens < 1 {
 		return fmt.Errorf("chat.reasoning max_tokens must be >= 1")
 	}
-	if c.Chat.Reasoning.ThinkingBudget < 0 {
-		return fmt.Errorf("chat.reasoning thinking_budget must be >= 0")
+	if c.Chat.Reasoning.Provider == "anthropic" && !slices.Contains(dwarEfforts, c.Chat.Reasoning.Effort) {
+		return fmt.Errorf("chat.reasoning effort must be one of %s", strings.Join(dwarEfforts, ", "))
+	}
+	if c.Chat.Reasoning.Provider != "anthropic" && c.Chat.Reasoning.Effort != "" {
+		return fmt.Errorf("chat.reasoning effort applies only to anthropic")
 	}
 	if c.Chat.Conversation.Provider == "" || c.Chat.Conversation.Model == "" {
 		return fmt.Errorf("chat.conversation provider and model are required")
