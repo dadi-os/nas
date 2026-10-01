@@ -89,6 +89,7 @@ type dwarConfigFile struct {
 	Chat struct {
 		Reasoning    dwarChatReasoning `json:"reasoning" toml:"reasoning"`
 		Conversation dwarChatLane      `json:"conversation" toml:"conversation"`
+		Complete     dwarChatLane      `json:"complete" toml:"complete"`
 	} `json:"chat" toml:"chat"`
 	Embed dwarEmbed `json:"embed" toml:"embed"`
 	Image struct {
@@ -197,6 +198,12 @@ func validateDwarSettings(s dwarSettings) error {
 	}
 	if c.Chat.Conversation.MaxTokens < 1 {
 		return fmt.Errorf("chat.conversation max_tokens must be >= 1")
+	}
+	if c.Chat.Complete.Provider == "" || c.Chat.Complete.Model == "" {
+		return fmt.Errorf("chat.complete provider and model are required")
+	}
+	if c.Chat.Complete.MaxTokens < 1 {
+		return fmt.Errorf("chat.complete max_tokens must be >= 1")
 	}
 	if c.Embed.Provider == "" || c.Embed.Model == "" {
 		return fmt.Errorf("embed provider and model are required")

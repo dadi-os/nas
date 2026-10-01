@@ -46,6 +46,9 @@ func validSettings() dwarSettings {
 	s.Config.Chat.Conversation.Provider = "gemini"
 	s.Config.Chat.Conversation.Model = "gemini-3.6-flash"
 	s.Config.Chat.Conversation.MaxTokens = 4096
+	s.Config.Chat.Complete.Provider = "gemini"
+	s.Config.Chat.Complete.Model = "gemini-3.6-flash"
+	s.Config.Chat.Complete.MaxTokens = 2048
 	s.Config.Embed.Provider = "openai"
 	s.Config.Embed.Model = "text-embedding-3-small"
 	s.Config.Embed.Dimensions = 1536
@@ -79,6 +82,11 @@ func TestValidateDwarSettings(t *testing.T) {
 	s.Config.Chat.Reasoning.MaxTokens = 0
 	if err := validateDwarSettings(s); err == nil {
 		t.Fatal("expected max_tokens error")
+	}
+	s = validSettings()
+	s.Config.Chat.Complete.Model = ""
+	if err := validateDwarSettings(s); err == nil {
+		t.Fatal("expected chat.complete model error")
 	}
 }
 
@@ -129,6 +137,9 @@ func TestReadWriteDwarSettingsRoundTrip(t *testing.T) {
 	}
 	if got.Config.Chat.Reasoning.Model != "claude-sonnet-5" || got.Config.Chat.Reasoning.Effort != "medium" {
 		t.Fatalf("config: %+v", got.Config.Chat.Reasoning)
+	}
+	if got.Config.Chat.Complete.Model != "gemini-3.6-flash" || got.Config.Chat.Complete.MaxTokens != 2048 {
+		t.Fatalf("complete: %+v", got.Config.Chat.Complete)
 	}
 	if got.Config.Retry.TimeoutSeconds != 300 {
 		t.Fatalf("retry: %+v", got.Config.Retry)

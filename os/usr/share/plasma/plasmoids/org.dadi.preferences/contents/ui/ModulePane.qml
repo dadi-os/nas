@@ -45,6 +45,10 @@ Item {
         convProvider.text = conv.provider || ""
         convModel.text = conv.model || ""
         convTokens.text = conv.max_tokens !== undefined ? String(conv.max_tokens) : ""
+        const comp = (c.chat && c.chat.complete) || {}
+        compProvider.text = comp.provider || ""
+        compModel.text = comp.model || ""
+        compTokens.text = comp.max_tokens !== undefined ? String(comp.max_tokens) : ""
         const em = c.embed || {}
         embedProvider.text = em.provider || ""
         embedModel.text = em.model || ""
@@ -102,6 +106,11 @@ Item {
                         provider: convProvider.text,
                         model: convModel.text,
                         max_tokens: Number(convTokens.text)
+                    },
+                    complete: {
+                        provider: compProvider.text,
+                        model: compModel.text,
+                        max_tokens: Number(compTokens.text)
                     }
                 },
                 embed: {
@@ -215,6 +224,11 @@ Item {
             FormRow { id: convProvider; label: "Provider" }
             FormRow { id: convModel; label: "Model" }
             FormRow { id: convTokens; label: "Max tokens" }
+
+            Text { text: "Router"; color: "#8a8e87"; font.pixelSize: 12; Layout.topMargin: 8 }
+            FormRow { id: compProvider; label: "Provider" }
+            FormRow { id: compModel; label: "Model" }
+            FormRow { id: compTokens; label: "Max tokens" }
 
             Text { text: "Embed"; color: "#8a8e87"; font.pixelSize: 12; Layout.topMargin: 8 }
             FormRow { id: embedProvider; label: "Provider" }
