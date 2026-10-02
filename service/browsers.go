@@ -63,6 +63,9 @@ type browserInfo struct {
 	Display string `json:"display"`
 	CDPURL  string `json:"cdp_url"`
 	Healthy bool   `json:"healthy"`
+	// DownloadsDir is where downloads belong ($DADI_HOME/Downloads). CDP clients reset the
+	// download behavior when they connect, so Hath points Chromium here on every connect.
+	DownloadsDir string `json:"downloads_dir"`
 }
 
 type createBrowserRequest struct {
@@ -73,6 +76,8 @@ type createBrowserResponse struct {
 	ID      int    `json:"id"`
 	Display string `json:"display"`
 	CDPURL  string `json:"cdp_url"`
+	// DownloadsDir is the same as browserInfo.DownloadsDir.
+	DownloadsDir string `json:"downloads_dir"`
 }
 
 type cdpVersion struct {
@@ -555,9 +560,10 @@ func (b *browserHost) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, createBrowserResponse{
-		ID:      id,
-		Display: display,
-		CDPURL:  cdpURL,
+		ID:           id,
+		Display:      display,
+		CDPURL:       cdpURL,
+		DownloadsDir: filepath.Join(b.host.homeDir, "Downloads"),
 	})
 }
 
@@ -570,8 +576,9 @@ func (b *browserHost) handleList(w http.ResponseWriter, r *http.Request) {
 	out := make([]browserInfo, 0, len(ids))
 	for _, id := range ids {
 		info := browserInfo{
-			ID:      id,
-			Display: displayName(id),
+			ID:           id,
+			Display:      displayName(id),
+			DownloadsDir: filepath.Join(b.host.homeDir, "Downloads"),
 		}
 		if cdp, ok := b.cdpURLFor(r, id); ok {
 			info.CDPURL = cdp

@@ -201,6 +201,47 @@ func TestTerminalsExecExitAndOutput(t *testing.T) {
 	}
 }
 
+func TestTerminalsExecCannotEndSession(t *testing.T) {
+	_, mux := testTerminalEnv(t)
+	code, body := doJSON(t, mux, http.MethodPost, "/terminals", map[string]any{})
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, body)
+	}
+	var created createTerminalResponse
+	_ = json.Unmarshal(body, &created)
+
+	for _, tc := range []struct {
+		command string
+		exit    int
+	}{
+		{"set -e\nfalse\necho unreachable", 1},
+		{"exit 7", 7},
+		{"cd / && exec true", 0},
+		{"pwd # trailing comment", 0},
+	} {
+		code, body = doJSON(t, mux, http.MethodPost, "/terminals/"+created.ID+"/exec", map[string]any{
+			"command":         tc.command,
+			"timeout_seconds": 30,
+		})
+		if code != http.StatusOK {
+			t.Fatalf("exec %q %d %s", tc.command, code, body)
+		}
+		var resp execResponse
+		if err := json.Unmarshal(body, &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp.TimedOut || resp.ExitCode == nil || *resp.ExitCode != tc.exit {
+			t.Fatalf("exec %q: timed_out %v exit_code %+v output %q", tc.command, resp.TimedOut, resp.ExitCode, resp.Output)
+		}
+		if strings.Contains(resp.Output, "unreachable") {
+			t.Fatalf("exec %q kept going after set -e: %q", tc.command, resp.Output)
+		}
+		if tc.command == "pwd # trailing comment" && strings.TrimSpace(resp.Output) == "/" {
+			t.Fatalf("cd from an earlier exec leaked into the session: %q", resp.Output)
+		}
+	}
+}
+
 func TestTerminalsExecTimeoutThenKeys(t *testing.T) {
 	_, mux := testTerminalEnv(t)
 	code, body := doJSON(t, mux, http.MethodPost, "/terminals", map[string]any{})

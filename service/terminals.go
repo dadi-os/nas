@@ -67,7 +67,7 @@ func (t *terminalHost) hasSession(id string) bool {
 
 func (t *terminalHost) requireSession(w http.ResponseWriter, r *http.Request, id string) bool {
 	if !sessionNameRe.MatchString(id) || !t.hasSession(id) {
-		writeError(w, r, http.StatusNotFound, CodeNotFound, "not_found")
+		writeError(w, r, http.StatusNotFound, CodeNotFound, fmt.Sprintf("terminal %s is not running", id))
 		return false
 	}
 	return true
@@ -265,6 +265,9 @@ type execResponse struct {
 	TimedOut  bool   `json:"timed_out"`
 }
 
+// handleExec runs one command in session id and waits for its exit marker. The command is
+// evaluated in a subshell, so nothing it does to shell state (set -e, exit, exec, cd) outlives
+// it or ends the session.
 func (t *terminalHost) handleExec(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !t.requireSession(w, r, id) {
@@ -327,7 +330,7 @@ func (t *terminalHost) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nonce := hex.EncodeToString(nonceBytes)
-	execLine := req.Command + "; printf '\\n" + execMarker + "%s %d\\n' " + shellSingleQuote(nonce) + " $?"
+	execLine := "( eval " + shellSingleQuote(req.Command) + " ); printf '\\n" + execMarker + "%s %d\\n' " + shellSingleQuote(nonce) + " $?"
 	if err := t.tmuxCmd("send-keys", "-t", id, "-l", "--", execLine).Run(); err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, "send-keys: "+err.Error())
 		return

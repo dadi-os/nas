@@ -182,7 +182,7 @@ Session names are `t<n>` for positive integers. `POST /terminals` with no `id` p
 | `POST` | `/terminals/{id}/keys` | `{ "keys": string[] }` (verbatim `tmux send-keys`, e.g. `["C-c"]`) | `{ sent: true }` | `not_found`, `invalid_request` |
 | `DELETE` | `/terminals/{id}` | — | 204 | `not_found` |
 
-`busy` is true when `#{pane_current_command}` is not the login shell, or an exec is in flight. Exec appends a nonce marker after the command, polls `capture-pane` every 200ms, and returns output between the echoed command and the marker. On timeout the command keeps running (`timed_out: true`, `exit_code: null`); use `capture` / `keys` to follow up. Truncation keeps head and tail with an elided-bytes note in the middle.
+`busy` is true when `#{pane_current_command}` is not the login shell, or an exec is in flight. Exec runs the command as `( eval '<command>' )`, so `cd`, `export`, `set -e`, `exit`, and `exec` stay inside that subshell and can never end the session, then appends a nonce marker, polls `capture-pane` every 200ms, and returns output between the echoed command and the marker. On timeout the command keeps running (`timed_out: true`, `exit_code: null`); use `capture` / `keys` to follow up. Truncation keeps head and tail with an elided-bytes note in the middle.
 
 ### Filesystem
 
@@ -212,8 +212,8 @@ Each browser is a headed Chromium on its own Xvfb display (not headless, not a V
 
 | Method | Path | Success | Errors |
 | --- | --- | --- | --- |
-| `POST` | `/browsers` | `{ id, display, cdp_url }` | `invalid_request`, `conflict` (409, id already running), `internal_error` (Xvfb/Chromium startup; message includes stderr) |
-| `GET` | `/browsers` | `[{ id, display, cdp_url, healthy }]` — `healthy` false if Xvfb is up but CDP is not | — |
+| `POST` | `/browsers` | `{ id, display, cdp_url, downloads_dir }` | `invalid_request`, `conflict` (409, id already running), `internal_error` (Xvfb/Chromium startup; message includes stderr) |
+| `GET` | `/browsers` | `[{ id, display, cdp_url, healthy, downloads_dir }]` — `healthy` false if Xvfb is up but CDP is not | — |
 | `DELETE` | `/browsers/{id}` | 204 (SIGTERM process groups, wait ≤5s, SIGKILL, then remove the profile dir; also clears the profile of an id that is not running) | `internal_error` if the profile cannot be removed |
 | `GET` | `/browsers/{id}/json/version` | Chromium `/json/version` with `ws://127.0.0.1:<port>/…` rewritten to `ws://<Host>/browsers/<id>/…` | `not_found`, `upstream_unreachable` |
 | `GET` | `/browsers/{id}/json/list` | Same rewrite for `/json/list` | `not_found`, `upstream_unreachable` |
@@ -221,7 +221,7 @@ Each browser is a headed Chromium on its own Xvfb display (not headless, not a V
 | `GET` | `/browsers/{id}/screenshot` | `image/png` of the whole virtual monitor (`import -display :n -window root`) | `not_found`, `internal_error` |
 | `GET` | `/browsers/{id}/stream` | `multipart/x-mixed-replace; boundary=frame` MJPEG of the whole virtual monitor at 5 fps, 960 px wide, for an `<img src>` live view. One `ffmpeg -f x11grab … -f mpjpeg` per request, stopped when the client disconnects | `not_found`, `internal_error` (ffmpeg failed before the first frame; message includes stderr) |
 
-`cdp_url` is `ws://<request Host>/browsers/<id>/devtools/browser/<uuid>` from `/json/version` after rewrite — hand it straight to a CDP client. Screenshot is the only way to see popups, download bars, and chrome outside the page; page screenshots stay on CDP.
+`cdp_url` is `ws://<request Host>/browsers/<id>/devtools/browser/<uuid>` from `/json/version` after rewrite — hand it straight to a CDP client. `downloads_dir` is `$DADI_HOME/Downloads`; CDP clients reset Chromium's download behavior when they connect, so the client points downloads there itself (Hath does on every connect). Screenshot is the only way to see popups, download bars, and chrome outside the page; page screenshots stay on CDP.
 
 Chromium binary defaults to `chromium-browser` (Fedora). Set `CHROMIUM_BIN` (Compose/dev image sets `chromium`).
 
