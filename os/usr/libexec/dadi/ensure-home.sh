@@ -29,6 +29,8 @@ seed_home() {
 }
 
 seed_home /var/home/dadi dadi
+# Agent browsers download here (nas reports it as downloads_dir).
+install -d -o dadi -g dadi -m 0755 /var/home/dadi/Downloads
 
 # Locked shadow (passwd -l) fails PAM account in SDDM autologin. SSH is DenyUsers dadi.
 if passwd -S dadi | awk '{exit !($2 == "L")}'; then
