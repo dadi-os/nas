@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"image/jpeg"
 	"image/png"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -412,6 +414,48 @@ func TestBrowsersScreenshot(t *testing.T) {
 	bounds := img.Bounds()
 	if bounds.Dx() != browserScreenW || bounds.Dy() != browserScreenH {
 		t.Fatalf("dimensions %dx%d", bounds.Dx(), bounds.Dy())
+	}
+}
+
+func TestBrowsersStream(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not on PATH")
+	}
+	_, mux, _ := testBrowserEnv(t)
+	code, body := doJSON(t, mux, http.MethodPost, "/browsers", nil)
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, body)
+	}
+	var created createBrowserResponse
+	_ = json.Unmarshal(body, &created)
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	resp, err := http.Get(fmt.Sprintf("%s/browsers/%d/stream", srv.URL, created.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(resp.Body)
+		t.Fatalf("stream %d %s", resp.StatusCode, msg)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "multipart/x-mixed-replace; boundary="+browserStreamBoundary {
+		t.Fatalf("content-type %s", ct)
+	}
+	part, err := multipart.NewReader(resp.Body, browserStreamBoundary).NextPart()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ct := part.Header.Get("Content-Type"); ct != "image/jpeg" {
+		t.Fatalf("part content-type %s", ct)
+	}
+	img, err := jpeg.Decode(part)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := img.Bounds().Dx(); w != browserStreamWidth {
+		t.Fatalf("frame width %d", w)
 	}
 }
 

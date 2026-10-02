@@ -13,7 +13,7 @@ Nas does not call other app modules as a client for its own control plane. It de
 - Host systemd / Docker Compose for stack lifecycle (`DADI_RUNTIME`)
 - State directory for module env/config (`DADI_STATE_DIR`)
 - Host `tmux` (terminals) and `rg` (filesystem grep); appliance also needs `runuser` from util-linux
-- Host `Xvfb`, Chromium, and ImageMagick `import` (browsers); fonts for page text
+- Host `Xvfb`, Chromium, ImageMagick `import`, and `ffmpeg` (browsers); fonts for page text
 
 ## Layout
 
@@ -194,7 +194,7 @@ Paths must be absolute. Reads are unrestricted (aside from `binary_file`). Write
 
 ### Browsers
 
-Each browser is a headed Chromium on its own Xvfb display (not headless, not a VM). Nas only spawns, lists, kills, proxies CDP, and screenshots the virtual monitor. Callers drive pages over CDP. Running processes are the registry — nothing is stored in Nas.
+Each browser is a headed Chromium on its own Xvfb display (not headless, not a VM). Nas only spawns, lists, kills, proxies CDP, and screenshots or streams the virtual monitor. Callers drive pages over CDP. Running processes are the registry — nothing is stored in Nas.
 
 **Derivation from integer id `n` (`n >= 10`; 1–9 reserved for Plasma):**
 
@@ -215,6 +215,7 @@ Each browser is a headed Chromium on its own Xvfb display (not headless, not a V
 | `GET` | `/browsers/{id}/json/list` | Same rewrite for `/json/list` | `not_found`, `upstream_unreachable` |
 | `GET` | `/browsers/{id}/devtools/{rest…}` | WebSocket reverse proxy to `ws://127.0.0.1:<port>/devtools/{rest}` (no buffering / idle timeout on the upgrade) | `not_found`, `upstream_unreachable` |
 | `GET` | `/browsers/{id}/screenshot` | `image/png` of the whole virtual monitor (`import -display :n -window root`) | `not_found`, `internal_error` |
+| `GET` | `/browsers/{id}/stream` | `multipart/x-mixed-replace; boundary=frame` MJPEG of the whole virtual monitor at 5 fps, 960 px wide, for an `<img src>` live view. One `ffmpeg -f x11grab … -f mpjpeg` per request, stopped when the client disconnects | `not_found`, `internal_error` (ffmpeg failed before the first frame; message includes stderr) |
 
 `cdp_url` is `ws://<request Host>/browsers/<id>/devtools/browser/<uuid>` from `/json/version` after rewrite — hand it straight to a CDP client. Screenshot is the only way to see popups, download bars, and chrome outside the page; page screenshots stay on CDP.
 

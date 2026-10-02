@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,6 +32,11 @@ const (
 	browserScreenW  = 1920
 	browserScreenH  = 1080
 	defaultChromium = "chromium-browser"
+	// browserStreamFPS, browserStreamWidth and browserStreamBoundary set the live view's
+	// frame rate, scaled width (about 2x a thaali panel) and multipart boundary.
+	browserStreamFPS      = 5
+	browserStreamWidth    = 960
+	browserStreamBoundary = "frame"
 )
 
 var chromiumSingletonLocks = []string{
@@ -98,6 +104,7 @@ func (b *browserHost) register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /browsers/{id}/json/list", b.handleJSONList)
 	mux.HandleFunc("GET /browsers/{id}/devtools/{rest...}", b.handleDevtools)
 	mux.HandleFunc("GET /browsers/{id}/screenshot", b.handleScreenshot)
+	mux.HandleFunc("GET /browsers/{id}/stream", b.handleStream)
 }
 
 func displayName(id int) string {
@@ -703,4 +710,78 @@ func (b *browserHost) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(out)
+}
+
+// handleStream sends the virtual monitor as MJPEG (multipart/x-mixed-replace) from an
+// ffmpeg x11grab owned by this request, scaled to browserStreamWidth. The first frame is
+// awaited before headers so a capture failure still returns JSON with ffmpeg's stderr.
+// ffmpeg is stopped when the client disconnects or the copy ends; the signal and wait
+// results are discarded because by then ffmpeg has exited or is exiting on that signal.
+func (b *browserHost) handleStream(w http.ResponseWriter, r *http.Request) {
+	id, ok := b.parseID(w, r)
+	if !ok {
+		return
+	}
+	if !b.requireDisplay(w, r, id) {
+		return
+	}
+	cmd := b.host.command("ffmpeg",
+		"-nostdin", "-loglevel", "error",
+		"-f", "x11grab", "-framerate", strconv.Itoa(browserStreamFPS), "-i", displayName(id),
+		"-vf", fmt.Sprintf("scale=%d:-2", browserStreamWidth),
+		"-pix_fmt", "yuvj420p", "-q:v", "7",
+		"-f", "mpjpeg", "-boundary_tag", browserStreamBoundary, "pipe:1",
+	)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, "stream: "+err.Error())
+		return
+	}
+	if err := cmd.Start(); err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, "stream: "+err.Error())
+		return
+	}
+	stop := context.AfterFunc(r.Context(), func() { _ = cmd.Process.Signal(syscall.SIGTERM) })
+	frames := bufio.NewReaderSize(stdout, 256<<10)
+	if _, err := frames.Peek(1); err != nil {
+		stop()
+		waitErr := cmd.Wait()
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = fmt.Sprintf("ffmpeg exited before the first frame: %v", waitErr)
+		}
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, "stream: "+msg)
+		return
+	}
+	defer func() {
+		stop()
+		clientGone := r.Context().Err() != nil
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+		_ = cmd.Wait()
+		if !clientGone {
+			slog.Warn("browser stream ended", "browser", id, "stderr", strings.TrimSpace(stderr.String()))
+		}
+	}()
+
+	w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary="+browserStreamBoundary)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	rc := http.NewResponseController(w)
+	buf := make([]byte, 64<<10)
+	for {
+		n, readErr := frames.Read(buf)
+		if n > 0 {
+			if _, err := w.Write(buf[:n]); err != nil {
+				return
+			}
+			if err := rc.Flush(); err != nil {
+				return
+			}
+		}
+		if readErr != nil {
+			return
+		}
+	}
 }

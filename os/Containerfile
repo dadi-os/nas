@@ -58,6 +58,7 @@ RUN dnf -y install \
     librsvg2-tools \
     qrencode \
     ImageMagick \
+    ffmpeg-free \
     wl-clipboard \
     nftables \
     openssl \

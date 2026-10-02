@@ -14,7 +14,7 @@ FROM golang:1.23-bookworm AS test
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
       ca-certificates util-linux procps tmux ripgrep bash \
-      xvfb chromium imagemagick fonts-liberation \
+      xvfb chromium imagemagick ffmpeg fonts-liberation \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --system --create-home --uid 1000 --shell /usr/sbin/nologin dadi
 ENV CHROMIUM_BIN=chromium
@@ -29,7 +29,7 @@ FROM debian:bookworm-slim AS production
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
       ca-certificates curl jq util-linux procps tmux ripgrep bash \
-      xvfb chromium imagemagick fonts-liberation \
+      xvfb chromium imagemagick ffmpeg fonts-liberation \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --system --create-home --uid 1000 --shell /usr/sbin/nologin dadi
 ENV CHROMIUM_BIN=chromium
@@ -43,7 +43,7 @@ FROM golang:1.23-bookworm AS dev
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
       ca-certificates curl jq util-linux docker.io procps tmux ripgrep bash \
-      xvfb chromium imagemagick fonts-liberation \
+      xvfb chromium imagemagick ffmpeg fonts-liberation \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --system --create-home --uid 1000 --shell /usr/sbin/nologin dadi \
   && go install github.com/air-verse/air@v1.61.7
