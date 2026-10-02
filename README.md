@@ -12,7 +12,7 @@ Nas does not call other app modules as a client for its own control plane. It de
 - Loki (`LOKI_URL`) for log query
 - Host systemd / Docker Compose for stack lifecycle (`DADI_RUNTIME`)
 - State directory for module env/config (`DADI_STATE_DIR`)
-- Host `tmux` (terminals) and `rg` (filesystem grep); appliance also needs `runuser` from util-linux
+- Host `tmux` (terminals) and `rg` (filesystem grep); appliance also needs `runuser` from util-linux and `smbpasswd` / `pdbedit` from Samba (access users)
 - Host `Xvfb`, Chromium, ImageMagick `import`, and `ffmpeg` (browsers); fonts for page text
 
 ## Layout
@@ -146,6 +146,7 @@ Anonymous HTTP on `LISTEN_ADDR`. Nothing is persisted in Nas — **tmux is the r
 | --- | --- |
 | System user | `dadi` (home `$DADI_STATE_DIR`). SDDM autologins as `dadi` with no password (`passwd -d`). SSH `DenyUsers dadi`. Agents (tmux, Chromium) run as `dadi`. |
 | SSH users | Created in Preferences → Users (`POST /access/users`). Wheel + password. `dadi` cannot SSH. Installer `setup` is hidden and denied. Pubkey auth is off. |
+| SMB share | `smb.service` shares `/var/lib/dadi` as `[dadi]` (`/etc/samba/smb.conf`), SMB3 only, to wheel users, writing as `dadi`. `POST /access/users` also sets the user's Samba password (`smbpasswd`); `DELETE` removes it. `hosts allow` admits loopback and the Tailscale ranges only, and SELinux `samba_export_all_rw` is on so the home keeps its labels. Connect over the mesh: `smb://os.dadi/dadi` (Finder, iOS Files) or `\\os.dadi\dadi` (Windows). |
 | tmux socket | `/run/dadi/tmux.sock` on appliance (`tmpfiles.d`); under `$DADI_STATE_DIR/run` in Compose |
 | Default cwd | `$DADI_STATE_DIR` when terminal / glob / grep omit `cwd` |
 
@@ -296,7 +297,7 @@ CD builds an Anaconda ISO whenever `os/**` or `service/**` changes and publishes
 3. Flash to USB; boot the target machine with a keyboard attached. The installer lists fixed disks (NVMe first), asks which one to use, and requires typing `YES` before wiping. **Only that disk is reformatted**; other disks are left alone.
 4. Kickstart writes `/var/lib/dadi/luks-enroll.key` (no trailing newline) and best-effort TPM-enrolls during `%post`. The volume key is a kernel logon key after unlock, so `systemd-cryptenroll` cannot read it from the keyring — that file is the enroll credential. First boot of the installed OS reseals to PCR 7 (so the seal matches disk boot, not the installer USB) and shreds the key. If `%post` enroll succeeded against PCR 7, that boot unlocks from the TPM; otherwise type the ISO passphrase once. Later boots unlock without it unless Secure Boot policy changes (recovery is still slot 0).
 5. SDDM (`sddm-wayland-plasma`, not Plasma Login Manager) autologins as `dadi` into Plasma. There is no lock screen; lid close and idle do not sleep or show a greeter.
-6. Add an SSH user in Preferences → Users (`POST /access/users`). SSH as that user with the password you set. `dadi` is not allowed to SSH.
+6. Add an SSH user in Preferences → Users (`POST /access/users`). SSH as that user with the password you set; the same login opens the `dadi` SMB share over the mesh. `dadi` is not allowed to SSH.
 7. Headscale is published on the LAN (`GET /headscale/publish`). The setup QR embeds that live `http://<lan>:8080` URL — not a domain and not a WAN address.
 8. Add devices: on the box open **Preferences → Devices**, name the device, show the QR. Scan it with the dadi app (desktop or phone) on the same LAN. Node names must be unique. Re-provision after a LAN address change.
 
@@ -306,7 +307,7 @@ Dev Compose data is disposable: `docker compose down -v` and start fresh.
 
 ### Host firewall (nftables)
 
-Ruleset: `/etc/nftables/dadi.nft` (loaded by `nftables.service`). Default-deny input except loopback, Tailscale (`tailscale0`), SSH, Headscale (TCP 8080), Caddy HTTP/HTTPS (TCP 80/443), Matter on the LAN (UDP 5353 / 5540 + IPv6 multicast), and container DNS (UDP/TCP 53 from `podman*` / `cni-podman*` to aardvark-dns). ICMPv6 is accepted so neighbor discovery works. Ghar's HTTP port `8084` is explicitly dropped off-loopback; the process also binds `127.0.0.1` only. Caddy aborts `*.dadi` vhosts from non-mesh, non-loopback, non-podman (`10.88.0.0/16`, `10.89.0.0/16`) source IPs.
+Ruleset: `/etc/nftables/dadi.nft` (loaded by `nftables.service`). Default-deny input except loopback, Tailscale (`tailscale0`), SSH, Headscale (TCP 8080), Caddy HTTP/HTTPS (TCP 80/443), Matter on the LAN (UDP 5353 / 5540 + IPv6 multicast), and container DNS (UDP/TCP 53 from `podman*` / `cni-podman*` to aardvark-dns). ICMPv6 is accepted so neighbor discovery works. SMB (TCP 445) is not opened, so the `dadi` share is reachable only over `tailscale0`. Ghar's HTTP port `8084` is explicitly dropped off-loopback; the process also binds `127.0.0.1` only. Caddy aborts `*.dadi` vhosts from non-mesh, non-loopback, non-podman (`10.88.0.0/16`, `10.89.0.0/16`) source IPs.
 
 ## Desktop (dadiOS)
 

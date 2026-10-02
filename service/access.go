@@ -277,7 +277,8 @@ func lookupPasswd(name string) (passwdRecord, bool, error) {
 	return rec, true, nil
 }
 
-// provisionSSHUser creates a wheel SSH user or sets the password on an existing one.
+// provisionSSHUser creates a wheel SSH user or sets the password on an existing one, and
+// sets the same Samba password so the login also opens the [dadi] share.
 func provisionSSHUser(username, password string) (created bool, err error) {
 	username = strings.TrimSpace(username)
 	if err := validateSSHUsername(username); err != nil {
@@ -304,13 +305,16 @@ func provisionSSHUser(username, password string) (created bool, err error) {
 	if err := setSSHPassword(username, password); err != nil {
 		return created, err
 	}
+	if err := setSambaPassword(username, password); err != nil {
+		return created, err
+	}
 	if err := syncSSHAllowUsers(); err != nil {
 		return created, err
 	}
 	return created, nil
 }
 
-// removeSSHUser deletes an appliance SSH login and rewrites AllowUsers.
+// removeSSHUser deletes an appliance SSH login and its Samba entry and rewrites AllowUsers.
 func removeSSHUser(username string) error {
 	username = strings.TrimSpace(username)
 	if err := validateSSHUsername(username); err != nil {
@@ -325,6 +329,9 @@ func removeSSHUser(username string) error {
 	}
 	if rec.name == sessionUser || !isSSHAdminUID(rec.uid) {
 		return errSSHReserved
+	}
+	if err := removeSambaUser(username); err != nil {
+		return err
 	}
 	cmd := exec.Command("userdel", "--remove", username)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -342,6 +349,46 @@ func setSSHPassword(username, password string) error {
 		return fmt.Errorf("passwd: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// setSambaPassword adds username to the Samba passdb or resets its password, so the
+// SSH password also opens the [dadi] share.
+func setSambaPassword(username, password string) error {
+	cmd := exec.Command("smbpasswd", "-a", "-s", username)
+	cmd.Stdin = strings.NewReader(password + "\n" + password + "\n")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("smbpasswd: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// removeSambaUser deletes username from the Samba passdb. Users created before the
+// share existed have no entry, so absence is not an error.
+func removeSambaUser(username string) error {
+	out, err := exec.Command("pdbedit", "--list").Output()
+	if err != nil {
+		return fmt.Errorf("pdbedit --list: %w", err)
+	}
+	if !sambaUserListed(string(out), username) {
+		return nil
+	}
+	cmd := exec.Command("smbpasswd", "-x", username)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("smbpasswd -x: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// sambaUserListed reports whether pdbedit --list output (name:uid:full name) has username.
+func sambaUserListed(out, username string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		name, _, _ := strings.Cut(line, ":")
+		if name == username {
+			return true
+		}
+	}
+	return false
 }
 
 // syncSSHAllowUsers rewrites sshd AllowUsers from current SSH admins and reloads sshd.

@@ -17,6 +17,8 @@ FROM quay.io/fedora/fedora-bootc:44
 RUN dnf -y install \
     podman \
     openssh-server \
+    samba \
+    policycoreutils-python-utils \
     bash-completion \
     curl \
     jq \
@@ -86,6 +88,9 @@ RUN grep -E '^(video|render|input):' /usr/lib/group >> /etc/group
 
 RUN mkdir -p /var/lib/headscale /var/lib/loki /var/lib/alloy
 
+# smbd serves the dadi home ([dadi] in smb.conf), which keeps its var_lib_t / container_file_t labels.
+RUN semanage boolean --modify --on samba_export_all_rw
+
 COPY os/etc/ /etc/
 COPY os/usr/ /usr/
 COPY --from=nas-build /dadi /usr/bin/dadi
@@ -138,6 +143,7 @@ RUN chmod 0440 /etc/sudoers.d/dadi-wheel \
   && ln -sfn /usr/lib/systemd/user/dadi-apply-desktop.service \
        /etc/systemd/user/plasma-workspace.target.wants/dadi-apply-desktop.service \
   && systemctl enable sshd.service \
+  && systemctl enable smb.service \
   && systemctl enable dadi-seed.service \
   && systemctl enable dadi-home.service \
   && systemctl enable dadi-tpm-enroll.service \

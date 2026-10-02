@@ -76,3 +76,16 @@ func TestAllowUsersFileBody(t *testing.T) {
 		t.Fatalf("body %q", body)
 	}
 }
+
+func TestSambaUserListed(t *testing.T) {
+	out := "ankur:1000:\nriya:1001:Riya P\n"
+	if !sambaUserListed(out, "riya") {
+		t.Fatal("riya should be listed")
+	}
+	if sambaUserListed(out, "ank") {
+		t.Fatal("prefix must not match")
+	}
+	if sambaUserListed("", "ankur") {
+		t.Fatal("empty passdb lists nobody")
+	}
+}
