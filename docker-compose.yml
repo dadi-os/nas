@@ -84,6 +84,7 @@ services:
       target: dev
     environment:
       DATABASE_URL: postgres://yaad:yaad@yaad-postgres:5432/yaad
+      TZ: ${TZ:?TZ must name this machine's IANA time zone}
     volumes:
       - ../yaad:/app
       - /app/node_modules
@@ -100,6 +101,7 @@ services:
       target: dev
     environment:
       DATABASE_URL: postgres://yaad:yaad@yaad-postgres:5432/yaad
+      TZ: ${TZ:?TZ must name this machine's IANA time zone}
     volumes:
       - ../yaad:/app
       - /app/node_modules
@@ -144,6 +146,7 @@ services:
       target: dev
     environment:
       DATABASE_URL: postgres://hath:hath@hath-postgres:5432/hath
+      TZ: ${TZ:?TZ must name this machine's IANA time zone}
     volumes:
       - ../hath:/app
       - /app/node_modules
@@ -160,6 +163,7 @@ services:
       target: dev
     environment:
       DATABASE_URL: postgres://hath:hath@hath-postgres:5432/hath
+      TZ: ${TZ:?TZ must name this machine's IANA time zone}
     volumes:
       - ../hath:/app
       - /app/node_modules

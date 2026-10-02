@@ -71,6 +71,16 @@ if [ ! -f "$TLS/ca.crt" ] || [ ! -f "$TLS/chaavi.crt" ] || [ ! -f "$TLS/ca.key" 
   chmod 0644 "$TLS/ca.crt" "$TLS/chaavi.crt"
 fi
 
+# Box timezone for module containers (EnvironmentFile=), rewritten every boot from /etc/localtime.
+zone=$(readlink /etc/localtime)
+zone=${zone#*zoneinfo/}
+if [ ! -f "/usr/share/zoneinfo/$zone" ]; then
+  echo "/etc/localtime does not resolve to a zone under /usr/share/zoneinfo: $zone" >&2
+  exit 1
+fi
+printf 'TZ=%s\n' "$zone" >"$STATE/timezone.env"
+chmod 0644 "$STATE/timezone.env"
+
 # Ensure dwar .env exists (blank keys until set via Preferences).
 if [ ! -f "$STATE/modules/dwar/.env" ]; then
   cat >"$STATE/modules/dwar/.env" <<'EOF'

@@ -14,6 +14,7 @@ AddHost=yaad.dadi:host-gateway
 AddHost=hath.dadi:host-gateway
 AddHost=nas.dadi:host-gateway
 Environment=DATABASE_URL=postgres://yaad:yaad@yaad-postgres:5432/yaad
+EnvironmentFile=/var/lib/dadi/timezone.env
 AutoUpdate=registry
 HealthCmd=node -e "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 HealthInterval=2s

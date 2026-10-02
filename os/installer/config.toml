@@ -6,7 +6,6 @@ contents = """
 text
 lang en_US.UTF-8
 keyboard us
-timezone America/New_York
 network --bootproto=dhcp --device=link --activate --onboot=on
 rootpw --lock
 user --name=setup --password=$6$lECKZK9wyBsU1xGD$KtwcHJppZQYaQ.kna8f2g27QmJ.KmoAlaiZvAbsFC/GwWzApQSgThlxEHy56LSNL2pbQCHHqxsf9yMk8yNWVU. --iscrypted
@@ -90,8 +89,18 @@ fi
 
 echo \"ignoredisk --only-use=$disk\" > /tmp/disk-include.ks
 echo \"Selected /dev/$disk\"
+
+# Box timezone from Fedora's GeoIP service (what Anaconda's own geolocation uses).
+zone=$(python3 -c 'import json, urllib.request; print(json.load(urllib.request.urlopen(\"https://geoip.fedoraproject.org/city\", timeout=20))[\"time_zone\"])')
+if [ ! -f \"/usr/share/zoneinfo/$zone\" ]; then
+  echo \"GeoIP returned an unknown time zone: $zone\" >&2
+  exit 1
+fi
+echo \"timezone $zone\" > /tmp/timezone.ks
+echo \"Time zone $zone\"
 %end
 %include /tmp/disk-include.ks
+%include /tmp/timezone.ks
 zerombr
 clearpart --all --initlabel --disklabel=gpt
 autopart --noswap --type=lvm --encrypted --passphrase=__LUKS_PASSPHRASE__

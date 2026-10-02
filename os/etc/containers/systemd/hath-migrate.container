@@ -8,6 +8,7 @@ Image=ghcr.io/dadi-os/hath:latest
 ContainerName=hath-migrate
 Network=dadi.network
 Environment=DATABASE_URL=postgres://hath:hath@hath-postgres:5432/hath
+EnvironmentFile=/var/lib/dadi/timezone.env
 Exec=node dist/db/migrate.js
 AutoUpdate=registry
 
