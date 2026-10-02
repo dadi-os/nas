@@ -34,7 +34,7 @@ while IFS= read -r -d '' src; do
     mkdir -p "$(dirname "$dest")"
     cp -a "$src" "$dest"
   fi
-done < <(find "$SEED" -print0)
+done < <(find "$SEED" -mindepth 1 -print0)
 
 mkdir -p "$STATE/caddy" "$STATE/modules/dwar" "$STATE/modules/chaavi" "$STATE/headscale"
 

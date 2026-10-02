@@ -11,7 +11,7 @@ Nas does not call other app modules as a client for its own control plane. It de
 - Headscale CLI on the host (device provisioning)
 - Loki (`LOKI_URL`) for log query
 - Host systemd / Docker Compose for stack lifecycle (`DADI_RUNTIME`)
-- State directory for module env/config (`DADI_STATE_DIR`)
+- State directory for module env/config (`DADI_STATE_DIR`) and the dadi user's home (`DADI_HOME`)
 - Host `tmux` (terminals) and `rg` (filesystem grep); appliance also needs `runuser` from util-linux and `smbpasswd` / `pdbedit` from Samba (access users)
 - Host `Xvfb`, Chromium, ImageMagick `import`, and `ffmpeg` (browsers); fonts for page text
 
@@ -38,7 +38,8 @@ Required on the control service (fail at startup if missing):
 | `HEADSCALE_USER` | Headscale namespace for preauth keys (not a Linux login) |
 | `LOKI_URL` | Loki base URL for `GET /logs` |
 | `LISTEN_ADDR` | HTTP listen address |
-| `DADI_STATE_DIR` | Persistent state root |
+| `DADI_STATE_DIR` | Persistent state root (dadiOS-owned; agents cannot write it) |
+| `DADI_HOME` | The dadi user's home: agents' default cwd and the SMB share. Must exist. |
 | `DADI_RUNTIME` | `podman` or `compose` |
 | `DADI_COMPOSE_DIR` | Required when `DADI_RUNTIME=compose` |
 
@@ -146,11 +147,11 @@ Anonymous HTTP on `LISTEN_ADDR`. Nothing is persisted in Nas — **tmux is the r
 
 | Piece | Value |
 | --- | --- |
-| System user | `dadi` (home `$DADI_STATE_DIR`). SDDM autologins as `dadi` with no password (`passwd -d`). SSH `DenyUsers dadi`. Agents (tmux, Chromium) run as `dadi`. |
+| System user | `dadi` (home `$DADI_HOME`, `/var/home/dadi` on the appliance). SDDM autologins as `dadi` with no password (`passwd -d`). SSH `DenyUsers dadi`. Agents (tmux, Chromium) run as `dadi`. |
 | SSH users | Created in Preferences → Users (`POST /access/users`). Wheel + password. `dadi` cannot SSH. Installer `setup` is hidden and denied. Pubkey auth is off. |
-| SMB share | `smb.service` shares `/var/lib/dadi` as `[dadi]` (`/etc/samba/smb.conf`), SMB3 only, to wheel users, writing as `dadi`. `POST /access/users` also sets the user's Samba password (`smbpasswd`); `DELETE` removes it. `hosts allow` admits loopback and the Tailscale ranges only, and SELinux `samba_export_all_rw` is on so the home keeps its labels. Connect over the mesh: `smb://os.dadi/dadi` (Finder, iOS Files) or `\\os.dadi\dadi` (Windows). |
+| SMB share | `smb.service` shares `/var/home/dadi` as `[dadi]` (`/etc/samba/smb.conf`), SMB3 only, to wheel users, writing as `dadi`. `POST /access/users` also sets the user's Samba password (`smbpasswd`); `DELETE` removes it. `hosts allow` admits loopback and the Tailscale ranges only, and SELinux `samba_export_all_rw` is on so the home keeps its labels. Connect over the mesh: `smb://os.dadi/dadi` (Finder, iOS Files) or `\\os.dadi\dadi` (Windows). |
 | tmux socket | `/run/dadi/tmux.sock` on appliance (`tmpfiles.d`); under `$DADI_STATE_DIR/run` in Compose |
-| Default cwd | `$DADI_STATE_DIR` when terminal / glob / grep omit `cwd` |
+| Default cwd | `$DADI_HOME` when terminal / glob / grep omit `cwd` |
 
 On the appliance (`DADI_RUNTIME=podman`) Nas runs as root and launches every tmux command via `runuser -u dadi --` with `-S /run/dadi/tmux.sock`. In Compose/dev the process already runs as the container user, so the user switch is skipped; the same socket flag and code path remain.
 
@@ -166,7 +167,7 @@ On the appliance (`DADI_RUNTIME=podman`) Nas runs as root and launches every tmu
 
 `tpm` is `{ present, enrolled, pcrs?, device? }` from `/var/lib/dadi/tpm.json` after `dadi-tpm-enroll`. Remote reboot: TPM unlocks LUKS, systemd starts enabled units (`nas`, mesh, SDDM autologin).
 
-There is **no project sandbox folder**. Agents may read any absolute path. **Writes** are denied under OS and dadiOS runtime trees (symlinks resolved before the check): `/usr`, `/boot`, `/etc`, `/lib`, `/lib64`, `/bin`, `/sbin`, `/root`, `/var/lib/containers`, and under `$DADI_STATE_DIR`: `modules`, `caddy`, `headscale`, `browsers`, `run`. Darwin also denies `/System` and `/Library`. Terminals are not path-jailed — the FS API is the write gate; shell power is bounded by the `dadi` OS user.
+There is **no project sandbox folder**. Agents may read any absolute path. **Writes** are denied under OS and dadiOS runtime trees (symlinks resolved before the check): `/usr`, `/boot`, `/etc`, `/lib`, `/lib64`, `/bin`, `/sbin`, `/root`, `/var/lib/containers`, and all of `$DADI_STATE_DIR`. Darwin also denies `/System` and `/Library`. Terminals are not path-jailed — the FS API is the write gate; shell power is bounded by the `dadi` OS user.
 
 ### Terminals
 

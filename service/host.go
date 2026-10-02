@@ -19,6 +19,7 @@ const (
 
 type hostRuntime struct {
 	stateDir    string
+	homeDir     string
 	browsersDir string
 	runDir      string
 	tmuxSocket  string
@@ -29,13 +30,27 @@ type hostRuntime struct {
 	idleShell   string
 }
 
-func newHostRuntime(state stateConfig) (*hostRuntime, error) {
+// newHostRuntime builds the host agent surface over the state dir and homeDir, the
+// dadi user's home ($DADI_HOME), which must already exist.
+func newHostRuntime(state stateConfig, homeDir string) (*hostRuntime, error) {
 	stateDir := state.dir
 	if resolved, err := filepath.EvalSymlinks(stateDir); err == nil {
 		stateDir = resolved
 	}
+	homeDir, err := filepath.EvalSymlinks(homeDir)
+	if err != nil {
+		return nil, fmt.Errorf("DADI_HOME: %w", err)
+	}
+	fi, err := os.Stat(homeDir)
+	if err != nil {
+		return nil, fmt.Errorf("DADI_HOME: %w", err)
+	}
+	if !fi.IsDir() {
+		return nil, fmt.Errorf("DADI_HOME %s is not a directory", homeDir)
+	}
 	h := &hostRuntime{
 		stateDir:    stateDir,
+		homeDir:     homeDir,
 		browsersDir: filepath.Join(stateDir, "browsers"),
 		runtime:     state.runtime,
 		switchUser:  state.runtime == "podman",
@@ -112,13 +127,13 @@ func (h *hostRuntime) chownDadi(path string) error {
 	return os.Chown(path, h.dadiUID, h.dadiGID)
 }
 
-// defaultCwd is used when terminal / glob / grep omit cwd (dadi home = state dir).
+// defaultCwd is used when terminal / glob / grep omit cwd (the dadi home).
 func (h *hostRuntime) defaultCwd() string {
-	return h.stateDir
+	return h.homeDir
 }
 
-// writeProtectedPrefixes are OS and dadiOS runtime trees agents must not modify
-// via the filesystem API. Reads remain allowed.
+// writeProtectedPrefixes are OS trees and the whole dadiOS state dir, which agents
+// must not modify via the filesystem API. Reads remain allowed.
 func (h *hostRuntime) writeProtectedPrefixes() []string {
 	prefixes := []string{
 		"/usr",
@@ -134,10 +149,7 @@ func (h *hostRuntime) writeProtectedPrefixes() []string {
 	if runtime.GOOS == "darwin" {
 		prefixes = append(prefixes, "/System", "/Library")
 	}
-	for _, rel := range []string{"modules", "caddy", "headscale", "browsers", "run"} {
-		prefixes = append(prefixes, filepath.Join(h.stateDir, rel))
-	}
-	return prefixes
+	return append(prefixes, h.stateDir)
 }
 
 func pathUnderPrefix(path, prefix string) bool {

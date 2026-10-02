@@ -362,6 +362,7 @@ services:
       LISTEN_ADDR: ":8080"
       LOKI_URL: http://loki:3100
       DADI_STATE_DIR: /var/lib/dadi
+      DADI_HOME: /home/dadi
       DADI_RUNTIME: compose
       DADI_COMPOSE_DIR: /nas
       CHROMIUM_BIN: chromium
@@ -376,6 +377,7 @@ services:
       - ../chaavi/.env:/var/lib/dadi/modules/chaavi/.env
       - headscale_control_url:/var/lib/dadi/headscale
       - browsers_data:/var/lib/dadi/browsers
+      - dadi_home:/home/dadi
       - chaavi_tls:/var/lib/dadi/caddy/tls
       - .:/nas:ro
       - /var/run/docker.sock:/var/run/docker.sock
@@ -459,4 +461,5 @@ volumes:
   bootstrap:
   headscale_control_url:
   browsers_data:
+  dadi_home:
   alloy_data:

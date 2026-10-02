@@ -14,14 +14,14 @@ func testFSEnv(t *testing.T) (*fsHost, *http.ServeMux, string) {
 	t.Helper()
 	dir := t.TempDir()
 	state := stateConfig{dir: dir, runtime: "compose"}
-	host, err := newHostRuntime(state)
+	host, err := newHostRuntime(state, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	fh := newFSHost(host)
 	mux := http.NewServeMux()
 	fh.register(mux)
-	return fh, mux, host.stateDir
+	return fh, mux, host.homeDir
 }
 
 func TestFSReadOffsetLimit(t *testing.T) {
@@ -147,21 +147,25 @@ func TestFSReadOSAllowed(t *testing.T) {
 }
 
 func TestFSWriteProtectedStateRuntime(t *testing.T) {
-	_, mux, root := testFSEnv(t)
-	path := filepath.Join(root, "modules", "dwar", ".env")
-	code, body := doJSON(t, mux, http.MethodPost, "/fs/write", map[string]any{
-		"path":    path,
-		"content": "stolen",
-	})
-	if code != http.StatusForbidden {
-		t.Fatalf("status %d %s", code, body)
-	}
-	var errBody errorResponse
-	if err := json.Unmarshal(body, &errBody); err != nil {
-		t.Fatal(err)
-	}
-	if errBody.Error.Type != CodeForbidden {
-		t.Fatalf("type %s", errBody.Error.Type)
+	fh, mux, _ := testFSEnv(t)
+	for _, path := range []string{
+		filepath.Join(fh.host.stateDir, "modules", "dwar", ".env"),
+		filepath.Join(fh.host.stateDir, "tpm.json"),
+	} {
+		code, body := doJSON(t, mux, http.MethodPost, "/fs/write", map[string]any{
+			"path":    path,
+			"content": "stolen",
+		})
+		if code != http.StatusForbidden {
+			t.Fatalf("%s status %d %s", path, code, body)
+		}
+		var errBody errorResponse
+		if err := json.Unmarshal(body, &errBody); err != nil {
+			t.Fatal(err)
+		}
+		if errBody.Error.Type != CodeForbidden {
+			t.Fatalf("%s type %s", path, errBody.Error.Type)
+		}
 	}
 }
 

@@ -44,7 +44,7 @@ func testBrowserEnv(t *testing.T) (*browserHost, *http.ServeMux, string) {
 	bin := requireBrowserDeps(t)
 	dir := t.TempDir()
 	state := stateConfig{dir: dir, runtime: "compose"}
-	host, err := newHostRuntime(state)
+	host, err := newHostRuntime(state, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestBrowsersIDReuseAndProfile(t *testing.T) {
 func TestBrowserDeleteStoppedRemovesProfile(t *testing.T) {
 	dir := t.TempDir()
 	state := stateConfig{dir: dir, runtime: "compose"}
-	host, err := newHostRuntime(state)
+	host, err := newHostRuntime(state, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestBrowserDeleteStoppedRemovesProfile(t *testing.T) {
 func TestBrowserNextFreshIDSkipsProfile(t *testing.T) {
 	dir := t.TempDir()
 	state := stateConfig{dir: dir, runtime: "compose"}
-	host, err := newHostRuntime(state)
+	host, err := newHostRuntime(state, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

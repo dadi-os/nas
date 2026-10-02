@@ -28,7 +28,7 @@ seed_home() {
   chmod 0700 "$home"
 }
 
-seed_home /var/lib/dadi dadi
+seed_home /var/home/dadi dadi
 
 # Locked shadow (passwd -l) fails PAM account in SDDM autologin. SSH is DenyUsers dadi.
 if passwd -S dadi | awk '{exit !($2 == "L")}'; then
@@ -36,8 +36,8 @@ if passwd -S dadi | awk '{exit !($2 == "L")}'; then
 fi
 
 # Plasma writes ~/.config on first run and can restore Autolock. Re-pin every boot.
-install -d -o dadi -g dadi -m 0700 /var/lib/dadi/.config
-install -o dadi -g dadi -m 0600 /etc/xdg/kscreenlockerrc /var/lib/dadi/.config/kscreenlockerrc
-install -o dadi -g dadi -m 0600 /etc/xdg/powerdevilrc /var/lib/dadi/.config/powerdevilrc
-install -o dadi -g dadi -m 0600 /etc/xdg/powermanagementprofilesrc /var/lib/dadi/.config/powermanagementprofilesrc
-install -o dadi -g dadi -m 0600 /etc/xdg/ksmserverrc /var/lib/dadi/.config/ksmserverrc
+install -d -o dadi -g dadi -m 0700 /var/home/dadi/.config
+install -o dadi -g dadi -m 0600 /etc/xdg/kscreenlockerrc /var/home/dadi/.config/kscreenlockerrc
+install -o dadi -g dadi -m 0600 /etc/xdg/powerdevilrc /var/home/dadi/.config/powerdevilrc
+install -o dadi -g dadi -m 0600 /etc/xdg/powermanagementprofilesrc /var/home/dadi/.config/powermanagementprofilesrc
+install -o dadi -g dadi -m 0600 /etc/xdg/ksmserverrc /var/home/dadi/.config/ksmserverrc

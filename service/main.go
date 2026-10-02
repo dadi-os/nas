@@ -37,12 +37,17 @@ func main() {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
 	}
+	home, err := requireEnv("DADI_HOME")
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeConfigMissing)
+		os.Exit(1)
+	}
 	state, err := loadStateConfig()
 	if err != nil {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
 	}
-	host, err := newHostRuntime(state)
+	host, err := newHostRuntime(state, home)
 	if err != nil {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
@@ -92,7 +97,7 @@ func main() {
 	files.register(mux)
 	browsers.register(mux)
 
-	slog.Info("nas listening", "addr", listen, "state_dir", state.dir, "runtime", state.runtime)
+	slog.Info("nas listening", "addr", listen, "state_dir", state.dir, "home", host.homeDir, "runtime", state.runtime)
 	if err := http.ListenAndServe(listen, withRequestLog(mux)); err != nil {
 		slog.Error("listen failed", "code", CodeInternal, "err", err)
 		os.Exit(1)

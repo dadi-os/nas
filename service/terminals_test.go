@@ -27,7 +27,7 @@ func testTerminalEnv(t *testing.T) (*terminalHost, *http.ServeMux) {
 	requireTmux(t)
 	dir := t.TempDir()
 	state := stateConfig{dir: dir, runtime: "compose"}
-	host, err := newHostRuntime(state)
+	host, err := newHostRuntime(state, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
