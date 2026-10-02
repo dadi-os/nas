@@ -32,11 +32,14 @@ const (
 	browserScreenW  = 1920
 	browserScreenH  = 1080
 	defaultChromium = "chromium-browser"
-	// browserStreamFPS, browserStreamWidth and browserStreamBoundary set the live view's
-	// frame rate, scaled width (about 2x a thaali panel) and multipart boundary.
+	// browserStreamFPS, browserStreamWidth, browserStreamQuality and browserStreamBoundary
+	// set the live view's frame rate, scaled width (about 2x a thaali panel), ffmpeg JPEG
+	// quality (2 best to 31 worst) and multipart boundary; browserStreamChunk sizes the relay.
 	browserStreamFPS      = 5
 	browserStreamWidth    = 960
+	browserStreamQuality  = 7
 	browserStreamBoundary = "frame"
+	browserStreamChunk    = 64 << 10
 )
 
 var chromiumSingletonLocks = []string{
@@ -729,7 +732,7 @@ func (b *browserHost) handleStream(w http.ResponseWriter, r *http.Request) {
 		"-nostdin", "-loglevel", "error",
 		"-f", "x11grab", "-framerate", strconv.Itoa(browserStreamFPS), "-i", displayName(id),
 		"-vf", fmt.Sprintf("scale=%d:-2", browserStreamWidth),
-		"-pix_fmt", "yuvj420p", "-q:v", "7",
+		"-pix_fmt", "yuvj420p", "-q:v", strconv.Itoa(browserStreamQuality),
 		"-f", "mpjpeg", "-boundary_tag", browserStreamBoundary, "pipe:1",
 	)
 	var stderr bytes.Buffer
@@ -744,15 +747,12 @@ func (b *browserHost) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	stop := context.AfterFunc(r.Context(), func() { _ = cmd.Process.Signal(syscall.SIGTERM) })
-	frames := bufio.NewReaderSize(stdout, 256<<10)
+	frames := bufio.NewReaderSize(stdout, browserStreamChunk)
 	if _, err := frames.Peek(1); err != nil {
 		stop()
 		waitErr := cmd.Wait()
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = fmt.Sprintf("ffmpeg exited before the first frame: %v", waitErr)
-		}
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, "stream: "+msg)
+		msg := fmt.Sprintf("stream: ffmpeg exited before the first frame (%v): %s", waitErr, strings.TrimSpace(stderr.String()))
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, msg)
 		return
 	}
 	defer func() {
@@ -769,7 +769,7 @@ func (b *browserHost) handleStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	rc := http.NewResponseController(w)
-	buf := make([]byte, 64<<10)
+	buf := make([]byte, browserStreamChunk)
 	for {
 		n, readErr := frames.Read(buf)
 		if n > 0 {
