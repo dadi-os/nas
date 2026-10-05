@@ -86,7 +86,9 @@ func (r *statusRecorder) Flush() {
 	}
 }
 
-// withRequestLog logs one structured request summary per HTTP call.
+// withRequestLog logs one structured request summary per HTTP call. Successful GETs
+// are reads the desktop and agents poll constantly, so they log at debug; every write
+// and every failure stays visible at info and above.
 func withRequestLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("X-Request-Id")
@@ -111,6 +113,10 @@ func withRequestLog(next http.Handler) http.Handler {
 		}
 		if rec.status >= 400 {
 			slog.Warn("request", attrs...)
+			return
+		}
+		if r.Method == http.MethodGet {
+			slog.Debug("request", attrs...)
 			return
 		}
 		slog.Info("request", attrs...)
