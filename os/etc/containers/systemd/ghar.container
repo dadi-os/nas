@@ -19,9 +19,10 @@ Environment=MATTER_STORAGE_PATH=/var/lib/ghar/matter
 Volume=ghar_matter.volume:/var/lib/ghar/matter
 AutoUpdate=registry
 HealthCmd=node -e "fetch('http://127.0.0.1:8084/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-HealthInterval=2s
+HealthInterval=30s
 HealthTimeout=5s
-HealthRetries=30
+HealthRetries=3
+HealthStartPeriod=60s
 
 [Service]
 Restart=always

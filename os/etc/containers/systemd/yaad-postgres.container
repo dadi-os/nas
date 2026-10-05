@@ -12,9 +12,9 @@ Environment=POSTGRES_DB=yaad
 Environment=POSTGRES_PASSWORD=yaad
 Volume=yaad_pg.volume:/var/lib/postgresql
 HealthCmd=pg_isready -U yaad -d yaad
-HealthInterval=2s
+HealthInterval=10s
 HealthTimeout=5s
-HealthRetries=20
+HealthRetries=4
 Notify=healthy
 # PostgreSQL 18 crash-recovers when an untracked child dies. pg_isready runs in
 # this PID namespace and gets reparented to PID 1; init reaps it instead.

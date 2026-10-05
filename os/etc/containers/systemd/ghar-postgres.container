@@ -13,9 +13,9 @@ Environment=POSTGRES_DB=ghar
 Environment=POSTGRES_PASSWORD=ghar
 Volume=ghar_pg.volume:/var/lib/postgresql
 HealthCmd=pg_isready -U ghar -d ghar
-HealthInterval=2s
+HealthInterval=10s
 HealthTimeout=5s
-HealthRetries=20
+HealthRetries=4
 Notify=healthy
 # PostgreSQL 18 crash-recovers when an untracked child dies. pg_isready runs in
 # this PID namespace and gets reparented to PID 1; init reaps it instead.

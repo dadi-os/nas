@@ -21,9 +21,10 @@ EnvironmentFile=/var/lib/dadi/modules/chaavi/.env
 Volume=chaavi_bw.volume:/var/lib/chaavi/bw
 AutoUpdate=registry
 HealthCmd=node -e "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-HealthInterval=2s
+HealthInterval=30s
 HealthTimeout=5s
-HealthRetries=30
+HealthRetries=3
+HealthStartPeriod=60s
 
 [Service]
 ExecStartPre=/bin/sh -c 'set -eu; if ! /usr/bin/podman volume exists chaavi_bw; then /usr/bin/podman volume create chaavi_bw; fi; mp=$(/usr/bin/podman volume inspect chaavi_bw --format "{{.Mountpoint}}"); install -m 644 /var/lib/dadi/caddy/tls/ca.crt "$$mp/ca.crt"'

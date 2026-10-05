@@ -17,9 +17,10 @@ Environment=DATABASE_URL=postgres://yaad:yaad@yaad-postgres:5432/yaad
 EnvironmentFile=/var/lib/dadi/timezone.env
 AutoUpdate=registry
 HealthCmd=node -e "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-HealthInterval=2s
+HealthInterval=30s
 HealthTimeout=5s
-HealthRetries=30
+HealthRetries=3
+HealthStartPeriod=60s
 
 [Service]
 Restart=always

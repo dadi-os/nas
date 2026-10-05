@@ -12,9 +12,9 @@ Environment=DOMAIN=https://chaavi.dadi
 Environment=SIGNUPS_ALLOWED=true
 Environment=ROCKET_PORT=80
 HealthCmd=wget -qO- http://127.0.0.1/alive
-HealthInterval=2s
+HealthInterval=10s
 HealthTimeout=5s
-HealthRetries=20
+HealthRetries=4
 Notify=healthy
 AutoUpdate=registry
 
