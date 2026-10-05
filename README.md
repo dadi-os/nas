@@ -112,7 +112,7 @@ All dadi modules emit **one JSON object per line** on stdout. Dev Alloy scrapes 
 | `msg` | Human message; may include `\n` for multi-line detail |
 | `code` | Stable error/event code when applicable |
 | `request_id` | Per-request correlation id |
-| `method`, `path`, `status`, `duration_ms` | HTTP request summary (one line per request) |
+| `method`, `path`, `status`, `duration_ms` | HTTP request summary (one line per request; successful `GET`s, which the desktop and agents poll, log at `debug`) |
 
 Alloy drops non-JSON lines for app services and drops infra noise (postgres, headscale, alloy, loki, caddy, thaali Vite, …). Do not emit npm/tsx banners, uvicorn access spam, or Fastify boot chatter as the primary signal.
 
@@ -186,11 +186,11 @@ Session names are `t<n>` for positive integers. `POST /terminals` with no `id` p
 
 ### Filesystem
 
-Paths must be absolute. Reads are unrestricted (aside from `binary_file`). Writes/edits fail with `forbidden` on protected prefixes above. Writes chown to `dadi` on the appliance.
+Paths must be absolute. On the appliance every `/fs/*` call runs with `dadi`'s filesystem uid and gid (a locked thread with `setfsuid`/`setfsgid`), so it reads and writes only what `dadi` may, and files and parent directories it creates belong to `dadi`, as from an agent terminal; a permission error is `forbidden` (403) with the OS message. Writes/edits also fail with `forbidden` on protected prefixes above.
 
 | Method | Path | Body | Success | Errors |
 | --- | --- | --- | --- | --- |
-| `POST` | `/fs/read` | `{ path, offset?: number (1-based), limit?: number (default 500), max_bytes?: number (default 65536) }` | `{ content, total_lines, truncated }` (`N\tline`) | `not_found`, `binary_file` (415), `invalid_request` |
+| `POST` | `/fs/read` | `{ path, offset?: number (1-based), limit?: number (default 500), max_bytes?: number (default 65536) }` | `{ content, total_lines, truncated }` (`N\tline`) | `not_found`, `forbidden`, `binary_file` (415), `invalid_request` |
 | `POST` | `/fs/write` | `{ path, content }` (creates parents) | `{ bytes }` | `forbidden`, `invalid_request` |
 | `POST` | `/fs/edit` | `{ path, old_string, new_string }` (exactly one match) | `{ replaced: true }` | `forbidden`, `not_found`, `conflict` (409) |
 | `POST` | `/fs/glob` | `{ pattern, cwd?, limit?: number (default 500) }` | `{ paths, truncated }` (mtime desc) | `not_found`, `invalid_request` |

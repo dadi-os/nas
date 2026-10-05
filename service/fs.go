@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -36,6 +37,8 @@ func writePathError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, errForbidden):
 		writeError(w, r, http.StatusForbidden, CodeForbidden, "forbidden")
+	case errors.Is(err, fs.ErrPermission):
+		writeError(w, r, http.StatusForbidden, CodeForbidden, err.Error())
 	case errors.Is(err, errNotFound):
 		writeError(w, r, http.StatusNotFound, CodeNotFound, "not_found")
 	case errors.Is(err, errBinaryFile):
@@ -256,30 +259,15 @@ func (f *fsHost) handleWrite(w http.ResponseWriter, r *http.Request) {
 		writePathError(w, r, err)
 		return
 	}
-	if err := f.mkdirAllOwned(filepath.Dir(path)); err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		writePathError(w, r, err)
 		return
 	}
 	if err := os.WriteFile(path, []byte(req.Content), 0o644); err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-		return
-	}
-	if err := f.host.chownDadi(path); err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+		writePathError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, writeResponse{Bytes: len(req.Content)})
-}
-
-func (f *fsHost) mkdirAllOwned(dir string) error {
-	dir = filepath.Clean(dir)
-	if _, err := f.host.resolveHostPath(dir, false, true); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	return f.host.chownDadi(dir)
 }
 
 type editRequest struct {
@@ -315,11 +303,7 @@ func (f *fsHost) handleEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	updated := strings.Replace(string(body), req.OldString, req.NewString, 1)
 	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-		return
-	}
-	if err := f.host.chownDadi(path); err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+		writePathError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"replaced": true})
@@ -522,9 +506,23 @@ func (f *fsHost) handleGrep(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fsHost) register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /fs/read", f.handleRead)
-	mux.HandleFunc("POST /fs/write", f.handleWrite)
-	mux.HandleFunc("POST /fs/edit", f.handleEdit)
-	mux.HandleFunc("POST /fs/glob", f.handleGlob)
-	mux.HandleFunc("POST /fs/grep", f.handleGrep)
+	mux.HandleFunc("POST /fs/read", f.asDadi(f.handleRead))
+	mux.HandleFunc("POST /fs/write", f.asDadi(f.handleWrite))
+	mux.HandleFunc("POST /fs/edit", f.asDadi(f.handleEdit))
+	mux.HandleFunc("POST /fs/glob", f.asDadi(f.handleGlob))
+	mux.HandleFunc("POST /fs/grep", f.asDadi(f.handleGrep))
+}
+
+// asDadi serves h with dadi's filesystem identity on the appliance, so agents read and
+// write with dadi's permissions and everything they create belongs to dadi, as it does
+// from their terminals.
+func (f *fsHost) asDadi(h http.HandlerFunc) http.HandlerFunc {
+	if !f.host.switchUser {
+		return h
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := asFSUser(f.host.dadiUID, f.host.dadiGID, func() { h(w, r) }); err != nil {
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+		}
+	}
 }
