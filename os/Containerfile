@@ -106,6 +106,7 @@ RUN mkdir -p \
       /usr/share/pixmaps \
       /usr/share/icons/hicolor/48x48/apps \
       /usr/share/icons/hicolor/128x128/apps \
+      /usr/share/dadi/desktop \
   && rsvg-convert -w 640 -h 240 /usr/share/dadi/brand/dadi-wordmark.svg \
        -o /usr/share/plymouth/themes/dadi/wordmark.png \
   && rsvg-convert -w 480 -h 180 /usr/share/dadi/brand/dadi-wordmark.svg \

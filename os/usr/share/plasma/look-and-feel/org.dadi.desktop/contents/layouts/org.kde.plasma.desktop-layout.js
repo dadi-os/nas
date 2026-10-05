@@ -55,3 +55,4 @@ desktop.writeConfig("ToolBoxButtonState", "hidden");
 desktop.writeConfig("iconSize", 1);
 desktop.writeConfig("arrangement", 1);
 desktop.writeConfig("sortMode", -1);
+desktop.writeConfig("url", "file:///usr/share/dadi/desktop");

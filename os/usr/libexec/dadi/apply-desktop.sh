@@ -2,7 +2,7 @@
 # Apply dadi look-and-feel and place crest widgets. Re-runs when LAYOUT_VERSION changes.
 set -euo pipefail
 
-LAYOUT_VERSION=5
+LAYOUT_VERSION=6
 FLAG="${XDG_CONFIG_HOME:-$HOME/.config}/dadi/lnf-version"
 LAYOUT=/usr/share/plasma/look-and-feel/org.dadi.desktop/contents/layouts/org.kde.plasma.desktop-layout.js
 PLACE=/usr/share/dadi/plasma/place-widgets.js

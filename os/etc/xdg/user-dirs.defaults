@@ -1,0 +1,2 @@
+# The dadi home keeps only Downloads (agent browsers save there); no Desktop, Documents, Music, Pictures, Public, Templates or Videos.
+DOWNLOAD=Downloads

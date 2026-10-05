@@ -147,7 +147,7 @@ Anonymous HTTP on `LISTEN_ADDR`. Nothing is persisted in Nas — **tmux is the r
 
 | Piece | Value |
 | --- | --- |
-| System user | `dadi` (home `$DADI_HOME`, `/var/home/dadi` on the appliance). SDDM autologins as `dadi` with no password (`passwd -d`). SSH `DenyUsers dadi`. Agents (tmux, Chromium) run as `dadi`. |
+| System user | `dadi` (home `$DADI_HOME`, `/var/home/dadi` on the appliance). The home gets only `Downloads` from `xdg-user-dirs` (`/etc/xdg/user-dirs.defaults`), and the desktop Folder View shows the empty `/usr/share/dadi/desktop`, so there is no `~/Desktop`. SDDM autologins as `dadi` with no password (`passwd -d`). SSH `DenyUsers dadi`. Agents (tmux, Chromium) run as `dadi`. |
 | SSH users | Created in Preferences → Users (`POST /access/users`). Wheel + password. `dadi` cannot SSH. Installer `setup` is hidden and denied. Pubkey auth is off. |
 | SMB share | `smb.service` shares `/var/home/dadi` as `[dadi]` (`/etc/samba/smb.conf`), SMB3 only, to wheel users, writing as `dadi`. `POST /access/users` also sets the user's Samba password (`smbpasswd`); `DELETE` removes it. `hosts allow` admits loopback and the Tailscale ranges only, and SELinux `samba_export_all_rw` is on so the home keeps its labels. Connect over the mesh: `smb://os.dadi/dadi` (Finder, iOS Files) or `\\os.dadi\dadi` (Windows). |
 | tmux socket | `/run/dadi/tmux.sock` on appliance (`tmpfiles.d`); under `$DADI_STATE_DIR/run` in Compose |
