@@ -16,7 +16,11 @@ func TestAsFSUserChecksAndOwnsAsTheUser(t *testing.T) {
 		t.Skip("switching filesystem ids needs root")
 	}
 	const nobody = 65534
-	dir := t.TempDir()
+	dir, err := os.MkdirTemp("", "fsuser-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
 	if err := os.Chmod(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +37,7 @@ func TestAsFSUserChecksAndOwnsAsTheUser(t *testing.T) {
 	}
 
 	var made, denied error
-	err := asFSUser(nobody, nobody, func() {
+	err = asFSUser(nobody, nobody, func() {
 		made = os.MkdirAll(filepath.Join(open, "a", "b"), 0o755)
 		denied = os.WriteFile(filepath.Join(closed, "x"), []byte("x"), 0o644)
 	})
