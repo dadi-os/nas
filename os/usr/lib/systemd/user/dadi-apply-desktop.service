@@ -1,6 +1,6 @@
 [Unit]
 Description=Apply dadi Plasma look-and-feel
-After=plasma-plasmashell.service
+After=plasma-plasmashell.service plasma-kactivitymanagerd.service
 PartOf=graphical-session.target
 
 [Service]
