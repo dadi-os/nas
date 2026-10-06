@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -59,6 +60,8 @@ type stateConfig struct {
 	composeDir string // required when runtime=compose
 }
 
+// loadStateConfig reads DADI_STATE_DIR, DADI_RUNTIME (podman or compose) and, under compose,
+// DADI_COMPOSE_DIR. Each is required.
 func loadStateConfig() (stateConfig, error) {
 	dir := os.Getenv("DADI_STATE_DIR")
 	if dir == "" {
@@ -82,14 +85,18 @@ func loadStateConfig() (stateConfig, error) {
 	return cfg, nil
 }
 
+// moduleEnvPath is module name's .env under the state dir.
 func (s stateConfig) moduleEnvPath(name string) string {
 	return filepath.Join(s.dir, "modules", name, ".env")
 }
 
+// dwarConfigPath is Dwar's config.toml under the state dir.
 func (s stateConfig) dwarConfigPath() string {
 	return filepath.Join(s.dir, "modules", "dwar", "config.toml")
 }
 
+// registerConfigRoutes mounts module env/config editing, module restart, stack up/down,
+// pull_updates and headscale publish routes on mux.
 func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 	updates := &updater{
 		run:    s.pullUpdates,
@@ -258,6 +265,7 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 	})
 }
 
+// restartModule restarts module name's systemd unit (podman) or compose service.
 func (s stateConfig) restartModule(name string) error {
 	switch s.runtime {
 	case "podman":
@@ -280,11 +288,13 @@ func (s stateConfig) restartModule(name string) error {
 	}
 }
 
+// stackUp starts the whole stack. Under podman it starts each unit in dependency order and
+// stops at the first failure.
 func (s stateConfig) stackUp() error {
 	switch s.runtime {
 	case "podman":
-		_ = hostSystemctl("start", "dadi-seed.service")
 		units := []string{
+			"dadi-seed.service",
 			"yaad-postgres", "hath-postgres", "ghar-postgres", "chaavi-vault", "headscale.service", "loki.service",
 			"yaad-migrate", "hath-migrate", "ghar-migrate",
 			"yaad", "hath", "dwar", "ghar", "chaavi", "bootstrap.service",
@@ -304,6 +314,8 @@ func (s stateConfig) stackUp() error {
 	}
 }
 
+// stackDown stops the whole stack. Under podman it stops every unit in reverse dependency
+// order, continuing past failures, and returns them joined.
 func (s stateConfig) stackDown() error {
 	switch s.runtime {
 	case "podman":
@@ -313,10 +325,13 @@ func (s stateConfig) stackDown() error {
 			"yaad-migrate", "hath-migrate", "ghar-migrate",
 			"yaad-postgres", "hath-postgres", "ghar-postgres", "chaavi-vault", "headscale.service", "loki.service",
 		}
+		var errs []error
 		for _, u := range units {
-			_ = hostSystemctl("stop", u)
+			if err := hostSystemctl("stop", u); err != nil {
+				errs = append(errs, fmt.Errorf("stop %s: %w", u, err))
+			}
 		}
-		return nil
+		return errors.Join(errs...)
 	case "compose":
 		return s.composeCmd("down")
 	default:
@@ -358,6 +373,8 @@ func (u *updater) start(scope string) (updateRun, bool) {
 	return u.last, true
 }
 
+// finish runs pull_updates for scope, records the outcome and reboots when the run staged a
+// new OS deployment. A failed reboot is recorded as the run's error.
 func (u *updater) finish(scope string) {
 	rebootRequired, err := u.run(scope)
 	u.settle(rebootRequired, err)
@@ -375,6 +392,7 @@ func (u *updater) finish(scope string) {
 	}
 }
 
+// settle records a finished run as failed, rebooting or succeeded.
 func (u *updater) settle(rebootRequired bool, err error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -391,6 +409,7 @@ func (u *updater) settle(rebootRequired bool, err error) {
 	}
 }
 
+// snapshot returns the most recent run.
 func (u *updater) snapshot() updateRun {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -435,10 +454,12 @@ func (s stateConfig) pullUpdates(scope string) (rebootRequired bool, err error) 
 	}
 }
 
+// hostSystemctl runs systemctl verb unit on the host.
 func hostSystemctl(verb string, unit string) error {
 	return runCmd("systemctl", verb, unit)
 }
 
+// composeCmd runs docker compose with args against the dev compose project.
 func (s stateConfig) composeCmd(args ...string) error {
 	full := append([]string{
 		"compose",
@@ -448,6 +469,7 @@ func (s stateConfig) composeCmd(args ...string) error {
 	return runCmd("docker", full...)
 }
 
+// runCmd runs name with args and returns an error carrying its combined output on failure.
 func runCmd(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	out, err := cmd.CombinedOutput()

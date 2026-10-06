@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -37,6 +38,7 @@ type terminalHost struct {
 	busy     map[string]struct{}
 }
 
+// newTerminalHost returns the terminal API backed by host's tmux server.
 func newTerminalHost(host *hostRuntime) *terminalHost {
 	return &terminalHost{
 		host: host,
@@ -44,6 +46,7 @@ func newTerminalHost(host *hostRuntime) *terminalHost {
 	}
 }
 
+// tmuxCmd returns a tmux command on the nas tmux socket, run as dadi on the appliance.
 func (t *terminalHost) tmuxCmd(args ...string) *exec.Cmd {
 	full := append([]string{"-S", t.host.tmuxSocket}, args...)
 	if t.host.switchUser {
@@ -52,6 +55,8 @@ func (t *terminalHost) tmuxCmd(args ...string) *exec.Cmd {
 	return exec.Command("tmux", full...)
 }
 
+// tmuxOutput runs tmux with args and returns its combined output, with the output in the
+// error on failure.
 func (t *terminalHost) tmuxOutput(args ...string) (string, error) {
 	out, err := t.tmuxCmd(args...).CombinedOutput()
 	if err != nil {
@@ -60,11 +65,13 @@ func (t *terminalHost) tmuxOutput(args ...string) (string, error) {
 	return string(out), nil
 }
 
+// hasSession reports whether tmux session id exists.
 func (t *terminalHost) hasSession(id string) bool {
 	err := t.tmuxCmd("has-session", "-t", id).Run()
 	return err == nil
 }
 
+// requireSession writes 404 and returns false when id is not a running terminal.
 func (t *terminalHost) requireSession(w http.ResponseWriter, r *http.Request, id string) bool {
 	if !sessionNameRe.MatchString(id) || !t.hasSession(id) {
 		writeError(w, r, http.StatusNotFound, CodeNotFound, fmt.Sprintf("terminal %s is not running", id))
@@ -73,6 +80,7 @@ func (t *terminalHost) requireSession(w http.ResponseWriter, r *http.Request, id
 	return true
 }
 
+// paneCommand returns the foreground command in session id's pane.
 func (t *terminalHost) paneCommand(id string) (string, error) {
 	out, err := t.tmuxOutput("display-message", "-p", "-t", id, "#{pane_current_command}")
 	if err != nil {
@@ -81,6 +89,7 @@ func (t *terminalHost) paneCommand(id string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// isPaneBusy reports whether session id's pane runs something other than the idle shell.
 func (t *terminalHost) isPaneBusy(id string) (bool, error) {
 	cmd, err := t.paneCommand(id)
 	if err != nil {
@@ -89,6 +98,7 @@ func (t *terminalHost) isPaneBusy(id string) (bool, error) {
 	return cmd != "" && cmd != t.host.idleShell, nil
 }
 
+// listSessionNames returns the tmux session names. No running tmux server means no sessions.
 func (t *terminalHost) listSessionNames() (map[string]struct{}, error) {
 	out, err := t.tmuxCmd("ls", "-F", "#{session_name}").CombinedOutput()
 	if err != nil {
@@ -108,6 +118,7 @@ func (t *terminalHost) listSessionNames() (map[string]struct{}, error) {
 	return names, nil
 }
 
+// isTmuxIdleError reports whether a tmux ls failure only means no server is running.
 func isTmuxIdleError(err error, out []byte) bool {
 	text := string(out) + err.Error()
 	return strings.Contains(text, "no server running") ||
@@ -115,6 +126,7 @@ func isTmuxIdleError(err error, out []byte) bool {
 		strings.Contains(err.Error(), "exit status 1")
 }
 
+// nextSessionID returns the lowest t<n> not in use.
 func (t *terminalHost) nextSessionID() (string, error) {
 	names, err := t.listSessionNames()
 	if err != nil {
@@ -138,6 +150,8 @@ type createTerminalResponse struct {
 	Cwd string `json:"cwd"`
 }
 
+// handleCreate is POST /terminals: starts a tmux session in cwd (the dadi home when omitted)
+// under the requested id, or the lowest free one.
 func (t *terminalHost) handleCreate(w http.ResponseWriter, r *http.Request) {
 	t.createMu.Lock()
 	defer t.createMu.Unlock()
@@ -200,6 +214,8 @@ type terminalInfo struct {
 	Busy      bool   `json:"busy"`
 }
 
+// sessionInfo returns session id's cwd, creation time and whether it is busy with an exec
+// or a foreground command.
 func (t *terminalHost) sessionInfo(id string) (terminalInfo, error) {
 	cwd, err := t.tmuxOutput("display-message", "-p", "-t", id, "#{pane_current_path}")
 	if err != nil {
@@ -225,6 +241,8 @@ func (t *terminalHost) sessionInfo(id string) (terminalInfo, error) {
 	}, nil
 }
 
+// handleList is GET /terminals: every t<n> session, sorted by id. A session whose details
+// cannot be read is logged with CodeInternal and left out.
 func (t *terminalHost) handleList(w http.ResponseWriter, r *http.Request) {
 	names, err := t.listSessionNames()
 	if err != nil {
@@ -245,6 +263,7 @@ func (t *terminalHost) handleList(w http.ResponseWriter, r *http.Request) {
 	for _, id := range ids {
 		info, err := t.sessionInfo(id)
 		if err != nil {
+			slog.Error("terminal info failed", "code", CodeInternal, "terminal", id, "err", err)
 			continue
 		}
 		list = append(list, info)
@@ -375,6 +394,8 @@ func (t *terminalHost) handleExec(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// parseExecCapture finds markerPrefix's exit-code line in a pane capture and returns the
+// output between the echoed sentLine and that marker. ok is false until the marker appears.
 func parseExecCapture(capture, sentLine, markerPrefix string) (exitCode int, output string, ok bool) {
 	lines := splitPaneLines(capture)
 	markerIdx := -1
@@ -420,6 +441,7 @@ func parseExecCapture(capture, sentLine, markerPrefix string) (exitCode int, out
 	return code, body, true
 }
 
+// partialExecOutput returns the output after the last echo of sentLine, for a timed-out exec.
 func partialExecOutput(capture, sentLine string) string {
 	lines := splitPaneLines(capture)
 	cmdIdx := -1
@@ -456,12 +478,14 @@ func scrubExecMarkerLines(s string) string {
 	return strings.Join(out, "\n")
 }
 
+// splitPaneLines splits pane text into lines, normalizing CR and CRLF.
 func splitPaneLines(s string) []string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "\n")
 	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
 }
 
+// truncateHeadTail keeps s within maxBytes by eliding its middle, and reports whether it did.
 func truncateHeadTail(s string, maxBytes int) (string, bool) {
 	if len(s) <= maxBytes {
 		return s, false
@@ -477,6 +501,7 @@ func truncateHeadTail(s string, maxBytes int) (string, bool) {
 	return s[:head] + note + s[len(s)-tail:], true
 }
 
+// shellSingleQuote quotes s as a single POSIX shell word.
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
@@ -485,6 +510,7 @@ type captureResponse struct {
 	Output string `json:"output"`
 }
 
+// handleCapture is GET /terminals/{id}/capture: the last lines (default 200) of the pane.
 func (t *terminalHost) handleCapture(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !t.requireSession(w, r, id) {
@@ -511,6 +537,7 @@ type keysRequest struct {
 	Keys []string `json:"keys"`
 }
 
+// handleKeys is POST /terminals/{id}/keys: sends keys to the pane with tmux send-keys.
 func (t *terminalHost) handleKeys(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !t.requireSession(w, r, id) {
@@ -534,6 +561,8 @@ func (t *terminalHost) handleKeys(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"sent": true})
 }
 
+// handleDelete is DELETE /terminals/{id}: kills the session. A session that is already gone
+// is a success.
 func (t *terminalHost) handleDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !sessionNameRe.MatchString(id) {
@@ -551,6 +580,7 @@ func (t *terminalHost) handleDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// register mounts the /terminals routes on mux.
 func (t *terminalHost) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /terminals", t.handleCreate)
 	mux.HandleFunc("GET /terminals", t.handleList)
@@ -560,6 +590,7 @@ func (t *terminalHost) register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /terminals/{id}", t.handleDelete)
 }
 
+// filepathIsAbs reports whether p is an absolute POSIX path, regardless of the build OS.
 func filepathIsAbs(p string) bool {
 	return len(p) > 0 && p[0] == '/'
 }

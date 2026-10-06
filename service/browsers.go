@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -31,6 +32,8 @@ const (
 	browserKillWait = 5 * time.Second
 	browserScreenW  = 1920
 	browserScreenH  = 1080
+	// defaultChromium is the product's Chromium binary on dadiOS (Fedora's chromium-browser).
+	// CHROMIUM_BIN is an optional override; the Compose/dev images set it to chromium.
 	defaultChromium = "chromium-browser"
 	// browserStreamFPS, browserStreamWidth, browserStreamQuality and browserStreamBoundary
 	// set the live view's frame rate, scaled width (about 2x a thaali panel), ffmpeg JPEG
@@ -91,6 +94,8 @@ type lineLogger struct {
 	mu      sync.Mutex
 }
 
+// newBrowserHost returns a browserHost using CHROMIUM_BIN, or defaultChromium when it is
+// unset. On the appliance Chromium runs as dadi.
 func newBrowserHost(host *hostRuntime) *browserHost {
 	bin := strings.TrimSpace(os.Getenv("CHROMIUM_BIN"))
 	if bin == "" {
@@ -104,6 +109,7 @@ func newBrowserHost(host *hostRuntime) *browserHost {
 	return bh
 }
 
+// register mounts the /browsers routes on mux.
 func (b *browserHost) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /browsers", b.handleCreate)
 	mux.HandleFunc("GET /browsers", b.handleList)
@@ -115,30 +121,38 @@ func (b *browserHost) register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /browsers/{id}/stream", b.handleStream)
 }
 
+// displayName is the X display for browser id (":<id>").
 func displayName(id int) string {
 	return fmt.Sprintf(":%d", id)
 }
 
+// cdpPort is the loopback Chromium DevTools port for browser id.
 func cdpPort(id int) int {
 	return cdpPortBase + id
 }
 
+// xSocketPath is the Xvfb socket for browser id under /tmp/.X11-unix.
 func xSocketPath(id int) string {
 	return filepath.Join("/tmp/.X11-unix", fmt.Sprintf("X%d", id))
 }
 
+// profileDir is browser id's Chromium user-data directory.
 func (b *browserHost) profileDir(id int) string {
 	return filepath.Join(b.host.browsersDir, strconv.Itoa(id))
 }
 
+// chromiumPattern matches browser id's Chromium processes for pgrep -f.
 func (b *browserHost) chromiumPattern(id int) string {
 	return fmt.Sprintf("remote-debugging-port=%d", cdpPort(id))
 }
 
+// xvfbPattern matches browser id's Xvfb process for pgrep -f.
 func (b *browserHost) xvfbPattern(id int) string {
 	return fmt.Sprintf("Xvfb :%d", id)
 }
 
+// clearSingletonLocks removes Chromium's singleton lock files from profile dir, which a
+// crashed Chromium leaves behind and which block the next launch. Missing files are expected.
 func clearSingletonLocks(dir string) {
 	for _, name := range chromiumSingletonLocks {
 		_ = os.Remove(filepath.Join(dir, name))
@@ -182,6 +196,7 @@ func (b *browserHost) chromiumArgs(id, port int) []string {
 	return args
 }
 
+// portFree reports whether port can be bound on 127.0.0.1.
 func portFree(port int) bool {
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
@@ -244,6 +259,7 @@ func (b *browserHost) nextFreshID() (int, error) {
 	return 0, fmt.Errorf("no free browser id")
 }
 
+// scanIDs returns the browser ids (>= browserIDMin) that have an X socket, ascending.
 func (b *browserHost) scanIDs() ([]int, error) {
 	entries, err := os.ReadDir("/tmp/.X11-unix")
 	if err != nil {
@@ -268,6 +284,8 @@ func (b *browserHost) scanIDs() ([]int, error) {
 	return ids, nil
 }
 
+// Write buffers Chromium or Xvfb stderr and logs each complete line at info, tagged with
+// the browser id and process name.
 func (l *lineLogger) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -287,6 +305,7 @@ func (l *lineLogger) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// String returns the output not yet terminated by a newline.
 func (l *lineLogger) String() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -327,6 +346,7 @@ func (b *browserHost) startDetached(
 	return cmd, log, nil
 }
 
+// waitForFile polls until path exists or timeout passes and reports whether it appeared.
 func waitForFile(path string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -365,9 +385,15 @@ func waitForCDP(port int, timeout time.Duration, alive func() bool) bool {
 	return false
 }
 
+// findPIDs returns the pids whose command line matches pattern. pgrep exit status 1
+// means no match; any other pgrep failure is logged with CodeInternal and also yields none.
 func findPIDs(pattern string) []int {
 	out, err := exec.Command("pgrep", "-f", pattern).Output()
 	if err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+			slog.Error("pgrep failed", "code", CodeInternal, "pattern", pattern, "err", err)
+		}
 		return nil
 	}
 	var pids []int
@@ -385,6 +411,8 @@ func findPIDs(pattern string) []int {
 	return pids
 }
 
+// signalPIDs sends sig to each pid and once to each pid's process group, so runuser,
+// setsid and systemd-run wrappers and their children are all reached.
 func signalPIDs(pids []int, sig syscall.Signal) {
 	seen := map[int]struct{}{}
 	for _, pid := range pids {
@@ -399,6 +427,7 @@ func signalPIDs(pids []int, sig syscall.Signal) {
 	}
 }
 
+// processesExist reports whether browser id still has an X socket, a Chromium or an Xvfb process.
 func (b *browserHost) processesExist(id int) bool {
 	if _, err := os.Stat(xSocketPath(id)); err == nil {
 		return true
@@ -406,6 +435,8 @@ func (b *browserHost) processesExist(id int) bool {
 	return len(findPIDs(b.chromiumPattern(id))) > 0 || len(findPIDs(b.xvfbPattern(id))) > 0
 }
 
+// killBrowser stops browser id's Chromium and Xvfb with SIGTERM, waits up to browserKillWait,
+// sends SIGKILL to what remains, and removes the X socket and singleton locks. The profile is kept.
 func (b *browserHost) killBrowser(id int) {
 	signalPIDs(findPIDs(b.chromiumPattern(id)), syscall.SIGTERM)
 	signalPIDs(findPIDs(b.xvfbPattern(id)), syscall.SIGTERM)
@@ -429,6 +460,7 @@ func rewriteCDPBody(body []byte, host string, id, port int) []byte {
 	return bytes.ReplaceAll(out, []byte(fmt.Sprintf("ws://localhost:%d/", port)), []byte(to))
 }
 
+// fetchVersion returns Chromium's /json/version body for browser id.
 func (b *browserHost) fetchVersion(id int) ([]byte, error) {
 	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/json/version", cdpPort(id)))
 	if err != nil {
@@ -445,6 +477,8 @@ func (b *browserHost) fetchVersion(id int) ([]byte, error) {
 	return body, nil
 }
 
+// cdpURLFor returns browser id's websocket debugger URL rewritten to the nas proxy path for
+// r's host. ok is false when Chromium does not answer or reports no URL.
 func (b *browserHost) cdpURLFor(r *http.Request, id int) (string, bool) {
 	body, err := b.fetchVersion(id)
 	if err != nil {
@@ -457,6 +491,8 @@ func (b *browserHost) cdpURLFor(r *http.Request, id int) (string, bool) {
 	return ver.WebSocketDebuggerURL, ver.WebSocketDebuggerURL != ""
 }
 
+// chromiumReadyError describes why Chromium never served CDP: its buffered stderr, prefixed
+// with "no chromium process" when the process is gone.
 func chromiumReadyError(log *lineLogger, alive bool) string {
 	msg := strings.TrimSpace(log.String())
 	if alive {
@@ -468,6 +504,9 @@ func chromiumReadyError(log *lineLogger, alive bool) string {
 	return "no chromium process; " + msg
 }
 
+// handleCreate is POST /browsers. It starts Xvfb and Chromium for the requested id, or the
+// lowest fresh id, waits for CDP and returns the proxied websocket URL. Any failed step kills
+// what was started and returns the error.
 func (b *browserHost) handleCreate(w http.ResponseWriter, r *http.Request) {
 	b.createMu.Lock()
 	defer b.createMu.Unlock()
@@ -516,7 +555,10 @@ func (b *browserHost) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, "mkdir X11 unix: "+err.Error())
 		return
 	}
-	_ = os.Chmod("/tmp/.X11-unix", 0o1777)
+	if err := os.Chmod("/tmp/.X11-unix", 0o1777); err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, "chmod X11 unix: "+err.Error())
+		return
+	}
 
 	xvfbArgs := []string{
 		display,
@@ -567,6 +609,8 @@ func (b *browserHost) handleCreate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleList is GET /browsers: every running display with its CDP URL. Healthy is false when
+// Chromium does not answer on its CDP port.
 func (b *browserHost) handleList(w http.ResponseWriter, r *http.Request) {
 	ids, err := b.scanIDs()
 	if err != nil {
@@ -589,6 +633,7 @@ func (b *browserHost) handleList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// parseID reads the {id} path value and writes 404 when it is not a browser id.
 func (b *browserHost) parseID(w http.ResponseWriter, r *http.Request) (int, bool) {
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil || id < browserIDMin {
@@ -598,6 +643,7 @@ func (b *browserHost) parseID(w http.ResponseWriter, r *http.Request) (int, bool
 	return id, true
 }
 
+// requireDisplay writes 404 and returns false when browser id has no X socket.
 func (b *browserHost) requireDisplay(w http.ResponseWriter, r *http.Request, id int) bool {
 	if _, err := os.Stat(xSocketPath(id)); err != nil {
 		writeError(w, r, http.StatusNotFound, CodeNotFound, "not_found")
@@ -624,6 +670,8 @@ func (b *browserHost) handleDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleJSONVersion is GET /browsers/{id}/json/version, Chromium's version document with
+// websocket URLs rewritten to the nas proxy path.
 func (b *browserHost) handleJSONVersion(w http.ResponseWriter, r *http.Request) {
 	id, ok := b.parseID(w, r)
 	if !ok {
@@ -642,6 +690,8 @@ func (b *browserHost) handleJSONVersion(w http.ResponseWriter, r *http.Request) 
 	_, _ = w.Write(rewriteCDPBody(body, r.Host, id, cdpPort(id)))
 }
 
+// handleJSONList is GET /browsers/{id}/json/list, Chromium's target list with websocket URLs
+// rewritten to the nas proxy path.
 func (b *browserHost) handleJSONList(w http.ResponseWriter, r *http.Request) {
 	id, ok := b.parseID(w, r)
 	if !ok {
@@ -667,6 +717,8 @@ func (b *browserHost) handleJSONList(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(rewriteCDPBody(body, r.Host, id, port))
 }
 
+// handleDevtools is GET /browsers/{id}/devtools/..., a reverse proxy (websocket upgrades
+// included) to the browser's loopback DevTools endpoint.
 func (b *browserHost) handleDevtools(w http.ResponseWriter, r *http.Request) {
 	id, ok := b.parseID(w, r)
 	if !ok {
@@ -696,6 +748,8 @@ func (b *browserHost) handleDevtools(w http.ResponseWriter, r *http.Request) {
 	proxy.ServeHTTP(w, r)
 }
 
+// handleScreenshot is GET /browsers/{id}/screenshot, a PNG of the whole virtual display taken
+// with ImageMagick import.
 func (b *browserHost) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 	id, ok := b.parseID(w, r)
 	if !ok {

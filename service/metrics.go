@@ -2,6 +2,10 @@ package main
 
 import (
 	"bufio"
+	"errors"
+	"fmt"
+	"io/fs"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strconv"
@@ -41,8 +45,12 @@ var (
 	lastCPUIdle   uint64
 	lastCPUTotal  uint64
 	haveCPUSample bool
+	// sampleErrs holds the last error logged per sampler, so a persistent failure is logged
+	// once when it starts or changes rather than on every tick.
+	sampleErrs = map[string]string{}
 )
 
+// startMetricsSampler samples metrics once, then every 2 seconds in the background.
 func startMetricsSampler() {
 	refreshMetrics()
 	go func() {
@@ -54,6 +62,7 @@ func startMetricsSampler() {
 	}()
 }
 
+// currentMetrics returns a copy of the latest sampled metrics.
 func currentMetrics() metricsSnapshot {
 	metricsMu.RLock()
 	defer metricsMu.RUnlock()
@@ -72,10 +81,13 @@ func currentMetrics() metricsSnapshot {
 	return out
 }
 
+// refreshMetrics samples CPU, memory and GPUs and replaces the cached metrics.
 func refreshMetrics() {
 	cpu := sampleCPU()
-	mem := sampleMemory()
-	gpus := sampleGPUs()
+	mem, memErr := sampleMemory()
+	logSampleError("memory", memErr)
+	gpus, gpuErr := sampleGPUs()
+	logSampleError("gpu", gpuErr)
 
 	metricsMu.Lock()
 	defer metricsMu.Unlock()
@@ -84,6 +96,8 @@ func refreshMetrics() {
 	cachedGPUs = gpus
 }
 
+// sampleCPU returns the CPU name and its busy percentage since the previous sample (0 on the
+// first). It returns nil when /proc/stat is unreadable and no CPU name is found.
 func sampleCPU() *cpuStatus {
 	name := readCPUName()
 	idle, total, ok := readCPUTimes()
@@ -119,6 +133,8 @@ func sampleCPU() *cpuStatus {
 	return &cpuStatus{Name: name, UsedPercent: pct}
 }
 
+// readCPUName returns the CPU model from /proc/cpuinfo: model name or Model, else Hardware,
+// else a brand derived from the ARM implementer. "" when none is present.
 func readCPUName() string {
 	f, err := os.Open("/proc/cpuinfo")
 	if err != nil {
@@ -163,6 +179,7 @@ func readCPUName() string {
 	return ""
 }
 
+// cpuBrandFromImplementer names the vendor for an ARM CPU implementer code from /proc/cpuinfo.
 func cpuBrandFromImplementer(implementer string) string {
 	switch strings.ToLower(strings.TrimSpace(implementer)) {
 	case "0x61":
@@ -187,6 +204,7 @@ func cpuBrandFromImplementer(implementer string) string {
 	}
 }
 
+// readCPUTimes returns the aggregate idle and total jiffies from /proc/stat.
 func readCPUTimes() (idle, total uint64, ok bool) {
 	f, err := os.Open("/proc/stat")
 	if err != nil {
@@ -216,10 +234,29 @@ func readCPUTimes() (idle, total uint64, ok bool) {
 	return idle, sum, true
 }
 
-func sampleMemory() *memoryStatus {
+// logSampleError logs sampler's err with CodeInternal when it differs from the last one logged
+// for that sampler. A nil err clears the record, so a later failure is logged again.
+func logSampleError(sampler string, err error) {
+	if err == nil {
+		delete(sampleErrs, sampler)
+		return
+	}
+	if sampleErrs[sampler] == err.Error() {
+		return
+	}
+	sampleErrs[sampler] = err.Error()
+	slog.Error("metrics sample failed", "code", CodeInternal, "sampler", sampler, "err", err)
+}
+
+// sampleMemory returns system memory use from /proc/meminfo. It returns nil and no error where
+// /proc/meminfo does not exist (not Linux).
+func sampleMemory() (*memoryStatus, error) {
 	f, err := os.Open("/proc/meminfo")
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer f.Close()
 
@@ -243,8 +280,11 @@ func sampleMemory() *memoryStatus {
 			available = bytes
 		}
 	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("read /proc/meminfo: %w", err)
+	}
 	if total == 0 {
-		return nil
+		return nil, errors.New("/proc/meminfo has no MemTotal")
 	}
 	used := total - available
 	if available > total {
@@ -256,18 +296,27 @@ func sampleMemory() *memoryStatus {
 		UsedBytes:   used,
 		TotalBytes:  total,
 		UsedPercent: pct,
-	}
+	}, nil
 }
 
-func sampleGPUs() []gpuStatus {
+// sampleGPUs returns each NVIDIA GPU's name and utilization from nvidia-smi. It returns nil and
+// no error when nvidia-smi is not installed; a failing nvidia-smi is an error.
+func sampleGPUs() ([]gpuStatus, error) {
 	cmd := exec.Command(
 		"nvidia-smi",
 		"--query-gpu=name,utilization.gpu",
 		"--format=csv,noheader,nounits",
 	)
 	out, err := cmd.Output()
+	if errors.Is(err, exec.ErrNotFound) {
+		return nil, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return nil, fmt.Errorf("nvidia-smi: %w: %s", err, strings.TrimSpace(string(out)+string(exitErr.Stderr)))
+	}
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("nvidia-smi: %w", err)
 	}
 	var gpus []gpuStatus
 	for _, line := range strings.Split(string(out), "\n") {
@@ -291,5 +340,5 @@ func sampleGPUs() []gpuStatus {
 		}
 		gpus = append(gpus, g)
 	}
-	return gpus
+	return gpus, nil
 }
