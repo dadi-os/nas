@@ -13,6 +13,7 @@ concurrency:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
@@ -92,6 +93,7 @@ jobs:
     needs: ci
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
@@ -148,6 +150,7 @@ jobs:
     needs: nas-image
     if: needs.nas-image.outputs.run == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     permissions:
       contents: write
       packages: read
