@@ -68,7 +68,7 @@ Item {
                 }
                 clients = data.clients
             } catch (e) {
-                status = "Bad devices payload"
+                status = "Bad devices payload: " + e.message
             }
         })
     }
@@ -85,16 +85,9 @@ Item {
         api.postJson(Tokens.nasBase + "/provision", { node_name: name }, function (code, body) {
             busy = false
             if (code !== 200) {
-                try {
-                    const data = JSON.parse(body)
-                    status = (data.error && data.error.message)
-                            ? data.error.message
-                            : ("Provision failed (" + code + ")")
-                    if (code === 409 && !nameIsTaken(name))
-                        reserved = reserved.concat([name])
-                } catch (e) {
-                    status = "Provision failed (" + code + ")"
-                }
+                status = api.errorText(code, body)
+                if (code === 409 && !nameIsTaken(name))
+                    reserved = reserved.concat([name])
                 return
             }
             try {
@@ -108,7 +101,7 @@ Item {
                 renderQr(bundle)
                 load()
             } catch (e) {
-                status = "Bad response"
+                status = "Bad response: " + e.message
             }
         })
     }

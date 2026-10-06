@@ -50,6 +50,22 @@ QtObject {
     }
 
     /**
+     * errorText is the message to show for a failed nas response: error.message from nas's
+     * {error: {type, message}} body, or the status and raw body when the body is not that JSON.
+     */
+    function errorText(status, responseText) {
+        let data
+        try {
+            data = JSON.parse(responseText)
+        } catch (e) {
+            return status + " " + responseText
+        }
+        if (data && data.error && typeof data.error.message === "string")
+            return data.error.message
+        return status + " " + responseText
+    }
+
+    /**
      * del issues DELETE url and invokes callback(status, responseText).
      */
     function del(url, callback) {

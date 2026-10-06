@@ -12,6 +12,8 @@ Item {
     property bool adding: true
     property string status: ""
 
+    Http { id: api }
+
     function load() {
         const xhr = new XMLHttpRequest()
         xhr.onreadystatechange = function () {
@@ -40,7 +42,7 @@ Item {
                         startAdd()
                 }
             } catch (e) {
-                status = "Bad users payload"
+                status = "Bad users payload: " + e.message
             }
         }
         xhr.open("GET", Tokens.nasBase + "/access")
@@ -79,14 +81,7 @@ Item {
             if (xhr.readyState !== XMLHttpRequest.DONE)
                 return
             if (xhr.status !== 200) {
-                try {
-                    const data = JSON.parse(xhr.responseText)
-                    status = (data.error && data.error.message)
-                            ? data.error.message
-                            : ("Save failed (" + xhr.status + ")")
-                } catch (e) {
-                    status = "Save failed (" + xhr.status + ")"
-                }
+                status = api.errorText(xhr.status, xhr.responseText)
                 return
             }
             try {
@@ -101,7 +96,7 @@ Item {
                 root.saved(data.created ? "User added" : "Password saved")
                 root.load()
             } catch (e) {
-                status = "Bad users payload"
+                status = "Bad users payload: " + e.message
             }
         }
         xhr.open("POST", Tokens.nasBase + "/access/users")
@@ -119,14 +114,7 @@ Item {
             if (xhr.readyState !== XMLHttpRequest.DONE)
                 return
             if (xhr.status !== 200) {
-                try {
-                    const data = JSON.parse(xhr.responseText)
-                    status = (data.error && data.error.message)
-                            ? data.error.message
-                            : ("Remove failed (" + xhr.status + ")")
-                } catch (e) {
-                    status = "Remove failed (" + xhr.status + ")"
-                }
+                status = api.errorText(xhr.status, xhr.responseText)
                 return
             }
             status = ""

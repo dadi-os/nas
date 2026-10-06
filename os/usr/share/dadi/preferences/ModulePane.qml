@@ -9,6 +9,8 @@ Item {
 
     property string status: ""
 
+    Http { id: api }
+
     function load() {
         status = ""
         const xhr = new XMLHttpRequest()
@@ -22,7 +24,7 @@ Item {
             try {
                 apply(JSON.parse(xhr.responseText))
             } catch (e) {
-                status = "Bad settings payload"
+                status = "Bad settings payload: " + e.message
             }
         }
         xhr.open("GET", "http://127.0.0.1:8092/modules/dwar/settings")
@@ -160,7 +162,7 @@ Item {
             if (xhr.readyState !== XMLHttpRequest.DONE)
                 return
             if (xhr.status !== 200) {
-                status = "Save failed (" + xhr.status + ")"
+                status = "Save failed: " + api.errorText(xhr.status, xhr.responseText)
                 return
             }
             status = ""
