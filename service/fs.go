@@ -29,10 +29,12 @@ type fsHost struct {
 	host *hostRuntime
 }
 
+// newFSHost returns the filesystem API backed by host.
 func newFSHost(host *hostRuntime) *fsHost {
 	return &fsHost{host: host}
 }
 
+// writePathError maps a path resolution or filesystem error to its HTTP status and code.
 func writePathError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, errForbidden):
@@ -81,6 +83,8 @@ func (h *hostRuntime) resolveHostPath(path string, mustExist, forWrite bool) (st
 	return clean, nil
 }
 
+// resolveExistingPrefix resolves symlinks in the longest existing prefix of path and appends
+// the missing components, so a path being created is checked where it will really land.
 func resolveExistingPrefix(path string) (string, error) {
 	clean := filepath.Clean(path)
 	if clean == "/" {
@@ -122,6 +126,7 @@ func resolveExistingPrefix(path string) (string, error) {
 	return filepath.Clean(resolved), nil
 }
 
+// isBinaryHead reports whether the first 8 KiB of path contain a NUL byte.
 func isBinaryHead(path string) (bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -149,6 +154,8 @@ type readResponse struct {
 	Truncated  bool   `json:"truncated"`
 }
 
+// handleRead is POST /fs/read: a text file as numbered lines from offset, bounded by limit
+// lines and max_bytes. Binary files are refused with CodeBinaryFile.
 func (f *fsHost) handleRead(w http.ResponseWriter, r *http.Request) {
 	var req readRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -248,6 +255,8 @@ type writeResponse struct {
 	Bytes int `json:"bytes"`
 }
 
+// handleWrite is POST /fs/write: creates or replaces a file, creating missing parents.
+// Write-protected paths are forbidden.
 func (f *fsHost) handleWrite(w http.ResponseWriter, r *http.Request) {
 	var req writeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -276,6 +285,8 @@ type editRequest struct {
 	NewString string `json:"new_string"`
 }
 
+// handleEdit is POST /fs/edit: replaces old_string with new_string in a file. old_string
+// must occur exactly once, otherwise it is a conflict.
 func (f *fsHost) handleEdit(w http.ResponseWriter, r *http.Request) {
 	var req editRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -325,6 +336,8 @@ type pathMtime struct {
 	mtime int64
 }
 
+// handleGlob is POST /fs/glob: doublestar matches under cwd (the dadi home when omitted),
+// newest first, up to limit.
 func (f *fsHost) handleGlob(w http.ResponseWriter, r *http.Request) {
 	var req globRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -408,6 +421,8 @@ type grepResponse struct {
 	Truncated bool        `json:"truncated"`
 }
 
+// handleGrep is POST /fs/grep: ripgrep matches under cwd (the dadi home when omitted),
+// bounded by limit and max_bytes.
 func (f *fsHost) handleGrep(w http.ResponseWriter, r *http.Request) {
 	var req grepRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -505,6 +520,7 @@ func (f *fsHost) handleGrep(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, grepResponse{Matches: matches, Truncated: truncated})
 }
 
+// register mounts the /fs routes on mux, each run with dadi's filesystem identity.
 func (f *fsHost) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /fs/read", f.asDadi(f.handleRead))
 	mux.HandleFunc("POST /fs/write", f.asDadi(f.handleWrite))

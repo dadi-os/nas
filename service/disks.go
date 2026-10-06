@@ -93,6 +93,7 @@ func readDisks() ([]diskVolumeStatus, error) {
 	return disks, nil
 }
 
+// diskSortKey orders disks NVMe first, then SATA, then the rest.
 func diskSortKey(d diskVolumeStatus) int {
 	t := strings.ToLower(d.Transport)
 	switch {
@@ -105,6 +106,7 @@ func diskSortKey(d diskVolumeStatus) int {
 	}
 }
 
+// collectMounts returns d's mountpoints and those of its partitions, deduplicated, without swap.
 func collectMounts(d lsblkDevice) []string {
 	seen := map[string]struct{}{}
 	var out []string
@@ -133,6 +135,8 @@ func collectMounts(d lsblkDevice) []string {
 	return out
 }
 
+// skipMount reports whether m is a boot, pseudo-filesystem or container overlay mount that
+// does not represent user-visible storage.
 func skipMount(m string) bool {
 	switch m {
 	case "/boot", "/boot/efi":

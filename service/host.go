@@ -85,6 +85,8 @@ func newHostRuntime(state stateConfig, homeDir string) (*hostRuntime, error) {
 	return h, nil
 }
 
+// ensureDirs creates the run dir (tmux socket) and browsers dir and gives both to dadi on
+// the appliance. On macOS a too-long tmux socket path moves the run dir under the temp dir.
 func (h *hostRuntime) ensureDirs() error {
 	if h.runtime == "podman" {
 		h.runDir = defaultRunDir
@@ -120,6 +122,7 @@ func (h *hostRuntime) ensureDirs() error {
 	return nil
 }
 
+// chownDadi gives path to dadi on the appliance and does nothing elsewhere.
 func (h *hostRuntime) chownDadi(path string) error {
 	if !h.switchUser {
 		return nil
@@ -152,6 +155,7 @@ func (h *hostRuntime) writeProtectedPrefixes() []string {
 	return append(prefixes, h.stateDir)
 }
 
+// pathUnderPrefix reports whether path is prefix or inside it.
 func pathUnderPrefix(path, prefix string) bool {
 	path = filepath.Clean(path)
 	prefix = filepath.Clean(prefix)
@@ -162,6 +166,8 @@ func pathUnderPrefix(path, prefix string) bool {
 	return strings.HasPrefix(path, prefix+sep)
 }
 
+// isWriteProtected reports whether path is under a write-protected prefix, either as
+// written or as the prefix resolves through symlinks.
 func (h *hostRuntime) isWriteProtected(path string) bool {
 	path = filepath.Clean(path)
 	for _, prefix := range h.writeProtectedPrefixes() {

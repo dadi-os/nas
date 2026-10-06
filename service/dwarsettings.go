@@ -126,6 +126,7 @@ func parseDotEnv(text string) map[string]string {
 	return out
 }
 
+// envFileFromMap picks the provider key variables out of a parsed Dwar .env.
 func envFileFromMap(values map[string]string) dwarEnvFile {
 	return dwarEnvFile{
 		Anthropic: values["ANTHROPIC_API_KEY"],
@@ -135,6 +136,8 @@ func envFileFromMap(values map[string]string) dwarEnvFile {
 	}
 }
 
+// writeDotEnv renders values as Dwar's .env: the provider keys first in a fixed order, then
+// any other keys sorted, so hand-added keys survive a settings save.
 func writeDotEnv(values map[string]string) string {
 	var b strings.Builder
 	b.WriteString("# Provider credentials only. Model IDs and token budgets live in config.toml.\n")
@@ -166,6 +169,7 @@ func writeDotEnv(values map[string]string) string {
 	return b.String()
 }
 
+// overlayEnv returns a copy of existing with the provider keys replaced by env.
 func overlayEnv(existing map[string]string, env dwarEnvFile) map[string]string {
 	out := map[string]string{}
 	for k, v := range existing {
@@ -252,6 +256,7 @@ func validateDwarSettings(s dwarSettings) error {
 	return nil
 }
 
+// readDwarSettings reads Dwar's .env at envPath and config.toml at configPath.
 func readDwarSettings(envPath, configPath string) (dwarSettings, error) {
 	envBody, err := os.ReadFile(envPath)
 	if err != nil {
@@ -271,6 +276,8 @@ func readDwarSettings(envPath, configPath string) (dwarSettings, error) {
 	}, nil
 }
 
+// writeDwarSettings writes Dwar's .env (0600), keeping keys the settings do not cover, and
+// replaces config.toml with settings.Config.
 func writeDwarSettings(envPath, configPath string, settings dwarSettings) error {
 	existing := map[string]string{}
 	if body, err := os.ReadFile(envPath); err == nil {

@@ -19,6 +19,7 @@ import (
 	"time"
 )
 
+// main loads required config, registers every route and serves the nas API.
 func main() {
 	slog.SetDefault(newLogger())
 
@@ -121,6 +122,9 @@ type credentialsBundle struct {
 	NodeName   string `json:"node_name"`
 }
 
+// handleProvision is POST /provision: reserves node_name, mints a one-hour Headscale
+// pre-auth key and returns the base64 credentials bundle a device joins with. The reservation
+// is rolled back when a later step fails.
 func handleProvision(w http.ResponseWriter, r *http.Request, controlURL, userName string, state stateConfig) {
 	var req provisionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -230,6 +234,7 @@ type headscalePreAuthKey struct {
 	Key string `json:"key"`
 }
 
+// resolveUserID returns the Headscale id of user name.
 func resolveUserID(name string) (uint64, error) {
 	out, err := exec.Command("headscale", "users", "list", "-o", "json").Output()
 	if err != nil {
@@ -247,6 +252,7 @@ func resolveUserID(name string) (uint64, error) {
 	return 0, fmt.Errorf("user %q not found", name)
 }
 
+// mintDeviceKey creates a one-hour pre-auth key for Headscale user userID.
 func mintDeviceKey(userID uint64) (string, error) {
 	out, err := exec.Command(
 		"headscale", "preauthkeys", "create",
@@ -561,6 +567,8 @@ func readDisk(path string) (diskStatus, error) {
 	return diskStatusFromStatfs(st.Blocks*uint64(st.Bsize), st.Bavail*uint64(st.Bsize)), nil
 }
 
+// healthTargets lists the module health URLs nas checks for runtime: loopback ports on the
+// appliance, compose service names in dev.
 func healthTargets(runtime string) []struct {
 	name string
 	url  string
@@ -589,6 +597,8 @@ func healthTargets(runtime string) []struct {
 	}
 }
 
+// handleStatus is GET /status: uptime, module health, state and physical disks, and the
+// cached CPU, memory and GPU metrics. Disk read failures are reported in errors.
 func handleStatus(w http.ResponseWriter, _ *http.Request, started time.Time, runtime, stateDir string) {
 	targets := healthTargets(runtime)
 	services := make([]serviceStatus, 0, len(targets))
@@ -653,6 +663,8 @@ type logsResponse struct {
 	Entries []logEntry `json:"entries"`
 }
 
+// handleLogs is GET /logs: entries from Loki filtered by services, level and text over
+// [from, to) (the last hour by default), newest first, up to limit.
 func handleLogs(w http.ResponseWriter, r *http.Request, lokiURL string) {
 	q := r.URL.Query()
 	services := strings.TrimSpace(q.Get("services"))
@@ -908,6 +920,9 @@ var jsonLogServices = map[string]struct{}{
 	"chaavi": {},
 }
 
+// parseLokiRange turns a Loki query_range response into log entries, newest first, at most
+// limit. JSON lines contribute their msg, level, service, code and time; services in
+// jsonLogServices drop lines that are not structured JSON.
 func parseLokiRange(body []byte, limit int) ([]logEntry, error) {
 	var parsed lokiRangeResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {

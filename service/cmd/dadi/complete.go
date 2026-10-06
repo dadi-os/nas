@@ -7,12 +7,14 @@ import (
 	"strings"
 )
 
+// runComplete prints bash completions for COMP_LINE, one per line.
 func runComplete() {
 	for _, c := range completeLine(os.Getenv("COMP_LINE")) {
 		fmt.Println(c)
 	}
 }
 
+// completeLine splits a command line into completed words and the word being typed.
 func completeLine(line string) []string {
 	trailing := strings.HasSuffix(line, " ")
 	fields := strings.Fields(line)
@@ -28,6 +30,9 @@ func completeLine(line string) []string {
 	return completeWords(rest, current)
 }
 
+// completeWords returns completions for current after prev: subcommands and tool names, then
+// a tool's unused flags, agent ids after --as-agent, or enum values after an enum flag.
+// Completion offers nothing beyond agents and help when Hath cannot be reached.
 func completeWords(prev []string, current string) []string {
 	tools, err := fetchTools()
 	if err != nil {
@@ -95,6 +100,7 @@ func completeWords(prev []string, current string) []string {
 	return nil
 }
 
+// agentIDs returns Hath's agent ids, sorted, or nil when Hath cannot be reached.
 func agentIDs() []string {
 	agents, err := fetchAgents()
 	if err != nil {
@@ -108,6 +114,7 @@ func agentIDs() []string {
 	return ids
 }
 
+// schemaFlags returns --<property> flags for a tool input schema and the enum values per property.
 func schemaFlags(schema map[string]any) (flags []string, enums map[string][]string) {
 	enums = map[string][]string{}
 	if schema == nil {
@@ -129,6 +136,7 @@ func schemaFlags(schema map[string]any) (flags []string, enums map[string][]stri
 	return flags, enums
 }
 
+// filterPrefix returns the options that start with prefix.
 func filterPrefix(options []string, prefix string) []string {
 	if prefix == "" {
 		return options

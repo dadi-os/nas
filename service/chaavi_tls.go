@@ -173,6 +173,7 @@ func (s stateConfig) readChaaviCAPem() (string, error) {
 	return string(b), nil
 }
 
+// writePEM writes der as a single PEM block of type typ to path with mode.
 func writePEM(path, typ string, der []byte, mode os.FileMode) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {

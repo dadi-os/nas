@@ -438,6 +438,8 @@ func reloadSSHD() error {
 	return nil
 }
 
+// readTPMStatus reads the TPM enrollment status written at tpmStatusPath. When that file is
+// missing or unreadable it reports only whether a TPM device node exists.
 func readTPMStatus() tpmStatus {
 	body, err := os.ReadFile(tpmStatusPath)
 	if err != nil {
@@ -454,6 +456,7 @@ func readTPMStatus() tpmStatus {
 	return st
 }
 
+// fileExists reports whether path can be stat'ed.
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil

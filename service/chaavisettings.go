@@ -26,6 +26,7 @@ type chaaviEnvFile struct {
 	Password     string `json:"BW_PASSWORD"`
 }
 
+// chaaviEnvFromMap picks the BW_* keys out of a parsed Chaavi .env.
 func chaaviEnvFromMap(values map[string]string) chaaviEnvFile {
 	return chaaviEnvFile{
 		ClientID:     values["BW_CLIENTID"],
@@ -34,6 +35,8 @@ func chaaviEnvFromMap(values map[string]string) chaaviEnvFile {
 	}
 }
 
+// writeChaaviDotEnv renders values as Chaavi's .env: the BW_* keys first in a fixed order,
+// then any other keys sorted, so hand-added keys survive a settings save.
 func writeChaaviDotEnv(values map[string]string) string {
 	var b strings.Builder
 	b.WriteString("# Bitwarden personal API key and master password.\n")
@@ -65,6 +68,7 @@ func writeChaaviDotEnv(values map[string]string) string {
 	return b.String()
 }
 
+// overlayChaaviEnv returns a copy of existing with the BW_* keys replaced by env.
 func overlayChaaviEnv(existing map[string]string, env chaaviEnvFile) map[string]string {
 	out := map[string]string{}
 	for k, v := range existing {
@@ -76,6 +80,7 @@ func overlayChaaviEnv(existing map[string]string, env chaaviEnvFile) map[string]
 	return out
 }
 
+// readChaaviSettings reads Chaavi's .env at envPath into chaaviSettings.
 func readChaaviSettings(envPath string) (chaaviSettings, error) {
 	envBody, err := os.ReadFile(envPath)
 	if err != nil {
@@ -84,6 +89,8 @@ func readChaaviSettings(envPath string) (chaaviSettings, error) {
 	return chaaviSettings{Env: chaaviEnvFromMap(parseDotEnv(string(envBody)))}, nil
 }
 
+// writeChaaviSettings writes settings to Chaavi's .env at envPath (0600), keeping keys the
+// settings do not cover. A missing .env is created.
 func writeChaaviSettings(envPath string, settings chaaviSettings) error {
 	existing := map[string]string{}
 	if body, err := os.ReadFile(envPath); err == nil {

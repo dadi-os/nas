@@ -41,6 +41,7 @@ func newLogger() *slog.Logger {
 	return slog.New(handler).With("service", "nas")
 }
 
+// requestIDFrom returns the request id stored in ctx, or "" when there is none.
 func requestIDFrom(ctx context.Context) string {
 	if id, ok := ctx.Value(ctxKeyRequestID{}).(string); ok {
 		return id
@@ -48,10 +49,12 @@ func requestIDFrom(ctx context.Context) string {
 	return ""
 }
 
+// withRequestID returns ctx carrying request id.
 func withRequestID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, ctxKeyRequestID{}, id)
 }
 
+// newRequestID returns a random 16-hex-digit request id.
 func newRequestID() string {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -65,6 +68,7 @@ type statusRecorder struct {
 	status int
 }
 
+// WriteHeader records code for the request summary and forwards it.
 func (r *statusRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)

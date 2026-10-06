@@ -33,6 +33,7 @@ func writeError(w http.ResponseWriter, r *http.Request, status int, code, messag
 	})
 }
 
+// writeJSON writes v as JSON with status.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

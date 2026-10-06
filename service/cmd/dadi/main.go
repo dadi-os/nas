@@ -54,6 +54,7 @@ type apiError struct {
 	} `json:"error"`
 }
 
+// main runs one dadi command, or prints completions when invoked by bash completion.
 func main() {
 	base, err := loadHathBase()
 	if err != nil {
@@ -85,6 +86,7 @@ func loadHathBase() (string, error) {
 	return strings.TrimRight(u, "/"), nil
 }
 
+// run dispatches args to agents, help or tool execution.
 func run(args []string) error {
 	if len(args) > 0 && args[0] == "agents" {
 		return cmdAgents()
@@ -102,6 +104,7 @@ func run(args []string) error {
 	return cmdExecute(tool, input)
 }
 
+// parseArgs splits args into the tool name, whether help was asked, and the tool's flags.
 func parseArgs(args []string) (tool string, help bool, input map[string]any, err error) {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		name := ""
@@ -121,6 +124,7 @@ func parseArgs(args []string) (tool string, help bool, input map[string]any, err
 	return tool, false, input, err
 }
 
+// cmdHelp prints the tool list, or tool name's description and parameters.
 func cmdHelp(name string) error {
 	if name == "" {
 		list, err := fetchTools()
@@ -152,6 +156,8 @@ func cmdHelp(name string) error {
 	return nil
 }
 
+// cmdExecute runs tool name in Hath with input and prints its rendered result. A tool
+// result flagged is_error is returned as an error.
 func cmdExecute(name string, input map[string]any) error {
 	if input == nil {
 		input = map[string]any{}
@@ -199,6 +205,8 @@ func takeCallerIdentity(input map[string]any) (string, error) {
 	return asAgent, nil
 }
 
+// takeStringFlag removes the first of keys present in input and returns its non-empty string
+// value. ok reports whether any key was present.
 func takeStringFlag(input map[string]any, keys ...string) (value string, ok bool, err error) {
 	for _, key := range keys {
 		raw, present := input[key]
@@ -215,6 +223,8 @@ func takeStringFlag(input map[string]any, keys ...string) (value string, ok bool
 	return "", false, nil
 }
 
+// takeBoolFlag removes the first of keys present in input and reports whether it was given
+// as a bare flag. A value is an error.
 func takeBoolFlag(input map[string]any, keys ...string) (bool, error) {
 	for _, key := range keys {
 		raw, present := input[key]
@@ -235,6 +245,7 @@ func takeBoolFlag(input map[string]any, keys ...string) (bool, error) {
 	return false, nil
 }
 
+// cmdAgents prints Hath's agents as a tree.
 func cmdAgents() error {
 	agents, err := fetchAgents()
 	if err != nil {
@@ -244,6 +255,7 @@ func cmdAgents() error {
 	return nil
 }
 
+// printAgentForest prints root agents sorted by id, each followed by its descendants.
 func printAgentForest(agents []agentInfo) {
 	byParent := map[string][]agentInfo{}
 	var roots []agentInfo
@@ -262,6 +274,7 @@ func printAgentForest(agents []agentInfo) {
 	}
 }
 
+// printAgentChildren prints parentID's children sorted by id, recursively, at depth.
 func printAgentChildren(parentID string, byParent map[string][]agentInfo, depth int) {
 	children := byParent[parentID]
 	sort.Slice(children, func(i, j int) bool { return children[i].ID < children[j].ID })
@@ -271,6 +284,7 @@ func printAgentChildren(parentID string, byParent map[string][]agentInfo, depth 
 	}
 }
 
+// printAgentLine prints one agent indented by depth with its active or dormant state.
 func printAgentLine(agent agentInfo, depth int) {
 	state := "dormant"
 	if agent.Active {
@@ -280,6 +294,7 @@ func printAgentLine(agent agentInfo, depth int) {
 	fmt.Printf("%s%s  %s\n", indent, agent.ID, state)
 }
 
+// renderContent formats a tool result as indented JSON when it is JSON, otherwise as is.
 func renderContent(content any) string {
 	switch v := content.(type) {
 	case string:
@@ -300,6 +315,7 @@ func renderContent(content any) string {
 	}
 }
 
+// fetchTools returns Hath's tool list.
 func fetchTools() ([]toolInfo, error) {
 	raw, err := api(http.MethodGet, "/tools", nil)
 	if err != nil {
@@ -315,6 +331,7 @@ func fetchTools() ([]toolInfo, error) {
 	return wrap.Tools, nil
 }
 
+// fetchTool returns tool name's description and input schema from Hath.
 func fetchTool(name string) (toolInfo, error) {
 	raw, err := api(http.MethodGet, "/tools/"+urlPath(name), nil)
 	if err != nil {
@@ -330,6 +347,7 @@ func fetchTool(name string) (toolInfo, error) {
 	return detail, nil
 }
 
+// fetchAgents returns Hath's agents.
 func fetchAgents() ([]agentInfo, error) {
 	raw, err := api(http.MethodGet, "/agents", nil)
 	if err != nil {
@@ -345,10 +363,13 @@ func fetchAgents() ([]agentInfo, error) {
 	return wrap.Agents, nil
 }
 
+// urlPath escapes name as one URL path segment.
 func urlPath(name string) string {
 	return url.PathEscape(name)
 }
 
+// api sends a JSON request to Hath and returns the response body. A non-2xx response is an
+// error carrying Hath's error type and message, or the HTTP status when the body is not an error.
 func api(method, path string, payload any) ([]byte, error) {
 	var body io.Reader
 	if payload != nil {
@@ -388,6 +409,7 @@ func api(method, path string, payload any) ([]byte, error) {
 	return data, nil
 }
 
+// parseFlags parses --key value, --key=value and bare --key (true) arguments into tool input.
 func parseFlags(args []string) (map[string]any, error) {
 	out := map[string]any{}
 	for i := 0; i < len(args); i++ {
@@ -413,6 +435,8 @@ func parseFlags(args []string) (map[string]any, error) {
 	return out, nil
 }
 
+// coerce converts a flag value to a bool, null, JSON array or object, integer or float when it
+// parses as one, otherwise keeps the string.
 func coerce(value string) any {
 	switch value {
 	case "true":
@@ -438,6 +462,7 @@ func coerce(value string) any {
 	return value
 }
 
+// formatSchema renders a tool input schema as one help line per property.
 func formatSchema(schema map[string]any) string {
 	if schema == nil {
 		return "  (no parameters)\n"
