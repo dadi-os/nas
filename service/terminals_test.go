@@ -412,6 +412,30 @@ func TestParseExecCaptureScrubsMarker(t *testing.T) {
 	}
 }
 
+func TestParseExecCaptureIgnoresEarlierCommandsWhenTheEchoWraps(t *testing.T) {
+	older := "( eval 'head -n 1 f.csv' ); printf '\\n" + execMarker + "%s %d\\n' 'old' $?"
+	sent := "( eval 'awk -F, f.csv' ); printf '\\n" + execMarker + "%s %d\\n' 'new' $?"
+	capture := strings.Join([]string{
+		"[dadi@os ~]$ " + older,
+		"STATION,DATE,HEADER",
+		execMarker + "old 0",
+		"[dadi@os ~]$ ( eval 'awk -F, f.csv' ); printf '\\n" + execMarker,
+		"%s %d\\n' 'new' $?",
+		"12-18,43.5",
+		execMarker + "new 0",
+	}, "\n")
+	code, out, ok := parseExecCapture(capture, sent, execMarker+"new ")
+	if !ok || code != 0 {
+		t.Fatalf("parse ok=%v code=%d", ok, code)
+	}
+	if strings.Contains(out, "STATION,DATE,HEADER") {
+		t.Fatalf("earlier command's output leaked: %q", out)
+	}
+	if !strings.Contains(out, "12-18,43.5") {
+		t.Fatalf("missing this command's output: %q", out)
+	}
+}
+
 func TestTerminalsDeleteIdempotent(t *testing.T) {
 	_, mux := testTerminalEnv(t)
 	code, body := doJSON(t, mux, http.MethodPost, "/terminals", map[string]any{})

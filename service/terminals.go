@@ -367,7 +367,7 @@ func (t *terminalHost) handleExec(w http.ResponseWriter, r *http.Request) {
 		timedOut bool
 	)
 	for {
-		capOut, err := t.tmuxOutput("capture-pane", "-p", "-t", id, "-S", "-")
+		capOut, err := t.tmuxOutput("capture-pane", "-p", "-J", "-t", id, "-S", "-")
 		if err != nil {
 			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 			return
@@ -396,6 +396,9 @@ func (t *terminalHost) handleExec(w http.ResponseWriter, r *http.Request) {
 
 // parseExecCapture finds markerPrefix's exit-code line in a pane capture and returns the
 // output between the echoed sentLine and that marker. ok is false until the marker appears.
+// When the echo does not match whole (a long command wraps), the nearest earlier echo of
+// any exec line is the start: searching from the top of the scrollback would return every
+// earlier command's output too.
 func parseExecCapture(capture, sentLine, markerPrefix string) (exitCode int, output string, ok bool) {
 	lines := splitPaneLines(capture)
 	markerIdx := -1
@@ -423,7 +426,7 @@ func parseExecCapture(capture, sentLine, markerPrefix string) (exitCode int, out
 		}
 	}
 	if cmdIdx < 0 {
-		for i := 0; i < markerIdx; i++ {
+		for i := markerIdx - 1; i >= 0; i-- {
 			if strings.Contains(lines[i], execMarker) && strings.Contains(lines[i], "printf") {
 				cmdIdx = i
 				break
