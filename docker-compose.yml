@@ -249,11 +249,12 @@ services:
     networks: [dadi]
 
   chaavi-vault:
-    image: docker.io/vaultwarden/server:1.37.2-alpine
+    image: docker.io/vaultwarden/server:1.37.4-alpine
     environment:
       DOMAIN: https://chaavi.dadi
       SIGNUPS_ALLOWED: "true"
       ROCKET_PORT: "80"
+      EXPERIMENTAL_CLIENT_FEATURE_FLAGS: pm-32009-new-item-types
     volumes:
       - chaavi_vault:/data
     expose: ["80"]

@@ -279,7 +279,7 @@ Postgres quadlets set `RunInit=true` so the `pg_isready` health check is reaped 
 | --- | --- | --- |
 | `caddy` | `caddy:2-alpine` | host port 80; CORS for `Origin: http://thaali.dadi` |
 | `thaali` | `../thaali` `dev` target (Vite) | `*:8080` → `http://thaali.dadi` |
-| `dwar` / `yaad` / `hath` / `ghar` / `chaavi` | sibling builds, `dev` target (`chaavi-vault` is `vaultwarden/server:1.37.2-alpine`) | `*:8080` (Matter does not work on Mac Docker); Chaavi at `http://chaavi.dadi` |
+| `dwar` / `yaad` / `hath` / `ghar` / `chaavi` | sibling builds, `dev` target (`chaavi-vault` is `vaultwarden/server:1.37.4-alpine`, with `EXPERIMENTAL_CLIENT_FEATURE_FLAGS=pm-32009-new-item-types` so the CLI can create bank accounts, driver's licenses and passports) | `*:8080` (Matter does not work on Mac Docker); Chaavi at `http://chaavi.dadi` |
 | `nas-service` | `./service` | host `8092` |
 | `loki` / `alloy` | official images | log pipeline |
 | `headscale` / `tailscale` | official images | mesh |
