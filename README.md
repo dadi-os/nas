@@ -191,6 +191,7 @@ Paths must be absolute. On the appliance every `/fs/*` call runs with `dadi`'s f
 | Method | Path | Body | Success | Errors |
 | --- | --- | --- | --- | --- |
 | `POST` | `/fs/read` | `{ path, offset?: number (1-based), limit?: number (default 500), max_bytes?: number (default 65536) }` | `{ content, total_lines, truncated }` (`N\tline`) | `not_found`, `forbidden`, `binary_file` (415), `invalid_request` |
+| `POST` | `/fs/read_bytes` | `{ path, max_bytes: number }` | `{ data (base64), size_bytes }`, the whole file of any kind | `not_found`, `forbidden`, `invalid_request` (also a file over `max_bytes`, which is never cut short) |
 | `POST` | `/fs/write` | `{ path, content }` (creates parents) | `{ bytes }` | `forbidden`, `invalid_request` |
 | `POST` | `/fs/edit` | `{ path, old_string, new_string }` (exactly one match) | `{ replaced: true }` | `forbidden`, `not_found`, `conflict` (409) |
 | `POST` | `/fs/glob` | `{ pattern, cwd?, limit?: number (default 500) }` | `{ paths, truncated }` (mtime desc) | `not_found`, `invalid_request` |

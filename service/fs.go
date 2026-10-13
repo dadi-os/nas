@@ -246,6 +246,52 @@ func (f *fsHost) handleRead(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type readBytesRequest struct {
+	Path     string `json:"path"`
+	MaxBytes int    `json:"max_bytes"`
+}
+
+type readBytesResponse struct {
+	Data      []byte `json:"data"`
+	SizeBytes int    `json:"size_bytes"`
+}
+
+// handleReadBytes is POST /fs/read_bytes: a whole file of any kind as base64, for callers
+// that pass files on rather than read them. A file larger than max_bytes is refused, never
+// cut short, since a partial binary is useless.
+func (f *fsHost) handleReadBytes(w http.ResponseWriter, r *http.Request) {
+	var req readBytesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "invalid json body")
+		return
+	}
+	if req.MaxBytes < 1 {
+		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "max_bytes must be positive")
+		return
+	}
+	path, err := f.host.resolveHostPath(strings.TrimSpace(req.Path), true, false)
+	if err != nil {
+		writePathError(w, r, err)
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		writePathError(w, r, err)
+		return
+	}
+	if info.Size() > int64(req.MaxBytes) {
+		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest,
+			fmt.Sprintf("%s is %d bytes, over max_bytes %d", req.Path, info.Size(), req.MaxBytes))
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		writePathError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, readBytesResponse{Data: data, SizeBytes: len(data)})
+}
+
 type writeRequest struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
@@ -523,6 +569,7 @@ func (f *fsHost) handleGrep(w http.ResponseWriter, r *http.Request) {
 // register mounts the /fs routes on mux, each run with dadi's filesystem identity.
 func (f *fsHost) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /fs/read", f.asDadi(f.handleRead))
+	mux.HandleFunc("POST /fs/read_bytes", f.asDadi(f.handleReadBytes))
 	mux.HandleFunc("POST /fs/write", f.asDadi(f.handleWrite))
 	mux.HandleFunc("POST /fs/edit", f.asDadi(f.handleEdit))
 	mux.HandleFunc("POST /fs/glob", f.asDadi(f.handleGlob))

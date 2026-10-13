@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -213,6 +214,45 @@ func TestFSBinaryReadUnsupported(t *testing.T) {
 		t.Fatal(err)
 	}
 	if errBody.Error.Type != CodeBinaryFile {
+		t.Fatalf("type %s", errBody.Error.Type)
+	}
+}
+
+func TestFSReadBytesWholeOrRefused(t *testing.T) {
+	_, mux, root := testFSEnv(t)
+	path := filepath.Join(root, "resume.pdf")
+	data := append([]byte("%PDF-1.7"), 0x00, 0xff, 0x0a)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, body := doJSON(t, mux, http.MethodPost, "/fs/read_bytes", map[string]any{
+		"path":      path,
+		"max_bytes": len(data),
+	})
+	if code != http.StatusOK {
+		t.Fatalf("status %d %s", code, body)
+	}
+	var resp readBytesResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(resp.Data, data) || resp.SizeBytes != len(data) {
+		t.Fatalf("data %v size %d", resp.Data, resp.SizeBytes)
+	}
+
+	code, body = doJSON(t, mux, http.MethodPost, "/fs/read_bytes", map[string]any{
+		"path":      path,
+		"max_bytes": len(data) - 1,
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("oversized status %d %s", code, body)
+	}
+	var errBody errorResponse
+	if err := json.Unmarshal(body, &errBody); err != nil {
+		t.Fatal(err)
+	}
+	if errBody.Error.Type != CodeInvalidRequest {
 		t.Fatalf("type %s", errBody.Error.Type)
 	}
 }
