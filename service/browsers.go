@@ -35,10 +35,11 @@ const (
 	// defaultChromium is the product's Chromium binary on dadiOS (Fedora's chromium-browser).
 	// CHROMIUM_BIN is an optional override; the Compose/dev images set it to chromium.
 	defaultChromium = "chromium-browser"
-	// browserStreamFPS, browserStreamWidth, browserStreamQuality and browserStreamBoundary
-	// set the live view's frame rate, scaled width (about 2x a thaali panel), ffmpeg JPEG
+	// browserStreamFPS, browserStreamMaxFPS, browserStreamWidth, browserStreamQuality and
+	// browserStreamBoundary set the live view's default and highest (?fps=) frame rate, scaled width (about 2x a thaali panel), ffmpeg JPEG
 	// quality (2 best to 31 worst) and multipart boundary; browserStreamChunk sizes the relay.
 	browserStreamFPS      = 5
+	browserStreamMaxFPS   = 15
 	browserStreamWidth    = 960
 	browserStreamQuality  = 7
 	browserStreamBoundary = "frame"
@@ -57,6 +58,7 @@ type browserHost struct {
 	host        *hostRuntime
 	chromiumBin string
 	createMu    sync.Mutex
+	inputMu     sync.Mutex
 	runUID      int
 	runGID      int
 }
@@ -119,6 +121,7 @@ func (b *browserHost) register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /browsers/{id}/devtools/{rest...}", b.handleDevtools)
 	mux.HandleFunc("GET /browsers/{id}/screenshot", b.handleScreenshot)
 	mux.HandleFunc("GET /browsers/{id}/stream", b.handleStream)
+	mux.HandleFunc("POST /browsers/{id}/input", b.handleInput)
 }
 
 // displayName is the X display for browser id (":<id>").
@@ -789,9 +792,18 @@ func (b *browserHost) handleStream(w http.ResponseWriter, r *http.Request) {
 	if !b.requireDisplay(w, r, id) {
 		return
 	}
+	fps := browserStreamFPS
+	if raw := r.URL.Query().Get("fps"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > browserStreamMaxFPS {
+			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, fmt.Sprintf("fps must be 1 to %d", browserStreamMaxFPS))
+			return
+		}
+		fps = n
+	}
 	cmd := b.host.command("ffmpeg",
 		"-nostdin", "-loglevel", "error",
-		"-f", "x11grab", "-framerate", strconv.Itoa(browserStreamFPS), "-i", displayName(id),
+		"-f", "x11grab", "-framerate", strconv.Itoa(fps), "-i", displayName(id),
 		"-vf", fmt.Sprintf("scale=%d:-2", browserStreamWidth),
 		"-pix_fmt", "yuvj420p", "-q:v", strconv.Itoa(browserStreamQuality),
 		"-f", "mpjpeg", "-boundary_tag", browserStreamBoundary, "pipe:1",

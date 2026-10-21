@@ -1,0 +1,60 @@
+package main
+
+import "testing"
+
+func TestCDPInputCommandPointer(t *testing.T) {
+	cmd, ok, err := cdpInputCommand(browserInputEvent{Type: "down", X: 0.5, Y: 0.5, Button: "left", Buttons: 1, ClickCount: 1}, 40)
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	if cmd.Method != "Input.dispatchMouseEvent" || cmd.Params["type"] != "mousePressed" {
+		t.Fatalf("got %s %v", cmd.Method, cmd.Params)
+	}
+	if cmd.Params["x"] != 960.0 || cmd.Params["y"] != 500.0 {
+		t.Fatalf("want page point (960,500) got (%v,%v)", cmd.Params["x"], cmd.Params["y"])
+	}
+	if cmd.Params["clickCount"] != 1 || cmd.Params["buttons"] != 1 {
+		t.Fatalf("click state lost: %v", cmd.Params)
+	}
+}
+
+func TestCDPInputCommandDropsToolbar(t *testing.T) {
+	_, ok, err := cdpInputCommand(browserInputEvent{Type: "move", Y: 0.01, Button: "none"}, 85)
+	if err != nil || ok {
+		t.Fatalf("toolbar event should be dropped: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestCDPInputCommandWheel(t *testing.T) {
+	cmd, _, err := cdpInputCommand(browserInputEvent{Type: "wheel", X: 0.1, Y: 0.9, Button: "none", DeltaY: 120}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd.Params["type"] != "mouseWheel" || cmd.Params["deltaY"] != 120.0 {
+		t.Fatalf("got %v", cmd.Params)
+	}
+}
+
+func TestCDPInputCommandKeys(t *testing.T) {
+	typed, _, _ := cdpInputCommand(browserInputEvent{Type: "key_down", Key: "a", Code: "KeyA", KeyCode: 65, Text: "a"}, 0)
+	if typed.Params["type"] != "keyDown" {
+		t.Fatalf("character key should be keyDown, got %v", typed.Params["type"])
+	}
+	raw, _, _ := cdpInputCommand(browserInputEvent{Type: "key_down", Key: "Backspace", Code: "Backspace", KeyCode: 8}, 0)
+	if raw.Params["type"] != "rawKeyDown" {
+		t.Fatalf("non-character key should be rawKeyDown, got %v", raw.Params["type"])
+	}
+	up, _, _ := cdpInputCommand(browserInputEvent{Type: "key_up", Key: "a", Code: "KeyA", KeyCode: 65}, 0)
+	if up.Params["type"] != "keyUp" {
+		t.Fatalf("got %v", up.Params["type"])
+	}
+}
+
+func TestCDPInputCommandRejectsUnknown(t *testing.T) {
+	if _, _, err := cdpInputCommand(browserInputEvent{Type: "tap"}, 0); err == nil {
+		t.Fatal("unknown type accepted")
+	}
+	if _, _, err := cdpInputCommand(browserInputEvent{Type: "move", Button: "fourth"}, 0); err == nil {
+		t.Fatal("unknown button accepted")
+	}
+}
