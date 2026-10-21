@@ -36,17 +36,18 @@ const (
 	// CHROMIUM_BIN is an optional override; the Compose/dev images set it to chromium.
 	defaultChromium = "chromium-browser"
 	// browserStreamFPS, browserStreamMaxFPS, browserStreamWidth, browserStreamMinWidth,
-	// browserStreamQuality and browserStreamBoundary set the live view's default and highest
+	// browserStreamKbps and browserStreamMaxKbps set the live view's default and highest
 	// (?fps=) frame rate, default and lowest (?width=) scaled width (the default is about 2x a
-	// thaali panel), default ffmpeg JPEG quality (?quality=, 2 best to 31 worst) and multipart
-	// boundary; browserStreamChunk sizes the relay.
-	browserStreamFPS      = 5
-	browserStreamMaxFPS   = 15
-	browserStreamWidth    = 960
-	browserStreamMinWidth = 320
-	browserStreamQuality  = 7
-	browserStreamBoundary = "frame"
-	browserStreamChunk    = 64 << 10
+	// thaali panel) and default and highest (?kbps=) H.264 bitrate; browserStreamKeyframeSeconds
+	// spaces the keyframes and browserStreamChunk sizes the relay.
+	browserStreamFPS             = 5
+	browserStreamMaxFPS          = 30
+	browserStreamWidth           = 960
+	browserStreamMinWidth        = 320
+	browserStreamKbps            = 600
+	browserStreamMaxKbps         = 8000
+	browserStreamKeyframeSeconds = 5
+	browserStreamChunk           = 64 << 10
 )
 
 var chromiumSingletonLocks = []string{
@@ -796,11 +797,12 @@ func streamParam(r *http.Request, name string, def, min, max int) (int, error) {
 	return n, nil
 }
 
-// handleStream sends the virtual monitor as MJPEG (multipart/x-mixed-replace) from an
-// ffmpeg x11grab owned by this request, scaled to the requested width (default browserStreamWidth). The first frame is
-// awaited before headers so a capture failure still returns JSON with ffmpeg's stderr.
-// ffmpeg is stopped when the client disconnects or the copy ends; the signal and wait
-// results are discarded because by then ffmpeg has exited or is exiting on that signal.
+// handleStream sends the virtual monitor as a raw H.264 stream (Annex B, one access unit
+// delimiter per frame, baseline profile) from an ffmpeg x11grab owned by this request,
+// scaled to the requested width, frame rate and bitrate. The first bytes are awaited before
+// headers so a capture or encoder failure still returns JSON with ffmpeg's stderr. ffmpeg
+// is stopped when the client disconnects or the copy ends; the signal and wait results are
+// discarded because by then ffmpeg has exited or is exiting on that signal.
 func (b *browserHost) handleStream(w http.ResponseWriter, r *http.Request) {
 	id, ok := b.parseID(w, r)
 	if !ok {
@@ -819,17 +821,17 @@ func (b *browserHost) handleStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, err.Error())
 		return
 	}
-	quality, err := streamParam(r, "quality", browserStreamQuality, 2, 31)
+	kbps, err := streamParam(r, "kbps", browserStreamKbps, 100, browserStreamMaxKbps)
 	if err != nil {
 		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, err.Error())
 		return
 	}
 	cmd := b.host.command("ffmpeg",
-		"-nostdin", "-loglevel", "error",
+		"-nostdin", "-loglevel", "error", "-fflags", "nobuffer",
 		"-f", "x11grab", "-framerate", strconv.Itoa(fps), "-i", displayName(id),
-		"-vf", fmt.Sprintf("scale=%d:-2", width),
-		"-pix_fmt", "yuvj420p", "-q:v", strconv.Itoa(quality),
-		"-f", "mpjpeg", "-boundary_tag", browserStreamBoundary, "pipe:1",
+		"-vf", fmt.Sprintf("scale=%d:-2,format=yuv420p", width),
+		"-c:v", "libopenh264", "-b:v", fmt.Sprintf("%dk", kbps), "-g", strconv.Itoa(fps*browserStreamKeyframeSeconds),
+		"-bsf:v", "h264_metadata=aud=insert", "-flush_packets", "1", "-f", "h264", "pipe:1",
 	)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -861,7 +863,7 @@ func (b *browserHost) handleStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary="+browserStreamBoundary)
+	w.Header().Set("Content-Type", "video/h264")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	rc := http.NewResponseController(w)

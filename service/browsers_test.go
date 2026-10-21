@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"image/jpeg"
 	"image/png"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -418,8 +416,12 @@ func TestBrowsersScreenshot(t *testing.T) {
 }
 
 func TestBrowsersStream(t *testing.T) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
 		t.Skip("ffmpeg not on PATH")
+	}
+	if out, _ := exec.Command(ffmpeg, "-hide_banner", "-encoders").Output(); !bytes.Contains(out, []byte("libopenh264")) {
+		t.Skip("ffmpeg has no libopenh264 encoder")
 	}
 	_, mux, _ := testBrowserEnv(t)
 	code, body := doJSON(t, mux, http.MethodPost, "/browsers", nil)
@@ -440,22 +442,15 @@ func TestBrowsersStream(t *testing.T) {
 		msg, _ := io.ReadAll(resp.Body)
 		t.Fatalf("stream %d %s", resp.StatusCode, msg)
 	}
-	if ct := resp.Header.Get("Content-Type"); ct != "multipart/x-mixed-replace; boundary="+browserStreamBoundary {
+	if ct := resp.Header.Get("Content-Type"); ct != "video/h264" {
 		t.Fatalf("content-type %s", ct)
 	}
-	part, err := multipart.NewReader(resp.Body, browserStreamBoundary).NextPart()
-	if err != nil {
+	head := make([]byte, 64)
+	if _, err := io.ReadFull(resp.Body, head); err != nil {
 		t.Fatal(err)
 	}
-	if ct := part.Header.Get("Content-Type"); ct != "image/jpeg" {
-		t.Fatalf("part content-type %s", ct)
-	}
-	img, err := jpeg.Decode(part)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if w := img.Bounds().Dx(); w != browserStreamWidth {
-		t.Fatalf("frame width %d", w)
+	if !bytes.HasPrefix(head, []byte{0, 0, 0, 1, 0x09}) && !bytes.HasPrefix(head, []byte{0, 0, 1, 0x09}) {
+		t.Fatalf("stream does not open with an access unit delimiter: % x", head[:8])
 	}
 }
 
