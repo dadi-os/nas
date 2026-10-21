@@ -35,12 +35,15 @@ const (
 	// defaultChromium is the product's Chromium binary on dadiOS (Fedora's chromium-browser).
 	// CHROMIUM_BIN is an optional override; the Compose/dev images set it to chromium.
 	defaultChromium = "chromium-browser"
-	// browserStreamFPS, browserStreamMaxFPS, browserStreamWidth, browserStreamQuality and
-	// browserStreamBoundary set the live view's default and highest (?fps=) frame rate, scaled width (about 2x a thaali panel), ffmpeg JPEG
-	// quality (2 best to 31 worst) and multipart boundary; browserStreamChunk sizes the relay.
+	// browserStreamFPS, browserStreamMaxFPS, browserStreamWidth, browserStreamMinWidth,
+	// browserStreamQuality and browserStreamBoundary set the live view's default and highest
+	// (?fps=) frame rate, default and lowest (?width=) scaled width (the default is about 2x a
+	// thaali panel), default ffmpeg JPEG quality (?quality=, 2 best to 31 worst) and multipart
+	// boundary; browserStreamChunk sizes the relay.
 	browserStreamFPS      = 5
 	browserStreamMaxFPS   = 15
 	browserStreamWidth    = 960
+	browserStreamMinWidth = 320
 	browserStreamQuality  = 7
 	browserStreamBoundary = "frame"
 	browserStreamChunk    = 64 << 10
@@ -779,8 +782,22 @@ func (b *browserHost) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(out)
 }
 
+// streamParam reads the integer query parameter name, or def when it is absent, and fails
+// when it is not a whole number from min to max.
+func streamParam(r *http.Request, name string, def, min, max int) (int, error) {
+	raw := r.URL.Query().Get(name)
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < min || n > max {
+		return 0, fmt.Errorf("%s must be %d to %d", name, min, max)
+	}
+	return n, nil
+}
+
 // handleStream sends the virtual monitor as MJPEG (multipart/x-mixed-replace) from an
-// ffmpeg x11grab owned by this request, scaled to browserStreamWidth. The first frame is
+// ffmpeg x11grab owned by this request, scaled to the requested width (default browserStreamWidth). The first frame is
 // awaited before headers so a capture failure still returns JSON with ffmpeg's stderr.
 // ffmpeg is stopped when the client disconnects or the copy ends; the signal and wait
 // results are discarded because by then ffmpeg has exited or is exiting on that signal.
@@ -792,20 +809,26 @@ func (b *browserHost) handleStream(w http.ResponseWriter, r *http.Request) {
 	if !b.requireDisplay(w, r, id) {
 		return
 	}
-	fps := browserStreamFPS
-	if raw := r.URL.Query().Get("fps"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 || n > browserStreamMaxFPS {
-			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, fmt.Sprintf("fps must be 1 to %d", browserStreamMaxFPS))
-			return
-		}
-		fps = n
+	fps, err := streamParam(r, "fps", browserStreamFPS, 1, browserStreamMaxFPS)
+	if err != nil {
+		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, err.Error())
+		return
+	}
+	width, err := streamParam(r, "width", browserStreamWidth, browserStreamMinWidth, browserScreenW)
+	if err != nil {
+		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, err.Error())
+		return
+	}
+	quality, err := streamParam(r, "quality", browserStreamQuality, 2, 31)
+	if err != nil {
+		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, err.Error())
+		return
 	}
 	cmd := b.host.command("ffmpeg",
 		"-nostdin", "-loglevel", "error",
 		"-f", "x11grab", "-framerate", strconv.Itoa(fps), "-i", displayName(id),
-		"-vf", fmt.Sprintf("scale=%d:-2", browserStreamWidth),
-		"-pix_fmt", "yuvj420p", "-q:v", strconv.Itoa(browserStreamQuality),
+		"-vf", fmt.Sprintf("scale=%d:-2", width),
+		"-pix_fmt", "yuvj420p", "-q:v", strconv.Itoa(quality),
 		"-f", "mpjpeg", "-boundary_tag", browserStreamBoundary, "pipe:1",
 	)
 	var stderr bytes.Buffer

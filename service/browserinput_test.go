@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 func TestCDPInputCommandPointer(t *testing.T) {
 	cmd, ok, err := cdpInputCommand(browserInputEvent{Type: "down", X: 0.5, Y: 0.5, Button: "left", Buttons: 1, ClickCount: 1}, 40)
@@ -56,5 +60,22 @@ func TestCDPInputCommandRejectsUnknown(t *testing.T) {
 	}
 	if _, _, err := cdpInputCommand(browserInputEvent{Type: "move", Button: "fourth"}, 0); err == nil {
 		t.Fatal("unknown button accepted")
+	}
+}
+
+func TestStreamParam(t *testing.T) {
+	get := func(query string) *http.Request {
+		return httptest.NewRequest(http.MethodGet, "/browsers/10/stream?"+query, nil)
+	}
+	if n, err := streamParam(get(""), "fps", 5, 1, 15); err != nil || n != 5 {
+		t.Fatalf("absent: got %d, %v", n, err)
+	}
+	if n, err := streamParam(get("fps=12"), "fps", 5, 1, 15); err != nil || n != 12 {
+		t.Fatalf("present: got %d, %v", n, err)
+	}
+	for _, q := range []string{"fps=0", "fps=16", "fps=fast"} {
+		if _, err := streamParam(get(q), "fps", 5, 1, 15); err == nil {
+			t.Fatalf("%s accepted", q)
+		}
 	}
 }
