@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Box side of the public relay.
+# Usage: dadi-relay key
+#        dadi-relay up HOSTNAME VM_PUBLIC_IP VM_PUBLIC_KEY
+set -euo pipefail
+
+dir=/var/lib/dadi/relay
+conf="$dir/dadi-relay.conf"
+
+case "${1:-}" in
+key)
+  umask 077
+  mkdir -p "$dir"
+  [ -s "$dir/box.key" ] || wg genkey >"$dir/box.key"
+  wg pubkey <"$dir/box.key"
+  ;;
+up)
+  host="${2:-}"
+  vm_ip="${3:-}"
+  vm_key="${4:-}"
+  if [ -z "$host" ] || [ -z "$vm_ip" ] || [ -z "$vm_key" ]; then
+    echo "usage: dadi-relay up HOSTNAME VM_PUBLIC_IP VM_PUBLIC_KEY" >&2
+    exit 1
+  fi
+  [ -s "$dir/box.key" ] || {
+    echo "dadi-relay: run 'dadi-relay key' first" >&2
+    exit 1
+  }
+  umask 077
+  cat >"$conf" <<EOF
+[Interface]
+Address = 10.77.0.2/30
+PrivateKey = $(cat "$dir/box.key")
+
+[Peer]
+PublicKey = $vm_key
+Endpoint = $vm_ip:51820
+AllowedIPs = 10.77.0.1/32
+PersistentKeepalive = 25
+EOF
+  printf '%s\n' "$host" >"$dir/hostname"
+  chmod 0644 "$dir/hostname"
+  systemctl restart dadi-relay.service
+  systemctl start dadi-publish.service
+  ;;
+*)
+  echo "usage: dadi-relay key | up HOSTNAME VM_PUBLIC_IP VM_PUBLIC_KEY" >&2
+  exit 1
+  ;;
+esac

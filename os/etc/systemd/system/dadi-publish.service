@@ -1,7 +1,8 @@
 [Unit]
-Description=Refresh Headscale LAN publish
+Description=Refresh Headscale control-plane publish
 After=nas.service network-online.target
 Wants=nas.service
+ConditionPathExists=/var/lib/dadi/relay/hostname
 
 [Service]
 Type=oneshot

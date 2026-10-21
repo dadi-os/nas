@@ -1,6 +1,6 @@
 {
 	admin off
-	auto_https off
+	auto_https disable_redirects
 }
 
 (mesh_only) {

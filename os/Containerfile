@@ -16,6 +16,7 @@ FROM quay.io/fedora/fedora-bootc:44
 
 RUN dnf -y install \
     podman \
+    wireguard-tools \
     openssh-server \
     samba \
     policycoreutils-python-utils \
@@ -156,6 +157,7 @@ RUN chmod 0440 /etc/sudoers.d/dadi-wheel \
   && systemctl mask clevis-luks-askpass.service \
   && systemctl mask clevis-luks-askpass.path \
   && systemctl enable dadi-publish.timer \
+  && systemctl enable dadi-relay.service \
   && systemctl enable headscale.service \
   && systemctl enable bootstrap.service \
   && systemctl enable tailscaled.service \

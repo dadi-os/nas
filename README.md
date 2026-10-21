@@ -24,6 +24,7 @@ nas/
   logging/          Dev Alloy + Loki configs
   os/               bootc image, host units, Plasma desktop, prod Alloy, installer
   headscale/        Headscale config templates
+  relay/            vm-setup.sh for the public relay VM (box side: os/usr/bin/dadi-relay)
   docker-compose.yml
 ```
 
@@ -45,7 +46,7 @@ Required on the control service (fail at startup if missing):
 
 `.env.example` lists these, the optional `CHROMIUM_BIN`, and the CLI’s `HATH_URL`.
 
-`POST /provision` mints `control_url` at issue time: compose uses `http://localhost:8080`; the appliance uses `http://<lan>:8080` from the host LAN IPv4 (Headscale `server_url` is rewritten). There is no stored control-URL preference and no Cloudflare tunnel token.
+`POST /provision` mints `control_url` at issue time: compose uses `http://localhost:8080`; the appliance uses `https://<hostname>` from `/var/lib/dadi/relay/hostname` (Headscale `server_url` and the Caddy vhost in `caddy/headscale.caddy` are rewritten) and fails with `config_missing` until that file exists. Headscale listens on loopback only; the public path is the relay below.
 
 Module secrets live in sibling `../dwar/.env` and `../chaavi/.env` in compose, and under `DADI_STATE_DIR/modules/{dwar,chaavi}/` on the appliance. Preferences → Dwar and Preferences → Chaavi edit those files and restart the module. Chaavi’s `BW_CLIENTID`, `BW_CLIENTSECRET`, and `BW_PASSWORD` are Chaavi module env — not Dwar keys. `VAULT_URL` is set on the container (compose `environment` / quadlet `Environment`), not the env file. Vaultwarden stores the encrypted vault in the `chaavi_vault` volume. Yaad/Hath/Ghar Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar or Chaavi values. Empty Chaavi keys are valid; Chaavi boots and fails the request that needs them.
 
@@ -293,6 +294,16 @@ Postgres quadlets set `RunInit=true` so the `pg_isready` health check is reaped 
 
 Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under test is browser Thaali. Chaavi is `http://chaavi.dadi` for `/v1*` + `/health` (adapter) and `https://chaavi.dadi` for the Bitwarden web vault / extension (mesh CA under `$DADI_STATE_DIR/caddy/tls/`; Thaali installs it on join). Nas restart names are `chaavi` and `chaavi-vault` (Hath’s `restart-module` tool is updated in that repo).
 
+### Public relay
+
+The box sits behind NAT it does not control, so it cannot take inbound connections. An Oracle Cloud Always Free VM with a public IP forwards TCP 80 and 443 over a WireGuard link the box opens outward; TLS terminates on the box (Caddy, Let's Encrypt via the forwarded port 80), so Headscale's `/ts2021` upgrade passes untouched. Cloudflare Tunnel cannot carry that upgrade, which is why it was dropped.
+
+1. Create the VM (Oracle Linux 9, user `opc`), reserve its public IP, and open TCP 80, TCP 443 and UDP 51820 in its VCN security list. Point a DNS A record for the hostname at the IP.
+2. On the box: `sudo dadi-relay key` prints the box public key.
+3. On the VM: `sudo ./vm-setup.sh <box public key>` (copy `relay/vm-setup.sh` over first) prints the VM public key.
+4. On the box: `sudo dadi-relay up <hostname> <vm public ip> <vm public key>` writes the WireGuard config and hostname, brings the link up and publishes Headscale at `https://<hostname>`.
+5. Add Headscale's `listen_addr: 127.0.0.1:8080` to `/var/lib/dadi/headscale/config.yaml` on existing boxes (the seed copy only applies to new ones), then re-provision every device.
+
 ### First install
 
 CD builds an Anaconda ISO whenever `os/**` or `service/**` changes and publishes it on the `dadiOS-latest` GitHub Release (also `dadiOS-<sha>`). Install is automated except for an interactive disk selection on the console.
@@ -303,7 +314,7 @@ CD builds an Anaconda ISO whenever `os/**` or `service/**` changes and publishes
 4. Kickstart writes `/var/lib/dadi/luks-enroll.key` (no trailing newline) and best-effort TPM-enrolls during `%post`. The volume key is a kernel logon key after unlock, so `systemd-cryptenroll` cannot read it from the keyring — that file is the enroll credential. First boot of the installed OS reseals to PCR 7 (so the seal matches disk boot, not the installer USB) and shreds the key. If `%post` enroll succeeded against PCR 7, that boot unlocks from the TPM; otherwise type the ISO passphrase once. Later boots unlock without it unless Secure Boot policy changes (recovery is still slot 0).
 5. SDDM (`sddm-wayland-plasma`, not Plasma Login Manager) autologins as `dadi` into Plasma. There is no lock screen; lid close and idle do not sleep or show a greeter.
 6. Add an SSH user in Preferences → Users (`POST /access/users`). SSH as that user with the password you set; the same login opens the `dadi` SMB share over the mesh. `dadi` is not allowed to SSH.
-7. Headscale is published on the LAN (`GET /headscale/publish`). The setup QR embeds that live `http://<lan>:8080` URL — not a domain and not a WAN address.
+7. Set up the public relay (below). Headscale is published at `https://<hostname>` (`GET /headscale/publish`) and the setup QR embeds that URL, so devices provision and cold-start from any network.
 8. Add devices: on the box open **Preferences → Devices**, name the device, show the QR. Scan it with the dadi app (desktop or phone) on the same LAN. Node names must be unique. Re-provision after a LAN address change.
 
 Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`. If a firmware/Secure Boot change forces the LUKS passphrase again, write the ISO passphrase to `/var/lib/dadi/luks-enroll.key` with `printf '%s'` (no newline), `chmod 400`, and `systemctl start dadi-tpm-enroll` (the unit wipes the old TPM slot, reseals PCR 7, and shreds the key).
@@ -348,7 +359,7 @@ Glass rules: blur before tint; never translucent text; two opacities only (veil 
 
 ## Mesh
 
-Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale is `localhost:8080`; production clients use `http://<lan>:8080` minted at provision. Host/sidecar hostname `os` should be the first node so MagicDNS extra records match `100.64.0.1`. Publish/provision also insert any missing `*.dadi` A records for modules Nas health-checks.
+Headscale is the control plane; Tailscale clients join the mesh. Dev Headscale is `localhost:8080`; production clients use `https://<relay hostname>` minted at provision. Host/sidecar hostname `os` should be the first node so MagicDNS extra records match `100.64.0.1`. Publish/provision also insert any missing `*.dadi` A records for modules Nas health-checks.
 
 | Method | Path | Body | Success | Errors |
 | --- | --- | --- | --- | --- |

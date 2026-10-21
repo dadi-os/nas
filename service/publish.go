@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -20,9 +19,9 @@ const etcHeadscaleConfig = "/etc/headscale/config.yaml"
 const meshExtraRecordIP = "100.64.0.1"
 
 var (
-	srcIPv4Re         = regexp.MustCompile(`\bsrc (\d{1,3}(?:\.\d{1,3}){3})\b`)
 	serverURLLine     = regexp.MustCompile(`(?m)^server_url:\s*.*$`)
 	extraRecordNameRe = regexp.MustCompile(`(?m)^\s+-\s+name:\s+"([^"]+)"`)
+	relayHostnameRe   = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$`)
 )
 
 // controlHostname is the hostname devices/Tailscale dial from a control plane URL.
@@ -38,11 +37,6 @@ func controlHostname(controlURL string) (string, error) {
 	return host, nil
 }
 
-// applianceControlURL is the Headscale URL devices dial at the given IPv4.
-func applianceControlURL(ip string) string {
-	return "http://" + ip + ":8080"
-}
-
 // applyServerURL sets Headscale server_url in a config.yaml body.
 func applyServerURL(config []byte, controlURL string) ([]byte, error) {
 	if !serverURLLine.Match(config) {
@@ -50,15 +44,6 @@ func applyServerURL(config []byte, controlURL string) ([]byte, error) {
 	}
 	repl := []byte("server_url: " + strings.TrimSpace(controlURL))
 	return serverURLLine.ReplaceAll(config, repl), nil
-}
-
-// parseRouteSrcIPv4 extracts the source IPv4 from `ip route get` output.
-func parseRouteSrcIPv4(routeGet string) (string, error) {
-	m := srcIPv4Re.FindStringSubmatch(routeGet)
-	if m == nil {
-		return "", fmt.Errorf("no src IPv4 in ip route get")
-	}
-	return m[1], nil
 }
 
 // headscaleConfigPath is the writable Headscale config under DADI_STATE_DIR.
@@ -70,21 +55,39 @@ func (s stateConfig) headscaleConfigPath() string {
 type publishStatus struct {
 	ControlURL string `json:"control_url"`
 	Hostname   string `json:"hostname,omitempty"`
-	LANIP      string `json:"lan_ip,omitempty"`
+}
+
+// relayHostnamePath is the file holding the public hostname the relay forwards to Headscale.
+func (s stateConfig) relayHostnamePath() string {
+	return filepath.Join(s.dir, "relay", "hostname")
+}
+
+// relayHostname reads and validates the relay's public hostname. The appliance
+// has no control URL until the file exists.
+func (s stateConfig) relayHostname() (string, error) {
+	body, err := os.ReadFile(s.relayHostnamePath())
+	if err != nil {
+		return "", fmt.Errorf("read relay hostname: %w", err)
+	}
+	host := strings.TrimSpace(string(body))
+	if !relayHostnameRe.MatchString(host) {
+		return "", fmt.Errorf("relay hostname %q is not a DNS name", host)
+	}
+	return host, nil
 }
 
 // mintControlURL returns the Headscale URL devices should dial. Compose uses
-// loopback. The appliance uses http://<lan>:8080 from the host LAN IPv4
-// and sets Headscale server_url to that URL.
+// loopback. The appliance uses https://<relay hostname>, sets Headscale
+// server_url to it and publishes the Caddy vhost that terminates TLS for it.
 func (s stateConfig) mintControlURL() (string, error) {
 	if s.runtime != "podman" {
 		return composeControlURL, nil
 	}
-	lan, err := lanIPv4()
+	host, err := s.relayHostname()
 	if err != nil {
 		return "", err
 	}
-	url := applianceControlURL(lan)
+	url := "https://" + host
 	if err := s.applyControlPlanePublish(url); err != nil {
 		return "", err
 	}
@@ -92,7 +95,7 @@ func (s stateConfig) mintControlURL() (string, error) {
 }
 
 // loadPublishStatus returns the live control URL. Compose is localhost;
-// the appliance reports http://<lan>:8080.
+// the appliance reports https://<relay hostname>.
 func (s stateConfig) loadPublishStatus() (publishStatus, error) {
 	if s.runtime != "podman" {
 		return publishStatus{
@@ -100,29 +103,29 @@ func (s stateConfig) loadPublishStatus() (publishStatus, error) {
 			Hostname:   "localhost",
 		}, nil
 	}
-	lan, err := lanIPv4()
-	if err != nil {
-		return publishStatus{}, err
-	}
-	url := applianceControlURL(lan)
-	host, err := controlHostname(url)
+	host, err := s.relayHostname()
 	if err != nil {
 		return publishStatus{}, err
 	}
 	return publishStatus{
-		ControlURL: url,
+		ControlURL: "https://" + host,
 		Hostname:   host,
-		LANIP:      lan,
 	}, nil
 }
 
-// applyControlPlanePublish updates Headscale server_url to controlURL and
-// inserts any missing MagicDNS extra records for mesh modules.
+// applyControlPlanePublish updates Headscale server_url to controlURL, writes
+// the Caddy vhost for its hostname and inserts any missing MagicDNS extra
+// records for mesh modules.
 func (s stateConfig) applyControlPlanePublish(controlURL string) error {
-	if _, err := controlHostname(controlURL); err != nil {
+	host, err := controlHostname(controlURL)
+	if err != nil {
 		return err
 	}
 	headscaleChanged, err := s.writeHeadscaleServerURL(controlURL)
+	if err != nil {
+		return err
+	}
+	caddyChanged, err := s.writeHeadscaleCaddy(host)
 	if err != nil {
 		return err
 	}
@@ -131,7 +134,33 @@ func (s stateConfig) applyControlPlanePublish(controlURL string) error {
 			return fmt.Errorf("restart headscale: %w", err)
 		}
 	}
+	if caddyChanged {
+		if err := runCmd("systemctl", "restart", "caddy.service"); err != nil {
+			return fmt.Errorf("restart caddy: %w", err)
+		}
+	}
 	return nil
+}
+
+// writeHeadscaleCaddy writes the vhost that terminates TLS for host and
+// proxies to Headscale, reporting whether the imported snippet changed.
+func (s stateConfig) writeHeadscaleCaddy(host string) (bool, error) {
+	path := filepath.Join(s.dir, "caddy", "headscale.caddy")
+	updated := []byte(host + " {\n\treverse_proxy 127.0.0.1:8080\n}\n")
+	body, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return false, fmt.Errorf("read headscale vhost: %w", err)
+	}
+	if bytes.Equal(body, updated) {
+		return false, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	if err := os.WriteFile(path, updated, 0o644); err != nil {
+		return false, fmt.Errorf("write headscale vhost: %w", err)
+	}
+	return true, nil
 }
 
 // writeHeadscaleServerURL updates server_url and mesh extra records in the
@@ -239,13 +268,4 @@ func extraRecordsInsertIndex(config []byte) (int, error) {
 		return 0, fmt.Errorf("headscale config has no extra_records")
 	}
 	return insert, nil
-}
-
-// lanIPv4 returns the IPv4 used as the source toward the public internet.
-func lanIPv4() (string, error) {
-	out, err := exec.Command("ip", "-4", "route", "get", "1.1.1.1").CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("ip route get: %w (%s)", err, strings.TrimSpace(string(out)))
-	}
-	return parseRouteSrcIPv4(string(out))
 }

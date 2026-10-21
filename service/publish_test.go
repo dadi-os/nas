@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -25,9 +27,49 @@ func TestControlHostname(t *testing.T) {
 	}
 }
 
-func TestApplianceControlURL(t *testing.T) {
-	if got := applianceControlURL("10.4.18.27"); got != "http://10.4.18.27:8080" {
-		t.Fatalf("got %q", got)
+func TestRelayHostname(t *testing.T) {
+	dir := t.TempDir()
+	s := stateConfig{dir: dir, runtime: "podman"}
+	if _, err := s.relayHostname(); err == nil {
+		t.Fatal("missing hostname file should fail")
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "relay"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"", "localhost", "dadi.example.com {\nrespond", "10.0.0.1"} {
+		if err := os.WriteFile(s.relayHostnamePath(), []byte(bad), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.relayHostname(); err == nil {
+			t.Fatalf("hostname %q should fail", bad)
+		}
+	}
+	if err := os.WriteFile(s.relayHostnamePath(), []byte("dadi.ardusa.dev\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	host, err := s.relayHostname()
+	if err != nil || host != "dadi.ardusa.dev" {
+		t.Fatalf("got %q, %v", host, err)
+	}
+	st, err := s.loadPublishStatus()
+	if err != nil || st.ControlURL != "https://dadi.ardusa.dev" {
+		t.Fatalf("got %+v, %v", st, err)
+	}
+}
+
+func TestWriteHeadscaleCaddy(t *testing.T) {
+	s := stateConfig{dir: t.TempDir(), runtime: "podman"}
+	changed, err := s.writeHeadscaleCaddy("dadi.ardusa.dev")
+	if err != nil || !changed {
+		t.Fatalf("first write: changed=%v err=%v", changed, err)
+	}
+	changed, err = s.writeHeadscaleCaddy("dadi.ardusa.dev")
+	if err != nil || changed {
+		t.Fatalf("repeat write: changed=%v err=%v", changed, err)
+	}
+	body, err := os.ReadFile(filepath.Join(s.dir, "caddy", "headscale.caddy"))
+	if err != nil || !strings.Contains(string(body), "dadi.ardusa.dev {") || !strings.Contains(string(body), "reverse_proxy 127.0.0.1:8080") {
+		t.Fatalf("vhost %q, %v", body, err)
 	}
 }
 
@@ -107,16 +149,6 @@ func TestApplyServerURL(t *testing.T) {
 	}
 	if _, err := applyServerURL([]byte("listen_addr: :8080\n"), "https://x"); err == nil {
 		t.Fatal("expected missing server_url error")
-	}
-}
-
-func TestParseRouteSrcIPv4(t *testing.T) {
-	got, err := parseRouteSrcIPv4("1.1.1.1 via 10.4.18.1 dev enp2s0 src 10.4.18.27 uid 0\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "10.4.18.27" {
-		t.Fatalf("got %q", got)
 	}
 }
 
