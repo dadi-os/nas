@@ -21,7 +21,7 @@ Item {
             font.letterSpacing: -0.3
         }
         Text {
-            text: "Glass widgets, translucent top bar, floating dock. Icons stay off."
+            text: "Translucent top bar with module health and uptime, floating dock. Icons stay off."
             color: "#8a8e87"
             font.pixelSize: 13
             wrapMode: Text.WordWrap

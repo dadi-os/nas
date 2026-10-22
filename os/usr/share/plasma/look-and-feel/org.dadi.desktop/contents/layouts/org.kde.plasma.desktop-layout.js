@@ -19,6 +19,7 @@ top.addWidget("org.dadi.brand");
 top.addWidget("org.kde.plasma.appmenu");
 top.addWidget("org.kde.plasma.panelspacer");
 top.addWidget("org.kde.plasma.systemtray");
+top.addWidget("org.dadi.status");
 var clock = top.addWidget("org.kde.plasma.digitalclock");
 clock.currentConfigGroup = ["Appearance"];
 clock.writeConfig("showDate", false);
@@ -56,3 +57,9 @@ desktop.writeConfig("iconSize", 1);
 desktop.writeConfig("arrangement", 1);
 desktop.writeConfig("sortMode", -1);
 desktop.writeConfig("url", "file:///usr/share/dadi/desktop");
+
+var stale = desktop.widgetIds;
+var s;
+for (s = stale.length - 1; s >= 0; s--) {
+    desktop.widgetById(stale[s]).remove();
+}

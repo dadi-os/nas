@@ -1,0 +1,19 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "dadi"
+            }
+        ],
+        "Category": "System Information",
+        "Description": "Module health and uptime for the top bar",
+        "Icon": "dadi",
+        "Id": "org.dadi.status",
+        "License": "MIT",
+        "Name": "Status",
+        "Version": "1.0",
+        "Website": ""
+    }
+}

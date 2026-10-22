@@ -1,14 +1,13 @@
 #!/bin/bash
-# Apply dadi look-and-feel and place crest widgets. Re-runs when LAYOUT_VERSION changes or when
+# Apply the dadi look-and-feel. Re-runs when LAYOUT_VERSION changes or when
 # the live desktop containment lacks the layout's Folder View url, which happens when Plasma
 # replaces the desktop containment with a default one.
 set -euo pipefail
 
-LAYOUT_VERSION=7
+LAYOUT_VERSION=8
 DESKTOP_URL=file:///usr/share/dadi/desktop
 FLAG="${XDG_CONFIG_HOME:-$HOME/.config}/dadi/lnf-version"
 LAYOUT=/usr/share/plasma/look-and-feel/org.dadi.desktop/contents/layouts/org.kde.plasma.desktop-layout.js
-PLACE=/usr/share/dadi/plasma/place-widgets.js
 FORCE=0
 if [ "${1:-}" = "--force" ]; then
   FORCE=1
@@ -39,7 +38,7 @@ if [ "$FORCE" -eq 0 ] && [ -f "$FLAG" ] && [ "$(cat "$FLAG")" = "$LAYOUT_VERSION
   [ "$(live_desktop_url)" = "s \"$DESKTOP_URL\"" ]; then
   exit 0
 fi
-busctl --user call org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell evaluateScript s "$(cat "$LAYOUT" "$PLACE")" >/dev/null
+busctl --user call org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell evaluateScript s "$(cat "$LAYOUT")" >/dev/null
 applied="$(live_desktop_url)"
 if [ "$applied" != "s \"$DESKTOP_URL\"" ]; then
   echo "desktop url not applied: $applied" >&2

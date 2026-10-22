@@ -2,7 +2,7 @@
 
 Nas is the OS and infrastructure layer for dadi. It owns topology — which services exist, how they are networked and named, how they start, and how logs are collected and queried. It is the composition layer: the only place the full system is written down.
 
-**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box UI is Plasma **bone glass** (leaf field, translucent panels, દાદી brand, crest widgets, Preferences). The dadi apps are for other devices only. App modules (`dwar`, `yaad`, `hath`, `ghar`, `chaavi`) stay as containers and update via `podman-auto-update` with no reboot.
+**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box UI is Plasma **bone glass** (leaf field, translucent panels, દાદી brand, status strip, Preferences). The dadi apps are for other devices only. App modules (`dwar`, `yaad`, `hath`, `ghar`, `chaavi`) stay as containers and update via `podman-auto-update` with no reboot.
 
 ## Dependencies
 
@@ -332,7 +332,7 @@ Plasma on the box only — the dadi apps are for other devices. Visual system is
 | Layer | Spec |
 | --- | --- |
 | Field | Wallpaper `Dadi` — sage leaf + glass leaf on bone |
-| Veil | Menu bar / dock / widgets — ~62% bone + blur 32px + specular rim |
+| Veil | Menu bar / dock — ~62% bone + blur 32px + specular rim |
 | Sheet | Popovers — ~78% bone + blur 24px |
 | Solid | Editors / Preferences content — `#fafaf7` |
 | Ink | Type and icons always opaque |
@@ -346,16 +346,16 @@ Plasma on the box only — the dadi apps are for other devices. Visual system is
 
 | Surface | Where |
 | --- | --- |
-| Look-and-feel | `org.dadi.desktop` — translucent top bar (32px), floating dock, crest widgets |
+| Look-and-feel | `org.dadi.desktop` — translucent top bar (32px), floating dock, status strip |
 | Brand | plasmoid `org.dadi.brand` — wordmark opens Preferences; right-click for about / power |
-| Widgets | `org.dadi.widget.{agents,memory,timeline,ghar,system}` — liquid glass (GPL-3 shaders from liquidglass-kde-widgets) + Thaali data |
+| Status | plasmoid `org.dadi.status` in the top bar — one dot per module from nas `/status` (sage healthy, red down) and `up <d h>` from its `uptime_seconds`; read-only, no desktop widgets |
 | Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (users / dwar / chaavi / devices / desktop → `DADI_STATE_DIR`; Devices mints `POST /provision` QR for a device) |
 | Wallpaper | `Dadi` (`/usr/share/wallpapers/Dadi/`) |
 | Wake / lid | immutable `action/lock_screen=false`, `kscreenlockerrc`, PowerDevil profiles, `dadi-inhibit-idle.service`, `logind.conf.d/dadi-lid.conf` |
 | TPM | `dadi-tpm-enroll.service` → PCR 7 via `/var/lib/dadi/luks-enroll.key` (shredded after seal; 45s cap; no TTY wait) |
 | Plymouth / SDDM | theme `dadi`; `sddm-wayland-plasma` greeter compositor; PAM `sddm-autologin` permits empty-password `dadi` |
 
-Glass rules: blur before tint; never translucent text; two opacities only (veil / sheet); no dark glass. Desktop widgets sample the wallpaper through Dual Kawase + refraction (adapted from [liquidglass-kde-widgets](https://github.com/jaxparrow07/liquidglass-kde-widgets), GPL-3). Layout is applied by `dadi-apply-desktop.service` after `plasma-plasmashell` (and whenever `/usr/libexec/dadi/apply-desktop.sh` sees a new `LAYOUT_VERSION`, or Preferences → Desktop → Reset layout).
+Glass rules: blur before tint; never translucent text; two opacities only (veil / sheet); no dark glass. Glass surfaces sample the wallpaper through Dual Kawase + refraction (adapted from [liquidglass-kde-widgets](https://github.com/jaxparrow07/liquidglass-kde-widgets), GPL-3). Layout is applied by `dadi-apply-desktop.service` after `plasma-plasmashell` (and whenever `/usr/libexec/dadi/apply-desktop.sh` sees a new `LAYOUT_VERSION`, or Preferences → Desktop → Reset layout).
 
 ## Mesh
 
