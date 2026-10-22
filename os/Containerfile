@@ -72,6 +72,11 @@ RUN dnf -y install \
     fido2-tools \
   && dnf clean all
 
+# ffmpeg-free pulls in noopenh264, a stub whose encoder never opens; Cisco's openh264 replaces it, and encoding one frame fails the build if the stub is back.
+RUN dnf -y install --allowerasing openh264 \
+  && dnf clean all \
+  && ffmpeg -nostdin -loglevel error -f lavfi -i testsrc=size=320x240:rate=5 -frames:v 5 -c:v libopenh264 -f null -
+
 # Tailscale client (open-source); Headscale is the control plane.
 RUN curl -fsSL https://pkgs.tailscale.com/stable/fedora/tailscale.repo \
       -o /etc/yum.repos.d/tailscale.repo \
