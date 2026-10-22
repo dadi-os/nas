@@ -31,8 +31,6 @@ services:
         condition: service_healthy
       ghar:
         condition: service_healthy
-      chaavi-vault:
-        condition: service_healthy
       chaavi:
         condition: service_healthy
       nas-service:
@@ -248,52 +246,26 @@ services:
         condition: service_completed_successfully
     networks: [dadi]
 
-  chaavi-vault:
-    image: docker.io/vaultwarden/server:1.37.4-alpine
-    environment:
-      DOMAIN: https://chaavi.dadi
-      SIGNUPS_ALLOWED: "true"
-      ROCKET_PORT: "80"
-      EXPERIMENTAL_CLIENT_FEATURE_FLAGS: pm-32009-new-item-types
-    volumes:
-      - chaavi_vault:/data
-    expose: ["80"]
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/alive"]
-      interval: 2s
-      timeout: 5s
-      retries: 20
-    networks: [dadi]
-
   chaavi:
     build:
       context: ../chaavi
-      target: dev
+      dockerfile: docker/Dockerfile.alpine
+      args:
+        DB: sqlite
     env_file: ../chaavi/.env
     environment:
-      VAULT_URL: https://chaavi.dadi
-      NODE_EXTRA_CA_CERTS: /var/lib/chaavi/tls/ca.crt
-      BITWARDENCLI_APPDATA_DIR: /var/lib/chaavi/bw
+      DOMAIN: https://chaavi.dadi
+      SIGNUPS_ALLOWED: "true"
+      ROCKET_PORT: "8080"
+      EXPERIMENTAL_CLIENT_FEATURE_FLAGS: pm-32009-new-item-types
     volumes:
-      - ../chaavi:/app
-      - /app/node_modules
-      - chaavi_bw:/var/lib/chaavi/bw
-      - chaavi_tls:/var/lib/chaavi/tls:ro
+      - chaavi_vault:/data
     expose: ["8080"]
     healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
       interval: 2s
       timeout: 5s
-      retries: 30
-    depends_on:
-      chaavi-vault:
-        condition: service_healthy
+      retries: 60
     networks: [dadi]
 
   # Control plane. Published on the host so a device that has not yet joined
@@ -454,7 +426,6 @@ volumes:
   ghar_pg:
   ghar_matter:
   chaavi_vault:
-  chaavi_bw:
   chaavi_tls:
   headscale_data:
   headscale_run:

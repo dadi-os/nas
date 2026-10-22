@@ -48,7 +48,7 @@ Required on the control service (fail at startup if missing):
 
 `POST /provision` mints `control_url` at issue time: compose uses `http://localhost:8080`; the appliance uses `https://<hostname>` from `/var/lib/dadi/relay/hostname` (Headscale `server_url` and the Caddy vhost in `caddy/headscale.caddy` are rewritten) and fails with `config_missing` until that file exists. Headscale listens on loopback only; the public path is the relay below.
 
-Module secrets live in sibling `../dwar/.env` and `../chaavi/.env` in compose, and under `DADI_STATE_DIR/modules/{dwar,chaavi}/` on the appliance. Preferences → Dwar and Preferences → Chaavi edit those files and restart the module. Chaavi’s `BW_CLIENTID`, `BW_CLIENTSECRET`, and `BW_PASSWORD` are Chaavi module env — not Dwar keys. `VAULT_URL` is set on the container (compose `environment` / quadlet `Environment`), not the env file. Vaultwarden stores the encrypted vault in the `chaavi_vault` volume. Yaad/Hath/Ghar Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar or Chaavi values. Empty Chaavi keys are valid; Chaavi boots and fails the request that needs them.
+Module secrets live in sibling `../dwar/.env` and `../chaavi/.env` in compose, and under `DADI_STATE_DIR/modules/{dwar,chaavi}/` on the appliance. Preferences → Dwar and Preferences → Chaavi edit those files and restart the module. Chaavi’s `CHAAVI_EMAIL` and `CHAAVI_PASSWORD` (the vault account it unlocks for the agents) are Chaavi module env — not Dwar keys. An older `.env` with `BW_PASSWORD` still works until Preferences saves it, and with only one account Chaavi finds the email itself. Chaavi is the vault: a Vaultwarden fork that also serves `/v1`, one container storing the encrypted vault in the `chaavi_vault` volume. Its Vaultwarden settings (`DOMAIN`, `SIGNUPS_ALLOWED`, `ROCKET_PORT`, the `pm-32009-new-item-types` client flag) are set on the container (compose `environment` / quadlet `Environment`), not the env file. Yaad/Hath/Ghar Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar or Chaavi values. Empty Chaavi keys are valid; Chaavi boots and fails the request that needs them.
 
 The box's time zone is the one source of local time. The installer asks Fedora's GeoIP service (`geoip.fedoraproject.org/city`, what Anaconda's own geolocation uses) and installs with that zone, failing the install if the lookup fails; `/etc/localtime` keeps it, and `timedatectl set-timezone` changes it later. `dadi-seed` rewrites `DADI_STATE_DIR/timezone.env` (`TZ=<zone>`) from `/etc/localtime` on every boot, and the Hath and Yaad containers (and their migrations) load it with `EnvironmentFile=`; both refuse to start without a valid `TZ`. Compose requires `TZ` in the shell that runs it.
 
@@ -83,7 +83,7 @@ cp ../dwar/.env.example ../dwar/.env
 cp ../chaavi/.env.example ../chaavi/.env
 ```
 
-Yaad, Hath, and Ghar need no `.env` — Nas injects fixed local Postgres credentials. Chaavi still needs `../chaavi/.env` (blank `BW_*` until set in Preferences → Chaavi, or by editing the file); `VAULT_URL` is injected by compose.
+Yaad, Hath, and Ghar need no `.env` — Nas injects fixed local Postgres credentials. Chaavi still needs `../chaavi/.env` (blank `CHAAVI_*` until set in Preferences → Chaavi, or by editing the file); compose injects its Vaultwarden settings.
 
 Docker Desktop (or equivalent) must be running. No Overmind / tmux.
 
@@ -163,7 +163,7 @@ On the appliance (`DADI_RUNTIME=podman`) Nas runs as root and launches every tmu
 | `DELETE` | `/access/users/{username}` | — | `{ status: ok, username }` | `invalid_request`, `not_found`, `forbidden` (compose), `internal_error` |
 | `GET` | `/modules/dwar/settings` | — | `{ env, config }` (keys + config.toml fields) | `internal_error` |
 | `PUT` | `/modules/dwar/settings` | `{ env, config }` | `{ status: ok }` (writes files, restarts dwar) | `invalid_request`, `internal_error` |
-| `GET` | `/modules/chaavi/settings` | — | `{ env }` (`BW_CLIENTID`, `BW_CLIENTSECRET`, `BW_PASSWORD`) | `internal_error` |
+| `GET` | `/modules/chaavi/settings` | — | `{ env }` (`CHAAVI_EMAIL`, `CHAAVI_PASSWORD`) | `internal_error` |
 | `PUT` | `/modules/chaavi/settings` | `{ env }` | `{ status: ok }` (writes `.env`, restarts chaavi). Empty values are valid. | `invalid_request`, `internal_error` |
 
 `tpm` is `{ present, enrolled, pcrs?, device? }` from `/var/lib/dadi/tpm.json` after `dadi-tpm-enroll`. Remote reboot: TPM unlocks LUKS, systemd starts enabled units (`nas`, mesh, SDDM autologin).
@@ -276,7 +276,7 @@ On the appliance, `/usr/bin/dadi` is a Nas-built Go CLI that talks to Hath’s g
 | `dadi-browsers.slice` | host slice | transient scopes for nas-spawned Xvfb + Chromium; `MemoryHigh=40%`, `MemoryMax=50%` |
 | `zram0` | host swap | `zram-generator`, size = RAM, zstd; there is no disk swap |
 | `sddm` + Plasma | host graphical | `sddm-wayland-plasma`; autologin `dadi`; no locker; bone glass desktop |
-| `dwar` / `yaad` / `hath` / `ghar` / `chaavi` (+ postgres / migrate / `chaavi-vault`) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8086` (`ghar` uses `Network=host`, binds loopback; Chaavi adapter `8085`, Vaultwarden `8086`) |
+| `dwar` / `yaad` / `hath` / `ghar` / `chaavi` (+ postgres / migrate) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8085` (`ghar` uses `Network=host`, binds loopback; Chaavi, `/v1` and the Bitwarden vault together, on `8085`) |
 
 Postgres quadlets set `RunInit=true` so the `pg_isready` health check is reaped by init. PostgreSQL 18 is otherwise PID 1 and crash-recovers when that child dies. `yaad`, `hath`, and `ghar`, and their migrate units, `BindsTo` their postgres unit and are `WantedBy` it, so a postgres restart stops them and starts them again. Those postgres units allow 300s to start and 180s to stop. Dev Compose sets `init: true` on the same three databases.
 
@@ -286,7 +286,7 @@ Postgres quadlets set `RunInit=true` so the `pg_isready` health check is reaped 
 | --- | --- | --- |
 | `caddy` | `caddy:2-alpine` | host port 80; CORS for `Origin: http://thaali.dadi` |
 | `thaali` | `../thaali` `dev` target (Vite) | `*:8080` → `http://thaali.dadi` |
-| `dwar` / `yaad` / `hath` / `ghar` / `chaavi` | sibling builds, `dev` target (`chaavi-vault` is `vaultwarden/server:1.37.4-alpine`, with `EXPERIMENTAL_CLIENT_FEATURE_FLAGS=pm-32009-new-item-types` so the CLI can create bank accounts, driver's licenses and passports) | `*:8080` (Matter does not work on Mac Docker); Chaavi at `http://chaavi.dadi` |
+| `dwar` / `yaad` / `hath` / `ghar` / `chaavi` | sibling builds (Chaavi builds the Vaultwarden fork from `../chaavi/docker/Dockerfile.alpine`, with `EXPERIMENTAL_CLIENT_FEATURE_FLAGS=pm-32009-new-item-types` so clients can create bank accounts, driver's licenses and passports) | `*:8080` (Matter does not work on Mac Docker); Chaavi at `http://chaavi.dadi` |
 | `nas-service` | `./service` | host `8092` |
 | `loki` / `alloy` | official images | log pipeline |
 | `headscale` / `tailscale` | official images | mesh |
@@ -296,7 +296,7 @@ Postgres quadlets set `RunInit=true` so the `pg_isready` health check is reaped 
 | Development | Docker Compose on a Mac (headless) | `docker-compose.yml` |
 | Production | bootc host systemd + podman modules | units + quadlets under `/etc/containers/systemd/` |
 
-Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under test is browser Thaali. Chaavi is `http://chaavi.dadi` for `/v1*` + `/health` (adapter) and `https://chaavi.dadi` for the Bitwarden web vault / extension (mesh CA under `$DADI_STATE_DIR/caddy/tls/`; Thaali installs it on join). Nas restart names are `chaavi` and `chaavi-vault` (Hath’s `restart-module` tool is updated in that repo).
+Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under test is browser Thaali. Chaavi is `http://chaavi.dadi` for `/v1*` + `/health` and `https://chaavi.dadi` for the Bitwarden web vault / extension (the same container serves both) (mesh CA under `$DADI_STATE_DIR/caddy/tls/`; Thaali installs it on join). The Nas restart name is `chaavi` (the old `chaavi-vault` module is gone).
 
 ### Public relay
 

@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// Dwar (provider keys) and Chaavi (BW_*) have user-editable secrets.
+// Dwar (provider keys) and Chaavi (CHAAVI_EMAIL, CHAAVI_PASSWORD) have user-editable secrets.
 // Yaad/Hath/Ghar Postgres credentials are baked into compose/quadlets.
 var moduleEnvNames = map[string]struct{}{
 	"dwar":   {},
@@ -24,34 +24,32 @@ var moduleEnvNames = map[string]struct{}{
 
 // ModuleUnit maps API name → systemd unit (prod / DADI_RUNTIME=podman).
 var moduleUnit = map[string]string{
-	"dwar":         "dwar",
-	"yaad":         "yaad",
-	"hath":       "hath",
-	"ghar":         "ghar",
-	"chaavi":       "chaavi",
-	"chaavi-vault": "chaavi-vault",
-	"nas":          "nas.service",
-	"caddy":        "caddy.service",
-	"headscale":    "headscale.service",
-	"loki":         "loki.service",
-	"alloy":        "alloy.service",
-	"tailscale":    "dadi-tailscale.service",
+	"dwar":      "dwar",
+	"yaad":      "yaad",
+	"hath":      "hath",
+	"ghar":      "ghar",
+	"chaavi":    "chaavi",
+	"nas":       "nas.service",
+	"caddy":     "caddy.service",
+	"headscale": "headscale.service",
+	"loki":      "loki.service",
+	"alloy":     "alloy.service",
+	"tailscale": "dadi-tailscale.service",
 }
 
 // ComposeService maps API name → docker compose service (dev). Empty = no-op.
 var composeService = map[string]string{
-	"dwar":         "dwar",
-	"yaad":         "yaad",
-	"hath":       "hath",
-	"ghar":         "ghar",
-	"chaavi":       "chaavi",
-	"chaavi-vault": "chaavi-vault",
-	"nas":          "nas-service",
-	"caddy":        "caddy",
-	"headscale":    "headscale",
-	"loki":         "loki",
-	"alloy":        "alloy",
-	"tailscale":    "tailscale",
+	"dwar":      "dwar",
+	"yaad":      "yaad",
+	"hath":      "hath",
+	"ghar":      "ghar",
+	"chaavi":    "chaavi",
+	"nas":       "nas-service",
+	"caddy":     "caddy",
+	"headscale": "headscale",
+	"loki":      "loki",
+	"alloy":     "alloy",
+	"tailscale": "tailscale",
 }
 
 type stateConfig struct {
@@ -295,7 +293,7 @@ func (s stateConfig) stackUp() error {
 	case "podman":
 		units := []string{
 			"dadi-seed.service",
-			"yaad-postgres", "hath-postgres", "ghar-postgres", "chaavi-vault", "headscale.service", "loki.service",
+			"yaad-postgres", "hath-postgres", "ghar-postgres", "headscale.service", "loki.service",
 			"yaad-migrate", "hath-migrate", "ghar-migrate",
 			"yaad", "hath", "dwar", "ghar", "chaavi", "bootstrap.service",
 			"nas.service", "caddy.service", "alloy.service",
@@ -323,7 +321,7 @@ func (s stateConfig) stackDown() error {
 			"dadi-tailscale.service", "caddy.service", "nas.service", "alloy.service",
 			"dwar", "yaad", "hath", "ghar", "chaavi", "bootstrap.service",
 			"yaad-migrate", "hath-migrate", "ghar-migrate",
-			"yaad-postgres", "hath-postgres", "ghar-postgres", "chaavi-vault", "headscale.service", "loki.service",
+			"yaad-postgres", "hath-postgres", "ghar-postgres", "headscale.service", "loki.service",
 		}
 		var errs []error
 		for _, u := range units {

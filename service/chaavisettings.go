@@ -11,6 +11,13 @@ import (
 )
 
 var chaaviEnvKeys = []string{
+	"CHAAVI_EMAIL",
+	"CHAAVI_PASSWORD",
+}
+
+// legacyChaaviEnvKeys are the adapter's old keys. A saved .env drops them; until then an old
+// BW_PASSWORD still stands in for an empty CHAAVI_PASSWORD, as it does inside Chaavi.
+var legacyChaaviEnvKeys = []string{
 	"BW_CLIENTID",
 	"BW_CLIENTSECRET",
 	"BW_PASSWORD",
@@ -21,26 +28,28 @@ type chaaviSettings struct {
 }
 
 type chaaviEnvFile struct {
-	ClientID     string `json:"BW_CLIENTID"`
-	ClientSecret string `json:"BW_CLIENTSECRET"`
-	Password     string `json:"BW_PASSWORD"`
+	Email    string `json:"CHAAVI_EMAIL"`
+	Password string `json:"CHAAVI_PASSWORD"`
 }
 
-// chaaviEnvFromMap picks the BW_* keys out of a parsed Chaavi .env.
+// chaaviEnvFromMap picks the CHAAVI_* keys out of a parsed Chaavi .env.
 func chaaviEnvFromMap(values map[string]string) chaaviEnvFile {
+	password := values["CHAAVI_PASSWORD"]
+	if password == "" {
+		password = values["BW_PASSWORD"]
+	}
 	return chaaviEnvFile{
-		ClientID:     values["BW_CLIENTID"],
-		ClientSecret: values["BW_CLIENTSECRET"],
-		Password:     values["BW_PASSWORD"],
+		Email:    values["CHAAVI_EMAIL"],
+		Password: password,
 	}
 }
 
-// writeChaaviDotEnv renders values as Chaavi's .env: the BW_* keys first in a fixed order,
+// writeChaaviDotEnv renders values as Chaavi's .env: the CHAAVI_* keys first in a fixed order,
 // then any other keys sorted, so hand-added keys survive a settings save.
 func writeChaaviDotEnv(values map[string]string) string {
 	var b strings.Builder
-	b.WriteString("# Bitwarden personal API key and master password.\n")
-	b.WriteString("# Empty is fine — Chaavi boots without them.\n\n")
+	b.WriteString("# The vault account Chaavi unlocks: its email and master password.\n")
+	b.WriteString("# Empty is fine — Chaavi boots without them; with one account it finds the email itself.\n\n")
 	written := map[string]struct{}{}
 	for _, key := range chaaviEnvKeys {
 		b.WriteString(key)
@@ -68,15 +77,18 @@ func writeChaaviDotEnv(values map[string]string) string {
 	return b.String()
 }
 
-// overlayChaaviEnv returns a copy of existing with the BW_* keys replaced by env.
+// overlayChaaviEnv returns a copy of existing with the CHAAVI_* keys replaced by env and the
+// adapter's old BW_* keys removed.
 func overlayChaaviEnv(existing map[string]string, env chaaviEnvFile) map[string]string {
 	out := map[string]string{}
 	for k, v := range existing {
 		out[k] = v
 	}
-	out["BW_CLIENTID"] = env.ClientID
-	out["BW_CLIENTSECRET"] = env.ClientSecret
-	out["BW_PASSWORD"] = env.Password
+	for _, key := range legacyChaaviEnvKeys {
+		delete(out, key)
+	}
+	out["CHAAVI_EMAIL"] = env.Email
+	out["CHAAVI_PASSWORD"] = env.Password
 	return out
 }
 
@@ -106,7 +118,7 @@ func writeChaaviSettings(envPath string, settings chaaviSettings) error {
 }
 
 // registerChaaviSettingsRoutes exposes GET/PUT /modules/chaavi/settings as typed JSON.
-// Empty BW_* values are valid; Chaavi reports a missing value on the request that needs it.
+// Empty CHAAVI_* values are valid; Chaavi reports a missing value on the request that needs it.
 func registerChaaviSettingsRoutes(mux *http.ServeMux, s stateConfig) {
 	mux.HandleFunc("GET /modules/chaavi/settings", func(w http.ResponseWriter, r *http.Request) {
 		st, err := readChaaviSettings(s.moduleEnvPath("chaavi"))

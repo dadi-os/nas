@@ -1,34 +1,29 @@
 [Unit]
-After=dadi-seed.service chaavi-vault.service
+After=dadi-seed.service
 Requires=dadi-seed.service
-Wants=chaavi-vault.service
 
 [Container]
 Image=ghcr.io/dadi-os/chaavi:latest
 ContainerName=chaavi
 Network=dadi.network
 PublishPort=127.0.0.1:8085:8080
-AddHost=dwar.dadi:host-gateway
-AddHost=yaad.dadi:host-gateway
-AddHost=hath.dadi:host-gateway
-AddHost=ghar.dadi:host-gateway
-AddHost=chaavi.dadi:host-gateway
-AddHost=nas.dadi:host-gateway
-Environment=VAULT_URL=https://chaavi.dadi
-Environment=NODE_EXTRA_CA_CERTS=/var/lib/chaavi/bw/ca.crt
-Environment=BITWARDENCLI_APPDATA_DIR=/var/lib/chaavi/bw
+Environment=DOMAIN=https://chaavi.dadi
+Environment=SIGNUPS_ALLOWED=true
+Environment=ROCKET_PORT=8080
+Environment=EXPERIMENTAL_CLIENT_FEATURE_FLAGS=pm-32009-new-item-types
 EnvironmentFile=/var/lib/dadi/modules/chaavi/.env
-Volume=chaavi_bw.volume:/var/lib/chaavi/bw
+Volume=chaavi_vault.volume:/data
 AutoUpdate=registry
-HealthCmd=node -e "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-HealthInterval=30s
+HealthCmd=wget -qO- http://127.0.0.1:8080/health
+HealthInterval=10s
 HealthTimeout=5s
-HealthRetries=3
+HealthRetries=4
 HealthStartPeriod=60s
+Notify=healthy
 
 [Service]
-ExecStartPre=/bin/sh -c 'set -eu; if ! /usr/bin/podman volume exists chaavi_bw; then /usr/bin/podman volume create chaavi_bw; fi; mp=$(/usr/bin/podman volume inspect chaavi_bw --format "{{.Mountpoint}}"); install -m 644 /var/lib/dadi/caddy/tls/ca.crt "$$mp/ca.crt"'
 Restart=always
+TimeoutStartSec=180
 
 [Install]
 WantedBy=multi-user.target

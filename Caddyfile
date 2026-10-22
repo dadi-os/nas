@@ -77,7 +77,7 @@ https://chaavi.dadi {
 		reverse_proxy chaavi:8080
 	}
 	handle {
-		reverse_proxy chaavi-vault:80
+		reverse_proxy chaavi:8080
 	}
 }
 

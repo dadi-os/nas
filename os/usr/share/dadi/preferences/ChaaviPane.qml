@@ -33,17 +33,15 @@ Item {
 
     function apply(data) {
         const env = data.env || {}
-        clientId.text = env.BW_CLIENTID || ""
-        clientSecret.text = env.BW_CLIENTSECRET || ""
-        password.text = env.BW_PASSWORD || ""
+        email.text = env.CHAAVI_EMAIL || ""
+        password.text = env.CHAAVI_PASSWORD || ""
     }
 
     function payload() {
         return {
             env: {
-                BW_CLIENTID: clientId.text,
-                BW_CLIENTSECRET: clientSecret.text,
-                BW_PASSWORD: password.text
+                CHAAVI_EMAIL: email.text,
+                CHAAVI_PASSWORD: password.text
             }
         }
     }
@@ -96,16 +94,15 @@ Item {
                 font.letterSpacing: -0.3
             }
             Text {
-                text: "Bitwarden personal API key and master password for the account at https://chaavi.dadi. Empty is fine — Chaavi boots without them. Saving restarts chaavi."
+                text: "The vault account at https://chaavi.dadi that Chaavi unlocks for the agents: its email and master password. Empty is fine — Chaavi boots without them, and with only one account it finds the email itself. Saving restarts chaavi."
                 color: "#8a8e87"
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
 
-            Text { text: "Keys"; color: "#8a8e87"; font.pixelSize: 12; Layout.topMargin: 4 }
-            FormRow { id: clientId; label: "Client ID"; secret: true }
-            FormRow { id: clientSecret; label: "Client secret"; secret: true }
+            Text { text: "Account"; color: "#8a8e87"; font.pixelSize: 12; Layout.topMargin: 4 }
+            FormRow { id: email; label: "Email" }
             FormRow { id: password; label: "Master password"; secret: true }
 
             DadiButton {
