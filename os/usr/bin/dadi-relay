@@ -5,7 +5,7 @@
 set -euo pipefail
 
 dir=/var/lib/dadi/relay
-conf="$dir/dadi-relay.conf"
+conf=/etc/wireguard/dadi-relay.conf
 
 case "${1:-}" in
 key)
@@ -27,6 +27,7 @@ up)
     exit 1
   }
   umask 077
+  mkdir -p /etc/wireguard
   cat >"$conf" <<EOF
 [Interface]
 Address = 10.77.0.2/30

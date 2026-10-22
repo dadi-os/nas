@@ -298,7 +298,7 @@ Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under 
 
 The box sits behind NAT it does not control, so it cannot take inbound connections. An Oracle Cloud Always Free VM with a public IP forwards TCP 80 and 443 over a WireGuard link the box opens outward; TLS terminates on the box (Caddy, Let's Encrypt via the forwarded port 80), so Headscale's `/ts2021` upgrade passes untouched. Cloudflare Tunnel cannot carry that upgrade, which is why it was dropped.
 
-1. Create the VM (Oracle Linux 9, user `opc`), reserve its public IP, and open TCP 80, TCP 443 and UDP 51820 in its VCN security list. Point a DNS A record for the hostname at the IP.
+1. Create the VM (Ubuntu 24.04, user `ubuntu`), reserve its public IP, and open TCP 80, TCP 443 and UDP 51820 in its VCN security list. Point a DNS A record for the hostname at the IP.
 2. On the box: `sudo dadi-relay key` prints the box public key.
 3. On the VM: `sudo ./vm-setup.sh <box public key>` (copy `relay/vm-setup.sh` over first) prints the VM public key.
 4. On the box: `sudo dadi-relay up <hostname> <vm public ip> <vm public key>` writes the WireGuard config and hostname, brings the link up and publishes Headscale at `https://<hostname>`.

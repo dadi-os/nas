@@ -2,13 +2,13 @@
 Description=WireGuard link from the box to the public relay
 After=network-online.target dadi-seed.service
 Wants=network-online.target
-ConditionPathExists=/var/lib/dadi/relay/dadi-relay.conf
+ConditionPathExists=/etc/wireguard/dadi-relay.conf
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/wg-quick up /var/lib/dadi/relay/dadi-relay.conf
-ExecStop=/usr/bin/wg-quick down /var/lib/dadi/relay/dadi-relay.conf
+ExecStart=/usr/bin/wg-quick up dadi-relay
+ExecStop=/usr/bin/wg-quick down dadi-relay
 
 [Install]
 WantedBy=multi-user.target
