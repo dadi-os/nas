@@ -87,6 +87,8 @@ func main() {
 	mux.HandleFunc("GET /logs/services", func(w http.ResponseWriter, r *http.Request) {
 		handleLogServices(w, r, lokiURL, state.runtime)
 	})
+	changes := newChangeBus()
+	mux.HandleFunc("GET /events", changes.handleEvents)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -99,7 +101,7 @@ func main() {
 	browsers.register(mux)
 
 	slog.Info("nas listening", "addr", listen, "state_dir", state.dir, "home", host.homeDir, "runtime", state.runtime)
-	if err := http.ListenAndServe(listen, withRequestLog(mux)); err != nil {
+	if err := http.ListenAndServe(listen, withRequestLog(withChangePublish(changes, mux))); err != nil {
 		slog.Error("listen failed", "code", CodeInternal, "err", err)
 		os.Exit(1)
 	}

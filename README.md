@@ -185,6 +185,10 @@ Session names are `t<n>` for positive integers. `POST /terminals` with no `id` p
 
 `busy` is true when `#{pane_current_command}` is not the login shell, or an exec is in flight. Exec runs the command as `( eval '<command>' )`, so `cd`, `export`, `set -e`, `exit`, and `exec` stay inside that subshell and can never end the session, then appends a nonce marker, polls `capture-pane` every 200ms, and returns output between the echoed command and the marker. On timeout the command keeps running (`timed_out: true`, `exit_code: null`); use `capture` / `keys` to follow up. Truncation keeps head and tail with an elided-bytes note in the middle.
 
+### Change stream
+
+`GET /events` is a Server-Sent Events stream that emits `{ "type": "changed", "at": <iso> }` when a browser is created or closed (`POST /browsers`, `DELETE /browsers/{id}`) and before and after every write to a terminal (create, close, `exec`, `keys`), so a client refetches `GET /browsers` and `GET /terminals` instead of polling them. Browser input publishes nothing. A browser that dies on its own, or a terminal whose working directory changes without an API call, is not announced; a client refetches on reconnect and when its window returns to view. No replay.
+
 ### Filesystem
 
 Paths must be absolute. On the appliance every `/fs/*` call runs with `dadi`'s filesystem uid and gid (a locked thread with `setfsuid`/`setfsgid`), so it reads and writes only what `dadi` may, and files and parent directories it creates belong to `dadi`, as from an agent terminal; a permission error is `forbidden` (403) with the OS message. Writes/edits also fail with `forbidden` on protected prefixes above.
