@@ -3,7 +3,11 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func TestCDPInputCommandPointer(t *testing.T) {
@@ -77,5 +81,60 @@ func TestStreamParam(t *testing.T) {
 		if _, err := streamParam(get(q), "fps", 5, 1, 15); err == nil {
 			t.Fatalf("%s accepted", q)
 		}
+	}
+}
+
+// serveCDP runs a fake DevTools socket that reads count commands before replying to any,
+// answering each in order after an event, and failing the command numbered failID if set.
+func serveCDP(t *testing.T, count, failID int) *cdpConn {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer ws.Close()
+		ids := make([]int, count)
+		for i := range ids {
+			var cmd struct {
+				ID int `json:"id"`
+			}
+			if ws.ReadJSON(&cmd) != nil {
+				return
+			}
+			ids[i] = cmd.ID
+		}
+		for _, id := range ids {
+			_ = ws.WriteJSON(map[string]any{"method": "Page.frameNavigated"})
+			if id == failID {
+				_ = ws.WriteJSON(map[string]any{"id": id, "error": map[string]any{"message": "no such target"}})
+				return
+			}
+			_ = ws.WriteJSON(map[string]any{"id": id, "result": map[string]any{}})
+		}
+	}))
+	t.Cleanup(srv.Close)
+	ws, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ws.Close() })
+	_ = ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	return &cdpConn{ws: ws}
+}
+
+func TestCDPCallAllWritesEveryCommandBeforeReading(t *testing.T) {
+	conn := serveCDP(t, 3, 0)
+	cmds := []cdpCommand{{"Input.dispatchMouseEvent", nil}, {"Input.dispatchMouseEvent", nil}, {"Input.dispatchKeyEvent", nil}}
+	if err := conn.callAll(cmds); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCDPCallAllReturnsFailedReply(t *testing.T) {
+	conn := serveCDP(t, 2, 2)
+	err := conn.callAll([]cdpCommand{{"Input.dispatchMouseEvent", nil}, {"Input.dispatchMouseEvent", nil}})
+	if err == nil || !strings.Contains(err.Error(), "no such target") {
+		t.Fatalf("got %v", err)
 	}
 }

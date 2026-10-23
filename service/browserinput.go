@@ -111,6 +111,15 @@ type cdpConn struct {
 	next int
 }
 
+// cdpReply is one message read from a CDP websocket; ID is zero for an event.
+type cdpReply struct {
+	ID     int             `json:"id"`
+	Result json.RawMessage `json:"result"`
+	Error  *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
 // call sends method and returns its result, skipping the events and replies that arrive
 // before it. The websocket deadline bounds the wait.
 func (c *cdpConn) call(method string, params map[string]any) (json.RawMessage, error) {
@@ -120,13 +129,7 @@ func (c *cdpConn) call(method string, params map[string]any) (json.RawMessage, e
 		return nil, err
 	}
 	for {
-		var reply struct {
-			ID     int             `json:"id"`
-			Result json.RawMessage `json:"result"`
-			Error  *struct {
-				Message string `json:"message"`
-			} `json:"error"`
-		}
+		var reply cdpReply
 		if err := c.ws.ReadJSON(&reply); err != nil {
 			return nil, err
 		}
@@ -138,6 +141,33 @@ func (c *cdpConn) call(method string, params map[string]any) (json.RawMessage, e
 		}
 		return reply.Result, nil
 	}
+}
+
+// callAll writes every command before reading any reply, so Chromium handles them
+// back to back instead of idling for a round trip after each. Chromium runs one session's
+// commands in the order sent; the first failed reply is returned.
+func (c *cdpConn) callAll(commands []cdpCommand) error {
+	first := c.next + 1
+	for _, cmd := range commands {
+		c.next++
+		if err := c.ws.WriteJSON(map[string]any{"id": c.next, "method": cmd.Method, "params": cmd.Params}); err != nil {
+			return err
+		}
+	}
+	for pending := len(commands); pending > 0; {
+		var reply cdpReply
+		if err := c.ws.ReadJSON(&reply); err != nil {
+			return err
+		}
+		if reply.ID < first {
+			continue
+		}
+		if reply.Error != nil {
+			return fmt.Errorf("%s", reply.Error.Message)
+		}
+		pending--
+	}
+	return nil
 }
 
 // pageSocketURL returns the websocket URL of browser id's first page target, the one
@@ -233,11 +263,9 @@ func (b *browserHost) handleInput(w http.ResponseWriter, r *http.Request) {
 			commands = append(commands, cmd)
 		}
 	}
-	for _, cmd := range commands {
-		if _, err := conn.call(cmd.Method, cmd.Params); err != nil {
-			writeError(w, r, http.StatusBadGateway, CodeUpstreamUnreachable, err.Error())
-			return
-		}
+	if err := conn.callAll(commands); err != nil {
+		writeError(w, r, http.StatusBadGateway, CodeUpstreamUnreachable, err.Error())
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
