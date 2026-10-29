@@ -88,12 +88,7 @@ func (s stateConfig) moduleEnvPath(name string) string {
 	return filepath.Join(s.dir, "modules", name, ".env")
 }
 
-// dwarConfigPath is Dwar's config.toml under the state dir.
-func (s stateConfig) dwarConfigPath() string {
-	return filepath.Join(s.dir, "modules", "dwar", "config.toml")
-}
-
-// registerConfigRoutes mounts module env/config editing, module restart, stack up/down,
+// registerConfigRoutes mounts module env editing, module restart, stack up/down,
 // pull_updates and headscale publish routes on mux.
 func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 	updates := &updater{
@@ -140,39 +135,6 @@ func registerConfigRoutes(mux *http.ServeMux, s stateConfig) {
 		if err := s.restartModule(name); err != nil {
 			slog.Error("restart after env write", "code", CodeInternal, "module", name, "err", err)
 			writeError(w, r, http.StatusInternalServerError, CodeInternal, "wrote env but restart failed: "+err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
-
-	mux.HandleFunc("GET /modules/dwar/config", func(w http.ResponseWriter, r *http.Request) {
-		body, err := os.ReadFile(s.dwarConfigPath())
-		if err != nil {
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write(body)
-	})
-
-	mux.HandleFunc("PUT /modules/dwar/config", func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-		if err != nil {
-			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "read body")
-			return
-		}
-		path := s.dwarConfigPath()
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-			return
-		}
-		if err := os.WriteFile(path, body, 0o644); err != nil {
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-			return
-		}
-		if err := s.restartModule("dwar"); err != nil {
-			slog.Error("restart after config write", "code", CodeInternal, "err", err)
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, "wrote config but restart failed: "+err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

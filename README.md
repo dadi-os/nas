@@ -161,8 +161,8 @@ On the appliance (`DADI_RUNTIME=podman`) Nas runs as root and launches every tmu
 | `GET` | `/access` | — | `{ session_user, users, tpm }` | `internal_error` |
 | `POST` | `/access/users` | `{ "username", "password" }` (password 8–128 chars) | `{ status: ok, username, created }` | `invalid_request`, `forbidden` (compose), `internal_error` |
 | `DELETE` | `/access/users/{username}` | — | `{ status: ok, username }` | `invalid_request`, `not_found`, `forbidden` (compose), `internal_error` |
-| `GET` | `/modules/dwar/settings` | — | `{ env, config }` (keys + config.toml fields) | `internal_error` |
-| `PUT` | `/modules/dwar/settings` | `{ env, config }` | `{ status: ok }` (writes files, restarts dwar) | `invalid_request`, `internal_error` |
+| `GET` | `/modules/dwar/settings` | — | `{ env }` (provider keys; models and budgets are constants in Dwar's `config.py`) | `internal_error` |
+| `PUT` | `/modules/dwar/settings` | `{ env }` | `{ status: ok }` (writes `.env`, restarts dwar) | `invalid_request`, `internal_error` |
 | `GET` | `/modules/chaavi/settings` | — | `{ env }` (`CHAAVI_EMAIL`, `CHAAVI_PASSWORD`) | `internal_error` |
 | `PUT` | `/modules/chaavi/settings` | `{ env }` | `{ status: ok }` (writes `.env`, restarts chaavi). Empty values are valid. | `invalid_request`, `internal_error` |
 

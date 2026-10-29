@@ -45,7 +45,6 @@ services:
     env_file: ../dwar/.env
     volumes:
       - ../dwar:/app
-      - ../dwar/config.toml:/app/config.toml:ro
     expose: ["8080"]
     healthcheck:
       test:
@@ -346,7 +345,6 @@ services:
       - headscale_run:/var/run/headscale
       # Dwar + Chaavi secrets — Yaad/Hath Postgres is baked into this compose file.
       - ../dwar/.env:/var/lib/dadi/modules/dwar/.env
-      - ../dwar/config.toml:/var/lib/dadi/modules/dwar/config.toml
       - ../chaavi/.env:/var/lib/dadi/modules/chaavi/.env
       - headscale_control_url:/var/lib/dadi/headscale
       - browsers_data:/var/lib/dadi/browsers

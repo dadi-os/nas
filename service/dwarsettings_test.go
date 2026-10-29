@@ -36,97 +36,21 @@ func TestWriteDotEnvPreservesExtras(t *testing.T) {
 	}
 }
 
-func validSettings() dwarSettings {
-	s := dwarSettings{}
-	s.Env.Anthropic = "sk-test"
-	s.Config.Chat.Reasoning.Provider = "anthropic"
-	s.Config.Chat.Reasoning.Model = "claude-sonnet-5"
-	s.Config.Chat.Reasoning.MaxTokens = 16384
-	s.Config.Chat.Reasoning.Effort = "medium"
-	s.Config.Chat.Conversation.Provider = "gemini"
-	s.Config.Chat.Conversation.Model = "gemini-3.6-flash"
-	s.Config.Chat.Conversation.MaxTokens = 4096
-	s.Config.Chat.Complete.Provider = "gemini"
-	s.Config.Chat.Complete.Model = "gemini-3.6-flash"
-	s.Config.Chat.Complete.MaxTokens = 2048
-	s.Config.Embed.Provider = "openai"
-	s.Config.Embed.Model = "text-embedding-3-small"
-	s.Config.Embed.Dimensions = 1536
-	s.Config.Embed.MaxBatchSize = 64
-	s.Config.Embed.MaxTextLength = 8192
-	s.Config.Image.Describe.Provider = "gemini"
-	s.Config.Image.Describe.Model = "gemini-3.6-flash"
-	s.Config.Image.Describe.MaxTokens = 2048
-	s.Config.Image.Describe.MaxBytes = 10485760
-	s.Config.Image.Describe.MaxPromptLength = 4000
-	s.Config.Image.Describe.AllowedMediaTypes = []string{"image/jpeg", "image/png"}
-	s.Config.Image.Create.Provider = "gemini"
-	s.Config.Image.Create.Model = "gemini-3.1-flash-image"
-	s.Config.Image.Create.MaxPromptLength = 4000
-	s.Config.Speech.Transcribe.Provider = "deepgram"
-	s.Config.Speech.Transcribe.Model = "nova-3"
-	s.Config.Speech.Transcribe.Language = "multi"
-	s.Config.Speech.Transcribe.MaxBytes = 26214400
-	s.Config.Speech.Transcribe.AllowedMediaTypes = []string{"audio/wav"}
-	s.Config.Retry.Attempts = 3
-	s.Config.Retry.BackoffSeconds = []float64{0.5, 1, 2}
-	s.Config.Retry.TimeoutSeconds = 300
-	return s
-}
-
-func TestValidateDwarSettings(t *testing.T) {
-	s := validSettings()
-	if err := validateDwarSettings(s); err != nil {
-		t.Fatalf("valid: %v", err)
-	}
-	s.Config.Chat.Reasoning.MaxTokens = 0
-	if err := validateDwarSettings(s); err == nil {
-		t.Fatal("expected max_tokens error")
-	}
-	s = validSettings()
-	s.Config.Chat.Complete.Model = ""
-	if err := validateDwarSettings(s); err == nil {
-		t.Fatal("expected chat.complete model error")
-	}
-}
-
-func TestValidateDwarSettingsEffortMatchesProvider(t *testing.T) {
-	for _, tc := range []struct {
-		provider, effort string
-		ok               bool
-	}{
-		{"anthropic", "medium", true},
-		{"anthropic", "", false},
-		{"anthropic", "huge", false},
-		{"gemini", "", true},
-		{"gemini", "medium", false},
-	} {
-		s := validSettings()
-		s.Config.Chat.Reasoning.Provider = tc.provider
-		s.Config.Chat.Reasoning.Effort = tc.effort
-		if err := validateDwarSettings(s); (err == nil) != tc.ok {
-			t.Fatalf("%s/%q: err=%v", tc.provider, tc.effort, err)
-		}
-	}
-}
-
 func TestReadWriteDwarSettingsRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	envPath := filepath.Join(dir, ".env")
-	cfgPath := filepath.Join(dir, "config.toml")
-	seed := validSettings()
+	envPath := filepath.Join(t.TempDir(), ".env")
 	if err := os.WriteFile(envPath, []byte("ANTHROPIC_API_KEY=old\nKEEP_ME=yes\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeDwarSettings(envPath, cfgPath, seed); err != nil {
+	seed := dwarSettings{Env: dwarEnvFile{Anthropic: "sk-test", Gemini: "g", OpenAI: "o", Deepgram: "d"}}
+	if err := writeDwarSettings(envPath, seed); err != nil {
 		t.Fatal(err)
 	}
-	got, err := readDwarSettings(envPath, cfgPath)
+	got, err := readDwarSettings(envPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Env.Anthropic != "sk-test" {
-		t.Fatalf("env overlay: %+v", got.Env)
+	if got.Env != seed.Env {
+		t.Fatalf("env round trip: %+v", got.Env)
 	}
 	body, err := os.ReadFile(envPath)
 	if err != nil {
@@ -134,14 +58,5 @@ func TestReadWriteDwarSettingsRoundTrip(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "KEEP_ME=yes") {
 		t.Fatalf("lost extra key: %s", body)
-	}
-	if got.Config.Chat.Reasoning.Model != "claude-sonnet-5" || got.Config.Chat.Reasoning.Effort != "medium" {
-		t.Fatalf("config: %+v", got.Config.Chat.Reasoning)
-	}
-	if got.Config.Chat.Complete.Model != "gemini-3.6-flash" || got.Config.Chat.Complete.MaxTokens != 2048 {
-		t.Fatalf("complete: %+v", got.Config.Chat.Complete)
-	}
-	if got.Config.Retry.TimeoutSeconds != 300 {
-		t.Fatalf("retry: %+v", got.Config.Retry)
 	}
 }
