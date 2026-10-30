@@ -14,8 +14,9 @@ func TestAffectsSessions(t *testing.T) {
 		method, path string
 		want         bool
 	}{
-		{http.MethodPost, "/browsers", true},
-		{http.MethodDelete, "/browsers/10", true},
+		{http.MethodPost, "/tasks/terminal", true},
+		{http.MethodPost, "/tasks/terminal/ab12cd34/steer", true},
+		{http.MethodGet, "/tasks", false},
 		{http.MethodPost, "/browsers/10/input", false},
 		{http.MethodGet, "/browsers", false},
 		{http.MethodPost, "/terminals", true},

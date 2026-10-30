@@ -6,9 +6,8 @@ FROM golang:1.23-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY *.go ./
-COPY cmd ./cmd
+COPY helpers ./helpers
 RUN CGO_ENABLED=0 go build -o /nas-service .
-RUN CGO_ENABLED=0 go build -o /dadi ./cmd/dadi
 
 FROM golang:1.23-bookworm AS test
 RUN apt-get update \
@@ -22,7 +21,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
-COPY cmd ./cmd
+COPY helpers ./helpers
 CMD ["go", "test", "./..."]
 
 FROM debian:bookworm-slim AS production
@@ -35,7 +34,6 @@ RUN apt-get update \
 ENV CHROMIUM_BIN=chromium
 COPY --from=headscale /ko-app/headscale /usr/local/bin/headscale
 COPY --from=build /nas-service /usr/local/bin/nas-service
-COPY --from=build /dadi /usr/local/bin/dadi
 EXPOSE 8080
 CMD ["nas-service"]
 
@@ -52,7 +50,7 @@ COPY --from=headscale /ko-app/headscale /usr/local/bin/headscale
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY *.go ./
-COPY cmd ./cmd
+COPY helpers ./helpers
 COPY .air.toml ./
 EXPOSE 8080
 CMD ["air", "-c", ".air.toml"]

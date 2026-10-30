@@ -3,9 +3,8 @@ FROM golang:1.23-bookworm AS nas-build
 WORKDIR /src
 COPY service/go.mod service/go.sum ./
 COPY service/*.go ./
-COPY service/cmd ./cmd
+COPY service/helpers ./helpers
 RUN CGO_ENABLED=0 go build -o /nas .
-RUN CGO_ENABLED=0 go build -o /dadi ./cmd/dadi
 
 FROM headscale/headscale:0.26 AS headscale
 FROM caddy:2.9.1-alpine AS caddy
@@ -99,7 +98,6 @@ RUN semanage boolean --modify --on samba_export_all_rw
 
 COPY os/etc/ /etc/
 COPY os/usr/ /usr/
-COPY --from=nas-build /dadi /usr/bin/dadi
 
 RUN systemd-sysusers \
   && usermod -aG video,render,input dadi \
@@ -133,7 +131,7 @@ RUN mkdir -p \
          "/usr/share/dadi/qml/org/dadi/Desktop/shaders/${f}.frag"; \
      done \
   && chmod 0755 /usr/bin/dadi-preferences \
-       /usr/bin/dadi-provision-qr /usr/bin/dadi \
+       /usr/bin/dadi-provision-qr \
   && plymouth-set-default-theme dadi \
   && for k in /lib/modules/*; do \
        [ -d "$k" ] || continue; \

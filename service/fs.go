@@ -295,19 +295,30 @@ func (f *fsHost) handleReadBytes(w http.ResponseWriter, r *http.Request) {
 type writeRequest struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
+	// Data is the file's bytes (base64 in JSON), for a file that is not text. Send content
+	// or data, not both.
+	Data []byte `json:"data"`
 }
 
 type writeResponse struct {
 	Bytes int `json:"bytes"`
 }
 
-// handleWrite is POST /fs/write: creates or replaces a file, creating missing parents.
-// Write-protected paths are forbidden.
+// handleWrite is POST /fs/write: creates or replaces a file from content (text) or data
+// (bytes), creating missing parents. Write-protected paths are forbidden.
 func (f *fsHost) handleWrite(w http.ResponseWriter, r *http.Request) {
 	var req writeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "invalid json body")
 		return
+	}
+	if req.Data != nil && req.Content != "" {
+		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "send content or data, not both")
+		return
+	}
+	body := []byte(req.Content)
+	if req.Data != nil {
+		body = req.Data
 	}
 	path, err := f.host.resolveHostPath(strings.TrimSpace(req.Path), false, true)
 	if err != nil {
@@ -318,11 +329,11 @@ func (f *fsHost) handleWrite(w http.ResponseWriter, r *http.Request) {
 		writePathError(w, r, err)
 		return
 	}
-	if err := os.WriteFile(path, []byte(req.Content), 0o644); err != nil {
+	if err := os.WriteFile(path, body, 0o644); err != nil {
 		writePathError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, writeResponse{Bytes: len(req.Content)})
+	writeJSON(w, http.StatusOK, writeResponse{Bytes: len(body)})
 }
 
 type editRequest struct {

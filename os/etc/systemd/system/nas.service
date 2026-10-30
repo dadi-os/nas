@@ -1,7 +1,7 @@
 [Unit]
 Description=Nas control plane
-After=network-online.target dadi-seed.service dadi-home.service headscale.service loki.service bootstrap.service
-Requires=dadi-seed.service dadi-home.service
+After=network-online.target dadi-browsers.slice dadi-seed.service dadi-home.service headscale.service loki.service bootstrap.service
+Requires=dadi-seed.service dadi-home.service dadi-browsers.slice
 Wants=network-online.target headscale.service loki.service bootstrap.service
 
 [Service]
@@ -9,6 +9,9 @@ Type=simple
 Environment=HEADSCALE_USER=dadi
 Environment=LISTEN_ADDR=127.0.0.1:8092
 Environment=LOKI_URL=http://127.0.0.1:3100
+Environment=DWAR_URL=http://127.0.0.1:8081
+Environment=CHAAVI_URL=http://127.0.0.1:8085
+Environment=BROWSER_CGROUP=/sys/fs/cgroup/dadi-browsers.slice
 Environment=DADI_STATE_DIR=/var/lib/dadi
 Environment=DADI_HOME=/var/home/dadi
 Environment=DADI_RUNTIME=podman
