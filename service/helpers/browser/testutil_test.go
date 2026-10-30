@@ -56,6 +56,7 @@ func launchChromium(t *testing.T, profile string) (string, func()) {
 	cmd := exec.Command(bin, "--headless=new", "--remote-debugging-port=0", "--user-data-dir="+profile,
 		"--no-first-run", "--no-default-browser-check", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage",
 		"--disable-features=TranslateUI", "--window-size=1280,900", "about:blank")
+	ownProcessGroup(cmd)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +65,7 @@ func launchChromium(t *testing.T, profile string) (string, func()) {
 		t.Fatalf("start chromium: %v", err)
 	}
 	stop := func() {
-		_ = cmd.Process.Kill()
+		killTree(cmd)
 		_ = cmd.Wait()
 	}
 	found := make(chan string, 1)
