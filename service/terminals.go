@@ -153,9 +153,6 @@ type createTerminalResponse struct {
 // handleCreate is POST /terminals: starts a tmux session in cwd (the dadi home when omitted)
 // under the requested id, or the lowest free one.
 func (t *terminalHost) handleCreate(w http.ResponseWriter, r *http.Request) {
-	t.createMu.Lock()
-	defer t.createMu.Unlock()
-
 	var req createTerminalRequest
 	if r.Body != nil {
 		dec := json.NewDecoder(r.Body)
@@ -164,47 +161,54 @@ func (t *terminalHost) handleCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	cwd := strings.TrimSpace(req.Cwd)
+	created, err := t.create(req.ID, req.Cwd)
+	if err != nil {
+		writeAPIError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, created)
+}
+
+// create starts a tmux session in cwd (the dadi home when empty) under id, or the lowest
+// free t<n> when id is empty. Bad input and a running id are apiErrors.
+func (t *terminalHost) create(id, cwd string) (createTerminalResponse, error) {
+	t.createMu.Lock()
+	defer t.createMu.Unlock()
+
+	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
 		cwd = t.host.defaultCwd()
 	}
 	if !filepathIsAbs(cwd) {
-		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "cwd must be absolute")
-		return
+		return createTerminalResponse{}, apiError{http.StatusBadRequest, CodeInvalidRequest, "cwd must be absolute"}
 	}
 	cwd = filepath.Clean(cwd)
 	if fi, err := os.Stat(cwd); err != nil || !fi.IsDir() {
-		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "cwd must be an existing directory")
-		return
+		return createTerminalResponse{}, apiError{http.StatusBadRequest, CodeInvalidRequest, "cwd must be an existing directory"}
 	}
-	id := strings.TrimSpace(req.ID)
+	id = strings.TrimSpace(id)
 	if id != "" {
 		if !sessionNameRe.MatchString(id) {
-			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "id must be t<n> for a positive integer n")
-			return
+			return createTerminalResponse{}, apiError{http.StatusBadRequest, CodeInvalidRequest, "id must be t<n> for a positive integer n"}
 		}
 		if t.hasSession(id) {
-			writeError(w, r, http.StatusConflict, CodeConflict, "terminal id is already running")
-			return
+			return createTerminalResponse{}, apiError{http.StatusConflict, CodeConflict, "terminal id is already running"}
 		}
 	} else {
 		var err error
 		id, err = t.nextSessionID()
 		if err != nil {
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-			return
+			return createTerminalResponse{}, err
 		}
 	}
 	if _, err := t.tmuxOutput("new-session", "-d", "-s", id, "-c", cwd); err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-		return
+		return createTerminalResponse{}, err
 	}
 	if _, err := t.tmuxOutput("set-option", "-t", id, "history-limit", strconv.Itoa(historyLimit)); err != nil {
 		_ = t.tmuxCmd("kill-session", "-t", id).Run()
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-		return
+		return createTerminalResponse{}, err
 	}
-	writeJSON(w, http.StatusOK, createTerminalResponse{ID: id, Cwd: cwd})
+	return createTerminalResponse{ID: id, Cwd: cwd}, nil
 }
 
 type terminalInfo struct {
@@ -572,15 +576,22 @@ func (t *terminalHost) handleDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusNotFound, CodeNotFound, "not_found")
 		return
 	}
-	if !t.hasSession(id) {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if err := t.tmuxCmd("kill-session", "-t", id).Run(); err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, "kill-session: "+err.Error())
+	if err := t.kill(id); err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// kill ends session id; a session that is already gone is not an error.
+func (t *terminalHost) kill(id string) error {
+	if !t.hasSession(id) {
+		return nil
+	}
+	if err := t.tmuxCmd("kill-session", "-t", id).Run(); err != nil {
+		return fmt.Errorf("kill-session: %w", err)
+	}
+	return nil
 }
 
 // register mounts the /terminals routes on mux.

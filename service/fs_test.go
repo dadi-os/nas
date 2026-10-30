@@ -115,6 +115,34 @@ func TestFSEditMatches(t *testing.T) {
 	}
 }
 
+func TestFSWriteBytes(t *testing.T) {
+	_, mux, root := testFSEnv(t)
+	path := filepath.Join(root, "sub", "file.bin")
+	want := []byte{0x00, 0xff, 0x10, 'p', 'd', 'f'}
+	code, body := doJSON(t, mux, http.MethodPost, "/fs/write", map[string]any{
+		"path": path,
+		"data": want,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("status %d %s", code, body)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("wrote %v, want %v", got, want)
+	}
+	code, body = doJSON(t, mux, http.MethodPost, "/fs/write", map[string]any{
+		"path":    path,
+		"content": "text",
+		"data":    want,
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("content and data together: status %d %s", code, body)
+	}
+}
+
 func TestFSWriteProtectedOS(t *testing.T) {
 	_, mux, _ := testFSEnv(t)
 	code, body := doJSON(t, mux, http.MethodPost, "/fs/write", map[string]any{

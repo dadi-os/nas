@@ -37,6 +37,8 @@ func requireBrowserDeps(t *testing.T) string {
 	return bin
 }
 
+// testBrowserEnv returns a browser host over a fresh state dir with the /browsers routes on
+// mux; every browser still running is stopped at cleanup.
 func testBrowserEnv(t *testing.T) (*browserHost, *http.ServeMux, string) {
 	t.Helper()
 	bin := requireBrowserDeps(t)
@@ -59,290 +61,77 @@ func testBrowserEnv(t *testing.T) (*browserHost, *http.ServeMux, string) {
 	return bh, mux, dir
 }
 
-func TestBrowsersCreateListDelete(t *testing.T) {
+// testProfile is the Chromium folder the tests run browsers on.
+func testProfile(bh *browserHost) string {
+	return filepath.Join(bh.host.browsersDir, "agent", "1")
+}
+
+// startTestBrowser starts a browser on slot 10 and returns what it reports.
+func startTestBrowser(t *testing.T, bh *browserHost) browserLaunch {
+	t.Helper()
+	launch, err := bh.startBrowser(10, testProfile(bh))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return launch
+}
+
+func TestBrowserStartListKill(t *testing.T) {
 	bh, mux, _ := testBrowserEnv(t)
-
-	code, body := doJSON(t, mux, http.MethodPost, "/browsers", nil)
+	launch := startTestBrowser(t, bh)
+	if launch.Display != ":10" || !strings.HasPrefix(launch.CDPURL, "ws://127.0.0.1:9310/devtools/browser/") {
+		t.Fatalf("launch %+v", launch)
+	}
+	code, body := doJSON(t, mux, http.MethodGet, "/browsers", nil)
 	if code != http.StatusOK {
-		t.Fatalf("create %d %s", code, body)
-	}
-	var created createBrowserResponse
-	if err := json.Unmarshal(body, &created); err != nil {
-		t.Fatal(err)
-	}
-	if created.ID != 10 {
-		t.Fatalf("want id 10 got %d", created.ID)
-	}
-	if created.Display != ":10" {
-		t.Fatalf("display %s", created.Display)
-	}
-	if !strings.Contains(created.CDPURL, "/browsers/10/devtools/browser/") {
-		t.Fatalf("cdp_url %s", created.CDPURL)
-	}
-
-	code, body = doJSON(t, mux, http.MethodGet, "/browsers/10/json/version", nil)
-	if code != http.StatusOK {
-		t.Fatalf("json/version %d %s", code, body)
-	}
-	var ver cdpVersion
-	if err := json.Unmarshal(body, &ver); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(ver.WebSocketDebuggerURL, "/browsers/10/") {
-		t.Fatalf("rewritten url %s", ver.WebSocketDebuggerURL)
-	}
-
-	code, body = doJSON(t, mux, http.MethodGet, "/browsers", nil)
-	if code != http.StatusOK {
-		t.Fatalf("list %d %s", code, body)
+		t.Fatalf("list browsers %d %s", code, body)
 	}
 	var list []browserInfo
 	if err := json.Unmarshal(body, &list); err != nil {
 		t.Fatal(err)
 	}
 	if len(list) != 1 || !list[0].Healthy || list[0].ID != 10 {
-		t.Fatalf("list %+v", list)
+		t.Fatalf("browsers %+v", list)
 	}
-
-	code, _ = doJSON(t, mux, http.MethodDelete, "/browsers/10", nil)
-	if code != http.StatusNoContent {
-		t.Fatalf("delete %d", code)
+	if _, err := bh.startBrowser(10, testProfile(bh)); err == nil {
+		t.Fatal("started a second browser on a running slot")
 	}
-	code, _ = doJSON(t, mux, http.MethodDelete, "/browsers/10", nil)
-	if code != http.StatusNoContent {
-		t.Fatalf("second delete %d", code)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if !bh.processesExist(10) {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	code, body = doJSON(t, mux, http.MethodGet, "/browsers", nil)
-	if code != http.StatusOK {
-		t.Fatalf("list after delete %d", code)
-	}
-	if err := json.Unmarshal(body, &list); err != nil {
-		t.Fatal(err)
-	}
-	if len(list) != 0 {
-		t.Fatalf("expected empty list, got %+v", list)
-	}
-	if _, err := os.Stat(bh.profileDir(10)); !os.IsNotExist(err) {
-		t.Fatalf("profile after delete: %v", err)
-	}
-}
-
-func TestBrowsersIDReuseAndProfile(t *testing.T) {
-	bh, mux, _ := testBrowserEnv(t)
-
-	code, body := doJSON(t, mux, http.MethodPost, "/browsers", nil)
-	if code != http.StatusOK {
-		t.Fatalf("create1 %d %s", code, body)
-	}
-	var b1 createBrowserResponse
-	_ = json.Unmarshal(body, &b1)
-	if b1.ID != 10 {
-		t.Fatalf("id %d", b1.ID)
-	}
-
-	code, body = doJSON(t, mux, http.MethodPost, "/browsers", nil)
-	if code != http.StatusOK {
-		t.Fatalf("create2 %d %s", code, body)
-	}
-	var b2 createBrowserResponse
-	_ = json.Unmarshal(body, &b2)
-	if b2.ID != 11 {
-		t.Fatalf("id %d", b2.ID)
-	}
-
-	marker := filepath.Join(bh.profileDir(10), "nas-profile-marker")
-	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
 	bh.killBrowser(10)
-
-	code, body = doJSON(t, mux, http.MethodPost, "/browsers", map[string]any{})
-	if code != http.StatusOK {
-		t.Fatalf("fresh %d %s", code, body)
-	}
-	var fresh createBrowserResponse
-	_ = json.Unmarshal(body, &fresh)
-	if fresh.ID == 10 || fresh.ID == 11 {
-		t.Fatalf("fresh id reused occupied profile %d", fresh.ID)
-	}
-
-	code, body = doJSON(t, mux, http.MethodPost, "/browsers", map[string]any{"id": 10})
-	if code != http.StatusOK {
-		t.Fatalf("respawn %d %s", code, body)
-	}
-	var b3 createBrowserResponse
-	_ = json.Unmarshal(body, &b3)
-	if b3.ID != 10 {
-		t.Fatalf("want respawn 10 got %d", b3.ID)
-	}
-	got, err := os.ReadFile(marker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != "keep" {
-		t.Fatalf("profile marker %q", got)
-	}
-
-	code, body = doJSON(t, mux, http.MethodPost, "/browsers", map[string]any{"id": 11})
-	if code != http.StatusConflict {
-		t.Fatalf("running id status %d %s", code, body)
-	}
-	var conflict errorResponse
-	if err := json.Unmarshal(body, &conflict); err != nil {
-		t.Fatal(err)
-	}
-	if conflict.Error.Type != CodeConflict {
-		t.Fatalf("conflict type %s", conflict.Error.Type)
-	}
-
-	code, body = doJSON(t, mux, http.MethodPost, "/browsers", map[string]any{"id": 3})
-	if code != http.StatusBadRequest {
-		t.Fatalf("low id status %d %s", code, body)
-	}
-}
-
-func TestBrowserDeleteStoppedRemovesProfile(t *testing.T) {
-	dir := t.TempDir()
-	state := stateConfig{dir: dir, runtime: "compose"}
-	host, err := newHostRuntime(state, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	bh := newBrowserHost(host)
 	if bh.processesExist(10) {
-		t.Skip("display 10 is in use")
+		t.Fatal("browser 10 still running after kill")
 	}
-	mux := http.NewServeMux()
-	bh.register(mux)
-
-	profile := bh.profileDir(10)
-	if err := os.MkdirAll(filepath.Join(profile, "Default"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(profile, "Default", "Cookies"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	code, body := doJSON(t, mux, http.MethodDelete, "/browsers/10", nil)
-	if code != http.StatusNoContent {
-		t.Fatalf("delete %d %s", code, body)
-	}
-	if _, err := os.Stat(profile); !os.IsNotExist(err) {
-		t.Fatalf("profile after delete: %v", err)
-	}
-	id, err := bh.nextFreshID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id != 10 {
-		t.Fatalf("deleted id should be fresh again, got %d", id)
+	if _, err := os.Stat(testProfile(bh)); err != nil {
+		t.Fatalf("profile after kill: %v", err)
 	}
 }
 
-func TestBrowserNextFreshIDSkipsProfile(t *testing.T) {
-	dir := t.TempDir()
-	state := stateConfig{dir: dir, runtime: "compose"}
-	host, err := newHostRuntime(state, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	bh := newBrowserHost(host)
-	free10, err := bh.displayFree(10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	free11, err := bh.displayFree(11)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !free10 || !free11 {
-		t.Skip("display 10 or 11 is in use")
-	}
-
-	id, err := bh.nextFreshID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id != 10 {
-		t.Fatalf("empty state want 10 got %d", id)
-	}
-
-	profile := bh.profileDir(10)
-	if err := os.MkdirAll(profile, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(profile, "SingletonLock"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	id, err = bh.nextFreshID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id != 10 {
-		t.Fatalf("singleton lock want 10 got %d", id)
-	}
-
-	if err := os.WriteFile(filepath.Join(profile, "Local State"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	id, err = bh.nextFreshID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id != 11 {
-		t.Fatalf("occupied profile want 11 got %d", id)
-	}
-}
-
-func TestBrowsersCDPURLUsesRequestHost(t *testing.T) {
-	_, mux, _ := testBrowserEnv(t)
-	req := httptest.NewRequest(http.MethodPost, "/browsers", nil)
+func TestBrowsersJSONVersionUsesRequestHost(t *testing.T) {
+	bh, mux, _ := testBrowserEnv(t)
+	startTestBrowser(t, bh)
+	req := httptest.NewRequest(http.MethodGet, "/browsers/10/json/version", nil)
 	req.Host = "nas.dadi"
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("create %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("json/version %d %s", rec.Code, rec.Body.String())
 	}
-	var created createBrowserResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+	var ver cdpVersion
+	if err := json.Unmarshal(rec.Body.Bytes(), &ver); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(created.CDPURL, "ws://nas.dadi/browsers/") {
-		t.Fatalf("cdp_url %s", created.CDPURL)
-	}
-	if !strings.Contains(created.CDPURL, fmt.Sprintf("/browsers/%d/", created.ID)) {
-		t.Fatalf("missing prefix in %s", created.CDPURL)
+	if !strings.HasPrefix(ver.WebSocketDebuggerURL, "ws://nas.dadi/browsers/10/") {
+		t.Fatalf("rewritten url %s", ver.WebSocketDebuggerURL)
 	}
 }
 
 func TestBrowsersWebsocketGetTargets(t *testing.T) {
-	_, mux, _ := testBrowserEnv(t)
+	bh, mux, _ := testBrowserEnv(t)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	resp, err := http.Post(srv.URL+"/browsers", "application/json", bytes.NewReader(nil))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("create %d %s", resp.StatusCode, body)
-	}
-	var created createBrowserResponse
-	if err := json.Unmarshal(body, &created); err != nil {
-		t.Fatal(err)
-	}
+	startTestBrowser(t, bh)
 
-	verResp, err := http.Get(srv.URL + fmt.Sprintf("/browsers/%d/json/version", created.ID))
+	verResp, err := http.Get(srv.URL + fmt.Sprintf("/browsers/%s/json/version", "10"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,15 +177,10 @@ func TestBrowsersScreenshot(t *testing.T) {
 	if _, err := exec.LookPath("import"); err != nil {
 		t.Skip("ImageMagick import not on PATH")
 	}
-	_, mux, _ := testBrowserEnv(t)
-	code, body := doJSON(t, mux, http.MethodPost, "/browsers", nil)
-	if code != http.StatusOK {
-		t.Fatalf("create %d %s", code, body)
-	}
-	var created createBrowserResponse
-	_ = json.Unmarshal(body, &created)
+	bh, mux, _ := testBrowserEnv(t)
+	startTestBrowser(t, bh)
 
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/browsers/%d/screenshot", created.ID), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/browsers/%s/screenshot", "10"), nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -423,17 +207,12 @@ func TestBrowsersStream(t *testing.T) {
 	if out, _ := exec.Command(ffmpeg, "-hide_banner", "-encoders").Output(); !bytes.Contains(out, []byte("libopenh264")) {
 		t.Skip("ffmpeg has no libopenh264 encoder")
 	}
-	_, mux, _ := testBrowserEnv(t)
-	code, body := doJSON(t, mux, http.MethodPost, "/browsers", nil)
-	if code != http.StatusOK {
-		t.Fatalf("create %d %s", code, body)
-	}
-	var created createBrowserResponse
-	_ = json.Unmarshal(body, &created)
+	bh, mux, _ := testBrowserEnv(t)
+	startTestBrowser(t, bh)
 
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	resp, err := http.Get(fmt.Sprintf("%s/browsers/%d/stream", srv.URL, created.ID))
+	resp, err := http.Get(fmt.Sprintf("%s/browsers/%s/stream", srv.URL, "10"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,31 +233,20 @@ func TestBrowsersStream(t *testing.T) {
 	}
 }
 
-func TestBrowsersUnhealthyThenDelete(t *testing.T) {
+func TestBrowsersUnhealthyListed(t *testing.T) {
 	bh, mux, _ := testBrowserEnv(t)
-	code, body := doJSON(t, mux, http.MethodPost, "/browsers", nil)
-	if code != http.StatusOK {
-		t.Fatalf("create %d %s", code, body)
-	}
-	var created createBrowserResponse
-	_ = json.Unmarshal(body, &created)
-
-	pids := findPIDs(bh.chromiumPattern(created.ID))
-	if len(pids) == 0 {
-		t.Fatal("no chromium pid")
-	}
-	for _, pid := range pids {
+	startTestBrowser(t, bh)
+	for _, pid := range findPIDs(bh.chromiumPattern(10)) {
 		_ = exec.Command("kill", "-9", fmt.Sprintf("%d", pid)).Run()
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, err := bh.fetchVersion(created.ID); err != nil {
+		if _, err := bh.fetchVersion(10); err != nil {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-
-	code, body = doJSON(t, mux, http.MethodGet, "/browsers", nil)
+	code, body := doJSON(t, mux, http.MethodGet, "/browsers", nil)
 	if code != http.StatusOK {
 		t.Fatalf("list %d %s", code, body)
 	}
@@ -486,21 +254,7 @@ func TestBrowsersUnhealthyThenDelete(t *testing.T) {
 	if err := json.Unmarshal(body, &list); err != nil {
 		t.Fatal(err)
 	}
-	found := false
-	for _, item := range list {
-		if item.ID == created.ID {
-			found = true
-			if item.Healthy {
-				t.Fatalf("expected unhealthy: %+v", item)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("browser missing from list: %+v", list)
-	}
-
-	code, _ = doJSON(t, mux, http.MethodDelete, fmt.Sprintf("/browsers/%d", created.ID), nil)
-	if code != http.StatusNoContent {
-		t.Fatalf("delete %d", code)
+	if len(list) != 1 || list[0].ID != 10 || list[0].Healthy {
+		t.Fatalf("expected browser 10 unhealthy: %+v", list)
 	}
 }

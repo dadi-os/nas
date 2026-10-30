@@ -6,7 +6,7 @@ Nas is the OS and infrastructure layer for dadi. It owns topology — which serv
 
 ## Dependencies
 
-Nas does not call other app modules as a client for its own control plane. It depends on:
+Nas does not call other app modules as a client for its own control plane. Its browser and terminal helpers call Dwar (`/chat/complete` for their model turns, `/image/describe` for screenshot questions) and Chaavi (`/v1/secrets` for the terminal helper's secrets; `/v1/items` for the browser helper's logins and passkeys). It depends on:
 
 - Headscale CLI on the host (device provisioning)
 - Loki (`LOKI_URL`) for log query
@@ -14,13 +14,16 @@ Nas does not call other app modules as a client for its own control plane. It de
 - State directory for module env/config (`DADI_STATE_DIR`) and the dadi user's home (`DADI_HOME`)
 - Host `tmux` (terminals) and `rg` (filesystem grep); appliance also needs `runuser` from util-linux and `smbpasswd` / `pdbedit` from Samba (access users)
 - Host `Xvfb`, Chromium, ImageMagick `import`, and `ffmpeg` (browsers); fonts for page text
+- The browser cgroup's `memory.max` and `memory.current` (`BROWSER_CGROUP`), which decide whether another browser can wake
 
 ## Layout
 
 ```
 nas/
   service/          Go control API (provision, status, logs, terminals, fs, browsers, module config)
-  service/cmd/dadi  host `dadi` CLI (baked into the image as `/usr/bin/dadi`)
+  service/helpers   browser and terminal helpers: runner.go (tasks, loop, sleep and wake),
+                    browser/ (CDP client, tools, charter.md, per-agent Chromium folders),
+                    terminal/ (tools, charter.md, doctrine/: Ankur's doctrine, the helpers' own copy)
   logging/          Dev Alloy + Loki configs
   os/               bootc image, host units, Plasma desktop, prod Alloy, installer
   headscale/        Headscale config templates
@@ -38,13 +41,16 @@ Required on the control service (fail at startup if missing):
 | --- | --- |
 | `HEADSCALE_USER` | Headscale namespace for preauth keys (not a Linux login) |
 | `LOKI_URL` | Loki base URL for `GET /logs` |
+| `DWAR_URL` | Dwar base URL; helpers call its `/chat/complete` |
+| `CHAAVI_URL` | Chaavi base URL; the terminal helper's `secret` tool and the browser helper's `sign_in` read through it |
+| `BROWSER_CGROUP` | Directory of the cgroup whose `memory.max` and `memory.current` limit browsers: `/sys/fs/cgroup/dadi-browsers.slice` on the appliance, `/sys/fs/cgroup` (the container's own) in Compose. Nas fails at startup if it cannot read both files (`nas.service` requires `dadi-browsers.slice`, which makes systemd create the cgroup) |
 | `LISTEN_ADDR` | HTTP listen address |
 | `DADI_STATE_DIR` | Persistent state root (dadiOS-owned; agents cannot write it) |
 | `DADI_HOME` | The dadi user's home: agents' default cwd and the SMB share. Must exist. |
 | `DADI_RUNTIME` | `podman` or `compose` |
 | `DADI_COMPOSE_DIR` | Required when `DADI_RUNTIME=compose` |
 
-`.env.example` lists these, the optional `CHROMIUM_BIN`, and the CLI’s `HATH_URL`.
+`.env.example` lists these and the optional `CHROMIUM_BIN`.
 
 `POST /provision` mints `control_url` at issue time: compose uses `http://localhost:8080`; the appliance uses `https://<hostname>` from `/var/lib/dadi/relay/hostname` (Headscale `server_url` and the Caddy vhost in `caddy/headscale.caddy` are rewritten) and fails with `config_missing` until that file exists. Headscale listens on loopback only; the public path is the relay below.
 
@@ -187,7 +193,7 @@ Session names are `t<n>` for positive integers. `POST /terminals` with no `id` p
 
 ### Change stream
 
-`GET /events` is a Server-Sent Events stream that emits `{ "type": "changed", "at": <iso> }` when a browser is created or closed (`POST /browsers`, `DELETE /browsers/{id}`) and before and after every write to a terminal (create, close, `exec`, `keys`), so a client refetches `GET /browsers` and `GET /terminals` instead of polling them. Browser input publishes nothing. A browser that dies on its own, or a terminal whose working directory changes without an API call, is not announced; a client refetches on reconnect and when its window returns to view. No replay.
+`GET /events` is a Server-Sent Events stream that emits `{ "type": "changed", "at": <iso> }` when a task is started, steered or reports, and before and after every write to a terminal (create, close, `exec`, `keys`), so a client refetches `GET /tasks`, `GET /browsers` and `GET /terminals` instead of polling them; it also carries each helper's report as a `helper_report` event (see Tasks). Browser input publishes nothing. A browser that dies on its own, or a terminal whose working directory changes without an API call, is not announced; a client refetches on reconnect and when its window returns to view. No replay.
 
 ### Filesystem
 
@@ -197,30 +203,28 @@ Paths must be absolute. On the appliance every `/fs/*` call runs with `dadi`'s f
 | --- | --- | --- | --- | --- |
 | `POST` | `/fs/read` | `{ path, offset?: number (1-based), limit?: number (default 500), max_bytes?: number (default 65536) }` | `{ content, total_lines, truncated }` (`N\tline`) | `not_found`, `forbidden`, `binary_file` (415), `invalid_request` |
 | `POST` | `/fs/read_bytes` | `{ path, max_bytes: number }` | `{ data (base64), size_bytes }`, the whole file of any kind | `not_found`, `forbidden`, `invalid_request` (also a file over `max_bytes`, which is never cut short) |
-| `POST` | `/fs/write` | `{ path, content }` (creates parents) | `{ bytes }` | `forbidden`, `invalid_request` |
+| `POST` | `/fs/write` | `{ path, content }` for text, or `{ path, data (base64) }` for any bytes, not both (creates parents) | `{ bytes }` | `forbidden`, `invalid_request` |
 | `POST` | `/fs/edit` | `{ path, old_string, new_string }` (exactly one match) | `{ replaced: true }` | `forbidden`, `not_found`, `conflict` (409) |
 | `POST` | `/fs/glob` | `{ pattern, cwd?, limit?: number (default 500) }` | `{ paths, truncated }` (mtime desc) | `not_found`, `invalid_request` |
 | `POST` | `/fs/grep` | `{ pattern, cwd?, glob?, limit?: number (default 200), max_bytes?: number (default 65536) }` | `{ matches: [{ path, line, text }], truncated }` | `not_found`, `invalid_request` |
 
 ### Browsers
 
-Each browser is a headed Chromium on its own Xvfb display (not headless, not a VM). Nas only spawns, lists, kills, proxies CDP, and screenshots or streams the virtual monitor. Callers drive pages over CDP. Running processes are the registry — nothing is stored in Nas.
+Each browser is a headed Chromium on its own Xvfb display (not headless, not a VM). Nas starts and stops browsers for browser tasks (below), lists them, proxies CDP, and screenshots or streams the virtual monitor. The browser helper drives its page over loopback CDP from inside Nas; there is no endpoint to start or stop a browser. Other clients (Thaali's live view) read the proxy and the stream.
 
-**Derivation from integer id `n` (`n >= 10`; 1–9 reserved for Plasma):**
+**Derivation from slot `n` (`n >= 10`; 1–9 reserved for Plasma):**
 
 | Field | Value |
 | --- | --- |
 | X display | `:n` |
 | CDP port | `9300 + n` (loopback only) |
-| Profile dir | `$DADI_STATE_DIR/browsers/<n>` — created on first spawn, removed only by `DELETE /browsers/{id}` (cookies/logins survive a crash, Nas restart, or reboot when the id is respawned) |
+| Chromium folder | `$DADI_STATE_DIR/browsers/<agent>/<1..n>`, the agent's folder the browser helper chose (see Tasks); never the slot number |
 
-`POST /browsers` takes `{ "id"?: number }`. With no `id`, Nas picks the lowest `n >= 10` whose `/tmp/.X11-unix/X<n>` is absent, whose CDP port is free, and whose profile directory is missing or holds only Chromium singleton locks — a fresh login. With `id`, Nas starts that display when it is down and opens the existing profile, so cookies and logins from the last time that id ran are still there unless the id was deleted. `conflict` if that id is already running; `invalid_request` if `id < 10`. Spawns Xvfb as root (so it can bind `/tmp/.X11-unix`), then Chromium as `dadi` on the appliance (`DADI_RUNTIME=podman`) — Chromium refuses to run as root without `--no-sandbox`. Compose/dev keeps the current process user and adds `--no-sandbox` / `--disable-dev-shm-usage` because those hosts disable user namespaces. Window size 1920×1080; profile under `--user-data-dir` (and `HOME`). Both processes use `setsid` so a Nas restart does not take them down. On the appliance each process runs in a transient scope under `dadi-browsers.slice` (`MemoryHigh=40%`, `MemoryMax=50%`), outside `nas.service`: browsers are capped as one pool, and when they hit the cap the kernel kills a browser, never a Dadi module. Stderr is logged under the `nas` service with `browser=<n>`.
+A browser spawns Xvfb as root (so it can bind `/tmp/.X11-unix`), then Chromium as `dadi` on the appliance (`DADI_RUNTIME=podman`) — Chromium refuses to run as root without `--no-sandbox`. Compose/dev keeps the current process user and adds `--no-sandbox` / `--disable-dev-shm-usage` because those hosts disable user namespaces. Window size 1920×1080; the Chromium folder is `--user-data-dir` (and `HOME`). Both processes use `setsid` so a Nas restart does not take them down. On the appliance each process runs in a transient scope under `dadi-browsers.slice` (`MemoryHigh=40%`, `MemoryMax=50%`), outside `nas.service`: browsers are capped as one pool, and when they hit the cap the kernel kills a browser, never a Dadi module. Stderr is logged under the `nas` service with `browser=<n>`.
 
 | Method | Path | Success | Errors |
 | --- | --- | --- | --- |
-| `POST` | `/browsers` | `{ id, display, cdp_url, downloads_dir }` | `invalid_request`, `conflict` (409, id already running), `internal_error` (Xvfb/Chromium startup; message includes stderr) |
 | `GET` | `/browsers` | `[{ id, display, cdp_url, healthy, downloads_dir }]` — `healthy` false if Xvfb is up but CDP is not | — |
-| `DELETE` | `/browsers/{id}` | 204 (SIGTERM process groups, wait ≤5s, SIGKILL, then remove the profile dir; also clears the profile of an id that is not running) | `internal_error` if the profile cannot be removed |
 | `GET` | `/browsers/{id}/json/version` | Chromium `/json/version` with `ws://127.0.0.1:<port>/…` rewritten to `ws://<Host>/browsers/<id>/…` | `not_found`, `upstream_unreachable` |
 | `GET` | `/browsers/{id}/json/list` | Same rewrite for `/json/list` | `not_found`, `upstream_unreachable` |
 | `GET` | `/browsers/{id}/devtools/{rest…}` | WebSocket reverse proxy to `ws://127.0.0.1:<port>/devtools/{rest}` (no buffering / idle timeout on the upgrade) | `not_found`, `upstream_unreachable` |
@@ -228,7 +232,34 @@ Each browser is a headed Chromium on its own Xvfb display (not headless, not a V
 | `GET` | `/browsers/{id}/stream` | `video/h264` of the whole virtual monitor: raw Annex B baseline H.264 (OpenH264) with an access unit delimiter before every frame and a keyframe first, at 5 fps, 960 px wide and 600 kbps by default (`?fps=1..30`, `?width=320..1920`, `?kbps=100..8000`). One `ffmpeg -f x11grab … -c:v libopenh264 -f h264` per request, stopped when the client disconnects | `invalid_request`, `not_found`, `internal_error` (ffmpeg failed before the first frame; message includes stderr) |
 | `POST` | `/browsers/{id}/input` | Body `{events: [...]}` of pointer and key events (`move`/`down`/`up`/`wheel` with `x`,`y` as 0..1 fractions of the display, `button`, `buttons`, `click_count`, `delta_x`/`delta_y`; `key_down`/`key_up` with `key`, `code`, `key_code`, `text`, `modifiers`), replayed in order on the first page target as CDP `Input.dispatch*Event`. Pointer events over the browser toolbar are dropped. Batches are serialised; `204` on success | `invalid_request`, `not_found`, `upstream_unreachable` |
 
-`cdp_url` is `ws://<request Host>/browsers/<id>/devtools/browser/<uuid>` from `/json/version` after rewrite — hand it straight to a CDP client. `downloads_dir` is `$DADI_HOME/Downloads`; CDP clients reset Chromium's download behavior when they connect, so the client points downloads there itself (Hath does on every connect). Screenshot is the only way to see popups, download bars, and chrome outside the page; page screenshots stay on CDP.
+`cdp_url` is `ws://<request Host>/browsers/<id>/devtools/browser/<uuid>` from `/json/version` after rewrite — hand it straight to a CDP client. `downloads_dir` is `$DADI_HOME/Downloads`; a CDP client that connects resets Chromium's download behavior, so such a client points downloads there itself (the browser helper does on connect). Screenshot is the only way to see popups, download bars, and chrome outside the page; page screenshots stay on CDP.
+
+### Tasks (browser and terminal helpers)
+
+A helper is a purpose-built operator for one browser or one shell, connected to a model but not an agent: no agent row, grants, memory or messaging. Every helper of a kind has the same charter (`service/helpers/<kind>/charter.md`; the terminal helper's is followed by `doctrine/`, its own copy of Ankur's engineering doctrine) and the same tools, and runs one loop on Dwar `/chat/complete`: charter, tools and its history plus the new steer; the model acts, results go into history, until it calls `finish` (a result and files) or `ask` (something only the agent or Ankur can give). A steer that arrives mid-loop joins the history before the next step. After `finish` the helper is idle with its history and resource intact, so the next steer continues from there. Tool results past 120,000 characters are cleared oldest first to short receipts (the newest 50,000 stay).
+
+Each helper run is a task, addressed `task/<kind>/<id>`. Its lifecycle is Nas's, never an agent's: an idle task sleeps after 15 minutes (browser) or 60 (terminal), stopping its resource and keeping its history; a steer to a sleeping task wakes it transparently; a task idle for 24 hours is forgotten. Waking a browser checks memory first and puts the longest-idle awake task to sleep while it is short. Tasks are saved under `$DADI_STATE_DIR/helpers/` and come back asleep after a Nas restart, which also stops every browser left running. Each report (`done`, `needs_input`, `failed`) is published on `GET /events` as a `helper_report` event (`seq`, `task`, `agent_id` of the agent whose steer it answers, `state`, `text`, `files`) and kept as the task's `last_report`.
+
+The terminal helper's tools: `run` (a command, its full output kept in `~/.cache/dadi-helpers/<task>/`; `background` returns a handle), `job` (follow or stop one), `read`, `search`, `edit`, `write`, `secret` (a command with a Chaavi secret in its environment, scrubbed from the output). It reaches its shell and files through Nas's own `/terminals` and `/fs` API.
+
+| Method | Path | Body | Success | Errors |
+| --- | --- | --- | --- | --- |
+| `POST` | `/tasks/{kind}` | `{ agent_id, message, cwd? }` | `201` the task's view | `invalid_request`, `not_found` (unknown kind), `busy` (409, no memory to wake one and every awake one is working) |
+| `POST` | `/tasks/{kind}/{id}/steer` | `{ agent_id, message }` | the task's view | `invalid_request`, `not_found` (no such task, or forgotten), `busy` |
+| `GET` | `/tasks` | — | every task's view, most recently active first | — |
+| `GET` | `/tasks/{kind}/{id}` | — | `{ task, kind, id, owner, steered_by, purpose, status: working \| idle \| asking \| asleep, resource, state, created_at, last_activity, last_report }` | `not_found` |
+
+#### The browser helper
+
+Its tools (`service/helpers/browser/`, charter in `charter.md`): `look` (URL, title and a compact outline of the interactive elements and landmarks of every visible frame and open shadow root, each with a ref that stays with its element between looks; `scope` limits it to a ref or a text region; passwords read `filled`), `act` (a batch of click, type, select, key, scroll, check, upload, wait and dialog actions; each waits for its element to be visible, stable, enabled and uncovered and scrolls it into view; the result is what changed, never the page; the batch stops at the first failure and nothing is ever re-run), `find`, `extract` (a table, list or the page's text as CSV, JSON or text, following next-page and load-more for `pages` pages; results over 6,000 characters or with `to_file` go to a file and come back as its path with a summary), `screenshot` (a PNG saved under `~/.cache/dadi-helpers/<task>/`; `question` has Dwar describe it), `tabs`, `navigate` (a URL that turns into a download comes back as the download), `sign_in` (the Chaavi login for the tab's site, found by domain: passkey first, loaded into the tab's virtual authenticator with a reload, then Okta's Security Key or Biometric Authenticator row; else the username and password filled straight from Chaavi into the page, remember this device ticked; `needs_code` when a one-time code is asked for; `item` picks among several logins, `use` forces `passkey` or `login`), `download` and `upload`. Every call acts on the tab named, or the front tab, and brings it to the front. Downloads land in `$DADI_HOME/Downloads` under their own names.
+
+The helper speaks CDP itself on `gorilla/websocket`: flattened sessions, one kept session per tab (Chromium turns a tab's WebAuthn authenticator off when any other session on the tab detaches), and frames in other processes attached through their own sessions.
+
+**Chromium folders.** `$DADI_STATE_DIR/browsers/<agent>/<n>`, where `<agent>` is the task's owner. Chromium locks a folder while it runs, so a task takes a free folder of its owner's: its own from before it slept when that is free, else the one that most recently held a site named in its first steer or its open tabs, else the first free one, else a new `n+1`. `sites.json` beside the folders records when each folder last held each site. Folders are never deleted on sleep or when a task is forgotten; the agent's sign-ins and remembered devices stay with them. A task's open tabs are saved after every call and reopened on wake, including after a Chromium that died is started again.
+
+**Memory.** `Room` reads `memory.max` and `memory.current` of `BROWSER_CGROUP`; one more browser needs 800 MiB free under the limit (a `max` limit always has room). When there is not enough, the runner puts the longest-idle awake browser to sleep first.
+
+**Moving the LinkedIn device trust.** `os/usr/libexec/dadi/migrate-browser-folder.sh <state-dir> <from-slot> <agent-id>` moves the old slot folder `browsers/<from-slot>` to `browsers/<agent-id>/1`. Run it once on the box with `nas.service` stopped (`sudo systemctl stop nas`), then start Nas. It refuses to run while a browser holds the folder, when the agent already has a folder `1`, or when the slot folder is missing, and it changes nothing else.
 
 Chromium binary defaults to `chromium-browser` (Fedora). Set `CHROMIUM_BIN` (Compose/dev image sets `chromium`).
 
@@ -258,8 +289,6 @@ curl -sG 'http://nas.dadi/logs' \
 The run happens in the background: `202` returns the run immediately (`{ "state": "running", "scope", "started_at", "reboot_required": false }`), so callers aren't cut off when `podman auto-update` restarts Hath. A second request while one is running gets `409 busy`. When the run stages a new bootc deployment, Nas runs `systemctl reboot` itself.
 
 `GET /pull_updates` returns the latest run: `state` is `idle`, `running`, `succeeded`, `rebooting`, or `failed`, plus `scope`, `started_at`, `finished_at`, `reboot_required`, and `error`. It lives in Nas memory and resets to `idle` when Nas restarts.
-
-On the appliance, `/usr/bin/dadi` is a Nas-built Go CLI that talks to Hath’s grantable tool registry. It requires `HATH_URL` (login shells export `http://127.0.0.1:8083` via `/etc/profile.d/dadi-cli.sh`) and runs as the user (any tool, no grant check) unless a caller identity is given: `--as-agent <kebab-id>` or `--as-router`. Flag values that look like JSON arrays or objects are parsed as such. Examples: `dadi help`, `dadi agents`, `dadi nas_get_logs --level error`, `dadi hath_spawn_agent --as-router --id finance-specialist --system_prompt "…"`, `dadi ghar_control_device --as-agent <agent-id> --device_id <uuid> --capability switchable --params '{"state":"on"}'`. Tab completion lists live tools, agent ids for `--as-agent`, and `--` parameters. When a stale `~/.local/bin/dadi` would shadow the appliance binary, profile/bashrc put `/usr/bin` ahead on `PATH`.
 
 ## Topology
 

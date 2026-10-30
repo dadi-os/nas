@@ -12,11 +12,16 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/dadi-os/nas/service/helpers"
+	"github.com/dadi-os/nas/service/helpers/browser"
+	"github.com/dadi-os/nas/service/helpers/terminal"
 )
 
 // main loads required config, registers every route and serves the nas API.
@@ -29,6 +34,21 @@ func main() {
 		os.Exit(1)
 	}
 	lokiURL, err := requireEnv("LOKI_URL")
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeConfigMissing)
+		os.Exit(1)
+	}
+	dwarURL, err := requireEnv("DWAR_URL")
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeConfigMissing)
+		os.Exit(1)
+	}
+	chaaviURL, err := requireEnv("CHAAVI_URL")
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeConfigMissing)
+		os.Exit(1)
+	}
+	browserCgroup, err := requireEnv("BROWSER_CGROUP")
 	if err != nil {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
@@ -88,6 +108,31 @@ func main() {
 		handleLogServices(w, r, lokiURL, state.runtime)
 	})
 	changes := newChangeBus()
+	ids, err := browsers.scanIDs()
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeInternal)
+		os.Exit(1)
+	}
+	for _, id := range ids {
+		slog.Info("closing browser left from before this start", "browser", id)
+		browsers.killBrowser(id)
+	}
+	terminalKit, err := terminal.New(selfURL(listen), chaaviURL, host.homeDir)
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeInternal)
+		os.Exit(1)
+	}
+	browserKit, err := browser.New(browsers, chaaviURL, dwarURL, host.homeDir, host.browsersDir, browserCgroup)
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeConfigMissing)
+		os.Exit(1)
+	}
+	runner, err := helpers.NewRunner(filepath.Join(state.dir, "helpers"), dwarURL, []helpers.Kit{terminalKit, browserKit}, changes.publishReport)
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeInternal)
+		os.Exit(1)
+	}
+	go runner.RunSweeper(make(chan struct{}))
 	mux.HandleFunc("GET /events", changes.handleEvents)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -99,6 +144,7 @@ func main() {
 	terminals.register(mux)
 	files.register(mux)
 	browsers.register(mux)
+	runner.Register(mux, writeError, writeJSON)
 
 	slog.Info("nas listening", "addr", listen, "state_dir", state.dir, "home", host.homeDir, "runtime", state.runtime)
 	if err := http.ListenAndServe(listen, withRequestLog(withChangePublish(changes, mux))); err != nil {
@@ -1002,4 +1048,13 @@ func logEntryTime(entry logEntry) time.Time {
 		return t
 	}
 	return time.Time{}
+}
+
+// selfURL is the base URL Nas's helpers reach Nas's own API at, from its listen address
+// (":8080" is reached on loopback).
+func selfURL(listen string) string {
+	if strings.HasPrefix(listen, ":") {
+		return "http://127.0.0.1" + listen
+	}
+	return "http://" + listen
 }

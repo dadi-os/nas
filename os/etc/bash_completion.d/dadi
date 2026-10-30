@@ -1,2 +1,0 @@
-# shellcheck shell=bash
-complete -o default -C /usr/bin/dadi dadi

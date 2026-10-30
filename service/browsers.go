@@ -22,10 +22,13 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/dadi-os/nas/service/helpers/browser"
 )
 
 const (
 	browserIDMin    = 10
+	browserSlots    = 90
 	cdpPortBase     = 9300
 	xvfbWait        = 2 * time.Second
 	chromiumWait    = 30 * time.Second
@@ -77,16 +80,11 @@ type browserInfo struct {
 	DownloadsDir string `json:"downloads_dir"`
 }
 
-type createBrowserRequest struct {
-	ID *int `json:"id"`
-}
-
-type createBrowserResponse struct {
-	ID      int    `json:"id"`
-	Display string `json:"display"`
-	CDPURL  string `json:"cdp_url"`
-	// DownloadsDir is the same as browserInfo.DownloadsDir.
-	DownloadsDir string `json:"downloads_dir"`
+// browserLaunch is a browser just started: its display and its DevTools websocket URL on
+// loopback, which only Nas's own helpers use.
+type browserLaunch struct {
+	Display string
+	CDPURL  string
 }
 
 type cdpVersion struct {
@@ -115,11 +113,10 @@ func newBrowserHost(host *hostRuntime) *browserHost {
 	return bh
 }
 
-// register mounts the /browsers routes on mux.
+// register mounts the /browsers routes on mux. Browsers are started and stopped only by the
+// browser helper (see helpers/browser).
 func (b *browserHost) register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /browsers", b.handleCreate)
 	mux.HandleFunc("GET /browsers", b.handleList)
-	mux.HandleFunc("DELETE /browsers/{id}", b.handleDelete)
 	mux.HandleFunc("GET /browsers/{id}/json/version", b.handleJSONVersion)
 	mux.HandleFunc("GET /browsers/{id}/json/list", b.handleJSONList)
 	mux.HandleFunc("GET /browsers/{id}/devtools/{rest...}", b.handleDevtools)
@@ -143,11 +140,6 @@ func xSocketPath(id int) string {
 	return filepath.Join("/tmp/.X11-unix", fmt.Sprintf("X%d", id))
 }
 
-// profileDir is browser id's Chromium user-data directory.
-func (b *browserHost) profileDir(id int) string {
-	return filepath.Join(b.host.browsersDir, strconv.Itoa(id))
-}
-
 // chromiumPattern matches browser id's Chromium processes for pgrep -f.
 func (b *browserHost) chromiumPattern(id int) string {
 	return fmt.Sprintf("remote-debugging-port=%d", cdpPort(id))
@@ -166,9 +158,8 @@ func clearSingletonLocks(dir string) {
 	}
 }
 
-// ensureProfile creates the browser profile directory and clears Chromium singleton locks.
-func (b *browserHost) ensureProfile(id int) error {
-	dir := b.profileDir(id)
+// ensureProfile creates the Chromium folder dir and clears Chromium singleton locks.
+func (b *browserHost) ensureProfile(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -185,13 +176,13 @@ func (b *browserHost) ensureProfile(id int) error {
 	return b.host.chownDadi(dir)
 }
 
-// chromiumArgs returns Chromium flags for this runtime. Compose adds --no-sandbox
-// and --disable-dev-shm-usage when user namespaces are unavailable.
-func (b *browserHost) chromiumArgs(id, port int) []string {
+// chromiumArgs returns Chromium flags for this runtime on the Chromium folder profile. Compose
+// adds --no-sandbox and --disable-dev-shm-usage when user namespaces are unavailable.
+func (b *browserHost) chromiumArgs(profile string, port int) []string {
 	args := []string{
 		fmt.Sprintf("--remote-debugging-port=%d", port),
 		"--remote-debugging-address=127.0.0.1",
-		"--user-data-dir=" + b.profileDir(id),
+		"--user-data-dir=" + profile,
 		"--no-first-run",
 		"--no-default-browser-check",
 		fmt.Sprintf("--window-size=%d,%d", browserScreenW, browserScreenH),
@@ -221,49 +212,6 @@ func (b *browserHost) displayFree(id int) (bool, error) {
 		return false, err
 	}
 	return portFree(cdpPort(id)), nil
-}
-
-// profileFresh reports whether the profile directory for id has no Chromium user data.
-// A missing directory is fresh. Singleton lock files left by a crash are not user data.
-func (b *browserHost) profileFresh(id int) (bool, error) {
-	entries, err := os.ReadDir(b.profileDir(id))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return true, nil
-		}
-		return false, err
-	}
-	for _, entry := range entries {
-		switch entry.Name() {
-		case "SingletonLock", "SingletonCookie", "SingletonSocket":
-			continue
-		default:
-			return false, nil
-		}
-	}
-	return true, nil
-}
-
-// nextFreshID returns the lowest id >= 10 whose display is down and whose profile has no Chromium data.
-func (b *browserHost) nextFreshID() (int, error) {
-	for n := browserIDMin; n < 10000; n++ {
-		free, err := b.displayFree(n)
-		if err != nil {
-			return 0, err
-		}
-		if !free {
-			continue
-		}
-		fresh, err := b.profileFresh(n)
-		if err != nil {
-			return 0, err
-		}
-		if !fresh {
-			continue
-		}
-		return n, nil
-	}
-	return 0, fmt.Errorf("no free browser id")
 }
 
 // scanIDs returns the browser ids (>= browserIDMin) that have an X socket, ascending.
@@ -443,7 +391,8 @@ func (b *browserHost) processesExist(id int) bool {
 }
 
 // killBrowser stops browser id's Chromium and Xvfb with SIGTERM, waits up to browserKillWait,
-// sends SIGKILL to what remains, and removes the X socket and singleton locks. The profile is kept.
+// sends SIGKILL to what remains, and removes the X socket. The profile is kept; its
+// singleton locks are cleared when it is next opened (see ensureProfile).
 func (b *browserHost) killBrowser(id int) {
 	signalPIDs(findPIDs(b.chromiumPattern(id)), syscall.SIGTERM)
 	signalPIDs(findPIDs(b.xvfbPattern(id)), syscall.SIGTERM)
@@ -457,7 +406,6 @@ func (b *browserHost) killBrowser(id int) {
 	signalPIDs(findPIDs(b.chromiumPattern(id)), syscall.SIGKILL)
 	signalPIDs(findPIDs(b.xvfbPattern(id)), syscall.SIGKILL)
 	_ = os.Remove(xSocketPath(id))
-	clearSingletonLocks(b.profileDir(id))
 }
 
 // rewriteCDPBody rewrites loopback websocket debugger URLs to the nas proxy path.
@@ -511,60 +459,63 @@ func chromiumReadyError(log *lineLogger, alive bool) string {
 	return "no chromium process; " + msg
 }
 
-// handleCreate is POST /browsers. It starts Xvfb and Chromium for the requested id, or the
-// lowest fresh id, waits for CDP and returns the proxied websocket URL. Any failed step kills
-// what was started and returns the error.
-func (b *browserHost) handleCreate(w http.ResponseWriter, r *http.Request) {
+// StartBrowser starts a browser on the lowest free slot with the Chromium folder profileDir,
+// for the browser helper.
+func (b *browserHost) StartBrowser(profileDir string) (browser.Launch, error) {
 	b.createMu.Lock()
 	defer b.createMu.Unlock()
-
-	var req createBrowserRequest
-	if r.Body != nil {
-		dec := json.NewDecoder(r.Body)
-		if err := dec.Decode(&req); err != nil && err != io.EOF {
-			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "invalid json body")
-			return
-		}
-	}
-
-	var id int
-	if req.ID != nil {
-		id = *req.ID
-		if id < browserIDMin {
-			writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, "id must be >= 10")
-			return
-		}
+	for id := browserIDMin; id < browserIDMin+browserSlots; id++ {
 		free, err := b.displayFree(id)
 		if err != nil {
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-			return
+			return browser.Launch{}, err
 		}
 		if !free {
-			writeError(w, r, http.StatusConflict, CodeConflict, "browser id is already running")
-			return
+			continue
 		}
-	} else {
-		var err error
-		id, err = b.nextFreshID()
+		launch, err := b.startBrowserLocked(id, profileDir)
 		if err != nil {
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-			return
+			return browser.Launch{}, err
 		}
+		return browser.Launch{ID: id, CDPURL: launch.CDPURL}, nil
 	}
-	if err := b.ensureProfile(id); err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-		return
+	return browser.Launch{}, fmt.Errorf("all %d browser slots are in use", browserSlots)
+}
+
+// StopBrowser stops slot id's browser; its Chromium folder is kept.
+func (b *browserHost) StopBrowser(id int) {
+	b.killBrowser(id)
+}
+
+// startBrowser starts Xvfb and Chromium on slot id with the Chromium folder profile. It
+// fails when the slot is running.
+func (b *browserHost) startBrowser(id int, profile string) (browserLaunch, error) {
+	b.createMu.Lock()
+	defer b.createMu.Unlock()
+	return b.startBrowserLocked(id, profile)
+}
+
+// startBrowserLocked starts Xvfb and Chromium on slot id with the Chromium folder profile,
+// waits for CDP and returns the loopback websocket URL. Any failed step kills what was
+// started. The caller holds createMu.
+func (b *browserHost) startBrowserLocked(id int, profile string) (browserLaunch, error) {
+	free, err := b.displayFree(id)
+	if err != nil {
+		return browserLaunch{}, err
+	}
+	if !free {
+		return browserLaunch{}, fmt.Errorf("browser slot %d is already running", id)
+	}
+	if err := b.ensureProfile(profile); err != nil {
+		return browserLaunch{}, err
 	}
 
 	display := displayName(id)
 	port := cdpPort(id)
 	if err := os.MkdirAll("/tmp/.X11-unix", 0o1777); err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, "mkdir X11 unix: "+err.Error())
-		return
+		return browserLaunch{}, fmt.Errorf("mkdir X11 unix: %w", err)
 	}
 	if err := os.Chmod("/tmp/.X11-unix", 0o1777); err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, "chmod X11 unix: "+err.Error())
-		return
+		return browserLaunch{}, fmt.Errorf("chmod X11 unix: %w", err)
 	}
 
 	xvfbArgs := []string{
@@ -574,46 +525,39 @@ func (b *browserHost) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	_, xvfbLog, err := b.startDetached(id, "Xvfb", "Xvfb", xvfbArgs, nil, false)
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, "start Xvfb: "+err.Error())
-		return
+		return browserLaunch{}, fmt.Errorf("start Xvfb: %w", err)
 	}
 	if !waitForFile(xSocketPath(id), xvfbWait) {
 		b.killBrowser(id)
-		writeError(w, r, http.StatusInternalServerError, CodeInternal,
-			"Xvfb display socket did not appear: "+xvfbLog.String())
-		return
+		return browserLaunch{}, fmt.Errorf("Xvfb display socket did not appear: %s", xvfbLog.String())
 	}
 
-	_, chromeLog, err := b.startDetached(id, "chromium", b.chromiumBin, b.chromiumArgs(id, port), []string{
+	_, chromeLog, err := b.startDetached(id, "chromium", b.chromiumBin, b.chromiumArgs(profile, port), []string{
 		"DISPLAY=" + display,
-		"HOME=" + b.profileDir(id),
+		"HOME=" + profile,
 	}, true)
 	if err != nil {
 		b.killBrowser(id)
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, "start chromium: "+err.Error())
-		return
+		return browserLaunch{}, fmt.Errorf("start chromium: %w", err)
 	}
 	alive := func() bool { return len(findPIDs(b.chromiumPattern(id))) > 0 }
 	if !waitForCDP(port, chromiumWait, alive) {
 		errMsg := chromiumReadyError(chromeLog, alive())
 		b.killBrowser(id)
-		writeError(w, r, http.StatusInternalServerError, CodeInternal,
-			"chromium CDP did not become ready: "+errMsg)
-		return
+		return browserLaunch{}, fmt.Errorf("chromium CDP did not become ready: %s", errMsg)
 	}
 
-	cdpURL, ok := b.cdpURLFor(r, id)
-	if !ok {
+	body, err := b.fetchVersion(id)
+	if err != nil {
 		b.killBrowser(id)
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, "missing webSocketDebuggerUrl")
-		return
+		return browserLaunch{}, err
 	}
-	writeJSON(w, http.StatusOK, createBrowserResponse{
-		ID:           id,
-		Display:      display,
-		CDPURL:       cdpURL,
-		DownloadsDir: filepath.Join(b.host.homeDir, "Downloads"),
-	})
+	var ver cdpVersion
+	if err := json.Unmarshal(body, &ver); err != nil || ver.WebSocketDebuggerURL == "" {
+		b.killBrowser(id)
+		return browserLaunch{}, errors.New("missing webSocketDebuggerUrl")
+	}
+	return browserLaunch{Display: display, CDPURL: ver.WebSocketDebuggerURL}, nil
 }
 
 // handleList is GET /browsers: every running display with its CDP URL. Healthy is false when
@@ -657,24 +601,6 @@ func (b *browserHost) requireDisplay(w http.ResponseWriter, r *http.Request, id 
 		return false
 	}
 	return true
-}
-
-// handleDelete kills the browser if it is running and removes its profile, so a
-// deleted id comes back as a fresh login. A browser that died without a delete
-// (crash, host or Nas restart) keeps its profile and can be respawned by id.
-func (b *browserHost) handleDelete(w http.ResponseWriter, r *http.Request) {
-	id, ok := b.parseID(w, r)
-	if !ok {
-		return
-	}
-	if b.processesExist(id) {
-		b.killBrowser(id)
-	}
-	if err := os.RemoveAll(b.profileDir(id)); err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleJSONVersion is GET /browsers/{id}/json/version, Chromium's version document with
