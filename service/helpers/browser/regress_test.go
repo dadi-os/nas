@@ -46,9 +46,15 @@ func TestQuizFramesAndShadowDOM(t *testing.T) {
 			srv := serve(t, map[string]string{"/quizframe": quizFrame})
 			page := serve(t, map[string]string{"/": quizPage(tc.frame(srv.URL))})
 			tab := openPage(t, ctx, b, page.URL)
-			look, err := tab.Look(ctx, "")
-			if err != nil {
-				t.Fatal(err)
+			var look string
+			var err error
+			for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+				if look, err = tab.Look(ctx, ""); err != nil {
+					t.Fatal(err)
+				}
+				if strings.Contains(look, "Answer one") || time.Now().After(deadline) {
+					break
+				}
 			}
 			if !strings.Contains(look, "frame \"") || !strings.Contains(look, "Answer one") {
 				t.Fatalf("look does not show the frame:\n%s", look)
