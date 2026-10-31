@@ -259,8 +259,6 @@ The helper speaks CDP itself on `gorilla/websocket`: flattened sessions, one kep
 
 **Memory.** `Room` reads `memory.max` and `memory.current` of `BROWSER_CGROUP`; one more browser needs 800 MiB free under the limit (a `max` limit always has room). When there is not enough, the runner puts the longest-idle awake browser to sleep first.
 
-**Moving the LinkedIn device trust.** `os/usr/libexec/dadi/migrate-browser-folder.sh <state-dir> <from-slot> <agent-id>` moves the old slot folder `browsers/<from-slot>` to `browsers/<agent-id>/1`. Run it once on the box with `nas.service` stopped (`sudo systemctl stop nas`), then start Nas. It refuses to run while a browser holds the folder, when the agent already has a folder `1`, or when the slot folder is missing, and it changes nothing else.
-
 Chromium binary defaults to `chromium-browser` (Fedora). Set `CHROMIUM_BIN` (Compose/dev image sets `chromium`).
 
 Caddy `http://nas.dadi` is a plain `reverse_proxy` to Nas (`127.0.0.1:8092` in prod, `nas-service:8080` in Compose). Caddy proxies WebSocket upgrades by default — no extra config required for CDP.
