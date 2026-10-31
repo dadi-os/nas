@@ -43,7 +43,7 @@ Required on the control service (fail at startup if missing):
 | `LOKI_URL` | Loki base URL for `GET /logs` |
 | `DWAR_URL` | Dwar base URL; helpers call its `/chat/complete` |
 | `CHAAVI_URL` | Chaavi base URL; the terminal helper's `secret` tool and the browser helper's `sign_in` read through it |
-| `BROWSER_CGROUP` | Directory of the cgroup whose `memory.max` and `memory.current` limit browsers: `/sys/fs/cgroup/dadi-browsers.slice` on the appliance, `/sys/fs/cgroup` (the container's own) in Compose. Nas fails at startup if it cannot read both files (`nas.service` requires `dadi-browsers.slice`, which makes systemd create the cgroup) |
+| `BROWSER_CGROUP` | Directory of the cgroup whose `memory.max` and `memory.current` limit browsers: `/sys/fs/cgroup/dadi.slice/dadi-browsers.slice` on the appliance, `/sys/fs/cgroup` (the container's own) in Compose. Nas fails at startup if it cannot read both files (`nas.service` requires `dadi-browsers.slice`, which makes systemd create the cgroup) |
 | `LISTEN_ADDR` | HTTP listen address |
 | `DADI_STATE_DIR` | Persistent state root (dadiOS-owned; agents cannot write it) |
 | `DADI_HOME` | The dadi user's home: agents' default cwd and the SMB share. Must exist. |
