@@ -222,6 +222,7 @@ services:
     environment:
       DATABASE_URL: postgres://ghar:ghar@ghar-postgres:5432/ghar
       MATTER_STORAGE_PATH: /var/lib/ghar/matter
+      DWAR_URL: http://dwar:8080
     volumes:
       - ../ghar:/app
       - /app/node_modules

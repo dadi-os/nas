@@ -14,6 +14,7 @@ Environment=HOST=127.0.0.1
 Environment=PORT=8084
 Environment=DATABASE_URL=postgres://ghar:ghar@127.0.0.1:5435/ghar
 Environment=MATTER_STORAGE_PATH=/var/lib/ghar/matter
+Environment=DWAR_URL=http://127.0.0.1:8081
 # Fabric credentials and commissioned peers. Survives AutoUpdate=registry
 # image pulls; losing this volume forces physical factory-reset of every node.
 Volume=ghar_matter.volume:/var/lib/ghar/matter
