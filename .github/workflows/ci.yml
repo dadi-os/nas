@@ -100,7 +100,7 @@ jobs:
     outputs:
       run: ${{ steps.changes.outputs.run }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -155,7 +155,7 @@ jobs:
       contents: write
       packages: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Require LUKS passphrase secret
         env:
@@ -254,7 +254,7 @@ jobs:
             | tee os/installer/output/SHA256SUMS
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: dadiOS-${{ github.sha }}
           name: dadiOS ${{ github.sha }}
@@ -275,7 +275,7 @@ jobs:
           fail_on_unmatched_files: true
 
       - name: Update dadiOS-latest release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: dadiOS-latest
           name: dadiOS latest
