@@ -93,9 +93,8 @@ fi
 
 if [ ! -f "$STATE/modules/chaavi/.env" ]; then
   cat >"$STATE/modules/chaavi/.env" <<'EOF'
-BW_CLIENTID=
-BW_CLIENTSECRET=
-BW_PASSWORD=
+CHAAVI_EMAIL=
+CHAAVI_PASSWORD=
 EOF
 fi
 
