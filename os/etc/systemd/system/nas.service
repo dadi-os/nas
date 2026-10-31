@@ -11,7 +11,7 @@ Environment=LISTEN_ADDR=127.0.0.1:8092
 Environment=LOKI_URL=http://127.0.0.1:3100
 Environment=DWAR_URL=http://127.0.0.1:8081
 Environment=CHAAVI_URL=http://127.0.0.1:8085
-Environment=BROWSER_CGROUP=/sys/fs/cgroup/dadi-browsers.slice
+Environment=BROWSER_CGROUP=/sys/fs/cgroup/dadi.slice/dadi-browsers.slice
 Environment=DADI_STATE_DIR=/var/lib/dadi
 Environment=DADI_HOME=/var/home/dadi
 Environment=DADI_RUNTIME=podman
