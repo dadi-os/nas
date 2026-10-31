@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dadi-os/nas/service/helpers"
 )
 
 func TestChooseFolder(t *testing.T) {
@@ -139,6 +141,28 @@ func TestKitFailsAtStartupWithoutACgroup(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, "memory.max"), []byte("1000\n"), 0o644)
 	if room, err := k.Room(); err != nil || room {
 		t.Fatalf("Room with no memory left: %v %v", room, err)
+	}
+}
+
+func TestSleepingTaskStateNamesAnUnreadableTabsNote(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "memory.max"), []byte("max\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "memory.current"), []byte("1\n"), 0o644)
+	k, err := New(nil, "http://chaavi", "http://dwar", t.TempDir(), t.TempDir(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := &helpers.Task{ID: "1", Memo: map[string]string{}}
+	if state := k.State(task); state != "No tabs open." {
+		t.Fatalf("State with no saved tabs: %q", state)
+	}
+	task.Note(tabsNote, `["https://example.com"]`)
+	if state := k.State(task); !strings.Contains(state, "https://example.com") {
+		t.Fatalf("State with saved tabs: %q", state)
+	}
+	task.Note(tabsNote, "{not json")
+	if state := k.State(task); !strings.HasPrefix(state, "Saved tabs unreadable:") {
+		t.Fatalf("State with a corrupt note: %q", state)
 	}
 }
 

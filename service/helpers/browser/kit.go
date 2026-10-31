@@ -251,7 +251,9 @@ func (k *Kit) State(t *helpers.Task) string {
 	if s == nil {
 		var urls []string
 		if raw := t.Notes()[tabsNote]; raw != "" {
-			_ = json.Unmarshal([]byte(raw), &urls)
+			if err := json.Unmarshal([]byte(raw), &urls); err != nil {
+				return "Saved tabs unreadable: " + err.Error()
+			}
 		}
 		for _, u := range urls {
 			lines = append(lines, "  "+u)
