@@ -959,7 +959,7 @@ type lokiRangeResponse struct {
 }
 
 var jsonLogServices = map[string]struct{}{
-	"hath": {},
+	"hath":   {},
 	"yaad":   {},
 	"dwar":   {},
 	"nas":    {},
