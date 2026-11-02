@@ -15,14 +15,6 @@ var chaaviEnvKeys = []string{
 	"CHAAVI_PASSWORD",
 }
 
-// legacyChaaviEnvKeys are the adapter's old keys. A saved .env drops them; until then an old
-// BW_PASSWORD still stands in for an empty CHAAVI_PASSWORD, as it does inside Chaavi.
-var legacyChaaviEnvKeys = []string{
-	"BW_CLIENTID",
-	"BW_CLIENTSECRET",
-	"BW_PASSWORD",
-}
-
 type chaaviSettings struct {
 	Env chaaviEnvFile `json:"env"`
 }
@@ -34,13 +26,9 @@ type chaaviEnvFile struct {
 
 // chaaviEnvFromMap picks the CHAAVI_* keys out of a parsed Chaavi .env.
 func chaaviEnvFromMap(values map[string]string) chaaviEnvFile {
-	password := values["CHAAVI_PASSWORD"]
-	if password == "" {
-		password = values["BW_PASSWORD"]
-	}
 	return chaaviEnvFile{
 		Email:    values["CHAAVI_EMAIL"],
-		Password: password,
+		Password: values["CHAAVI_PASSWORD"],
 	}
 }
 
@@ -77,15 +65,11 @@ func writeChaaviDotEnv(values map[string]string) string {
 	return b.String()
 }
 
-// overlayChaaviEnv returns a copy of existing with the CHAAVI_* keys replaced by env and the
-// adapter's old BW_* keys removed.
+// overlayChaaviEnv returns a copy of existing with the CHAAVI_* keys replaced by env.
 func overlayChaaviEnv(existing map[string]string, env chaaviEnvFile) map[string]string {
 	out := map[string]string{}
 	for k, v := range existing {
 		out[k] = v
-	}
-	for _, key := range legacyChaaviEnvKeys {
-		delete(out, key)
 	}
 	out["CHAAVI_EMAIL"] = env.Email
 	out["CHAAVI_PASSWORD"] = env.Password

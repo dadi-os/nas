@@ -64,9 +64,9 @@ func TestReadWriteChaaviSettingsAllowsEmpty(t *testing.T) {
 	}
 }
 
-// A box upgraded from the adapter still has BW_* in its .env: the old password shows in
-// Preferences, and saving rewrites the file with the new keys and none of the old ones.
-func TestChaaviSettingsMigrateTheAdaptersKeys(t *testing.T) {
+// An .env that still has the adapter's BW_* keys is not read as the vault account: Preferences
+// shows it empty, and a save writes the CHAAVI_* keys and keeps every other key.
+func TestChaaviSettingsIgnoreTheAdaptersKeys(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 	old := "BW_CLIENTID=id\nBW_CLIENTSECRET=secret\nBW_PASSWORD=oldpass\nKEEP_ME=yes\n"
@@ -77,10 +77,11 @@ func TestChaaviSettingsMigrateTheAdaptersKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Env.Password != "oldpass" || got.Env.Email != "" {
-		t.Fatalf("legacy password not shown: %+v", got.Env)
+	if got.Env.Password != "" || got.Env.Email != "" {
+		t.Fatalf("old keys were read as the vault account: %+v", got.Env)
 	}
 	got.Env.Email = "me@example.com"
+	got.Env.Password = "newpass"
 	if err := writeChaaviSettings(envPath, got); err != nil {
 		t.Fatal(err)
 	}
@@ -89,10 +90,7 @@ func TestChaaviSettingsMigrateTheAdaptersKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(body)
-	if strings.Contains(text, "BW_") {
-		t.Fatalf("old keys survived the save: %s", text)
-	}
-	for _, want := range []string{"CHAAVI_EMAIL=me@example.com", "CHAAVI_PASSWORD=oldpass", "KEEP_ME=yes"} {
+	for _, want := range []string{"CHAAVI_EMAIL=me@example.com", "CHAAVI_PASSWORD=newpass", "KEEP_ME=yes"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q in %s", want, text)
 		}
