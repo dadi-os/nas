@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -136,5 +137,93 @@ func TestCDPCallAllReturnsFailedReply(t *testing.T) {
 	err := conn.callAll([]cdpCommand{{"Input.dispatchMouseEvent", nil}, {"Input.dispatchMouseEvent", nil}})
 	if err == nil || !strings.Contains(err.Error(), "no such target") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// serveHistory runs a fake DevTools socket that answers Page.getNavigationHistory with the
+// given entries and index, answers every other command with an empty result, and sends each
+// command it received to calls.
+func serveHistory(t *testing.T, currentIndex int, entryIDs []int, calls chan<- cdpCommandRecord) *cdpConn {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer ws.Close()
+		for {
+			var cmd struct {
+				ID     int            `json:"id"`
+				Method string         `json:"method"`
+				Params map[string]any `json:"params"`
+			}
+			if ws.ReadJSON(&cmd) != nil {
+				return
+			}
+			calls <- cdpCommandRecord{Method: cmd.Method, Params: cmd.Params}
+			result := map[string]any{}
+			if cmd.Method == "Page.getNavigationHistory" {
+				entries := make([]map[string]any, len(entryIDs))
+				for i, id := range entryIDs {
+					entries[i] = map[string]any{"id": id}
+				}
+				result = map[string]any{"currentIndex": currentIndex, "entries": entries}
+			}
+			_ = ws.WriteJSON(map[string]any{"id": cmd.ID, "result": result})
+		}
+	}))
+	t.Cleanup(srv.Close)
+	ws, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ws.Close() })
+	_ = ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	return &cdpConn{ws: ws}
+}
+
+// cdpCommandRecord is one command the fake DevTools socket received.
+type cdpCommandRecord struct {
+	Method string
+	Params map[string]any
+}
+
+func TestNavigateBackGoesToTheEarlierEntry(t *testing.T) {
+	calls := make(chan cdpCommandRecord, 4)
+	conn := serveHistory(t, 2, []int{11, 12, 13}, calls)
+	if err := conn.navigate("back"); err != nil {
+		t.Fatal(err)
+	}
+	if first := <-calls; first.Method != "Page.getNavigationHistory" {
+		t.Fatalf("first call %q", first.Method)
+	}
+	second := <-calls
+	if second.Method != "Page.navigateToHistoryEntry" || second.Params["entryId"] != float64(12) {
+		t.Fatalf("second call %+v", second)
+	}
+}
+
+func TestNavigateBackWithoutHistoryIsAConflict(t *testing.T) {
+	conn := serveHistory(t, 0, []int{11}, make(chan cdpCommandRecord, 4))
+	if err := conn.navigate("back"); !errors.Is(err, errNoHistory) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestNavigateReloadReloadsThePage(t *testing.T) {
+	calls := make(chan cdpCommandRecord, 4)
+	conn := serveHistory(t, 0, []int{11}, calls)
+	if err := conn.navigate("reload"); err != nil {
+		t.Fatal(err)
+	}
+	if call := <-calls; call.Method != "Page.reload" {
+		t.Fatalf("call %q", call.Method)
+	}
+}
+
+func TestNavigateRejectsUnknownActions(t *testing.T) {
+	conn := serveHistory(t, 0, nil, make(chan cdpCommandRecord, 1))
+	if err := conn.navigate("forward"); err == nil {
+		t.Fatal("expected an error")
 	}
 }

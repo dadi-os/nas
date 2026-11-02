@@ -123,6 +123,7 @@ func (b *browserHost) register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /browsers/{id}/screenshot", b.handleScreenshot)
 	mux.HandleFunc("GET /browsers/{id}/stream", b.handleStream)
 	mux.HandleFunc("POST /browsers/{id}/input", b.handleInput)
+	mux.HandleFunc("POST /browsers/{id}/navigate", b.handleNavigate)
 }
 
 // displayName is the X display for browser id (":<id>").

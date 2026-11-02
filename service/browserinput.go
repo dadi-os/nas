@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -215,6 +216,22 @@ func (c *cdpConn) chromeTop() (float64, error) {
 	return result.Result.Value, nil
 }
 
+// openPage connects to browser id's current page over CDP with the read deadline set. The
+// returned close function ends the connection.
+func openPage(id int) (conn *cdpConn, closeConn func(), err error) {
+	wsURL, err := pageSocketURL(id)
+	if err != nil {
+		return nil, nil, err
+	}
+	dialer := websocket.Dialer{HandshakeTimeout: browserInputTimeout}
+	ws, _, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	_ = ws.SetReadDeadline(time.Now().Add(browserInputTimeout))
+	return &cdpConn{ws: ws}, func() { ws.Close() }, nil
+}
+
 // handleInput is POST /browsers/{id}/input, which replays a batch of pointer and key events
 // from a live view onto the browser's current page over CDP, in order. Batches are
 // serialised so a drag never interleaves with the next one.
@@ -233,20 +250,12 @@ func (b *browserHost) handleInput(w http.ResponseWriter, r *http.Request) {
 	}
 	b.inputMu.Lock()
 	defer b.inputMu.Unlock()
-	wsURL, err := pageSocketURL(id)
+	conn, closeConn, err := openPage(id)
 	if err != nil {
 		writeError(w, r, http.StatusBadGateway, CodeUpstreamUnreachable, err.Error())
 		return
 	}
-	dialer := websocket.Dialer{HandshakeTimeout: browserInputTimeout}
-	ws, _, err := dialer.Dial(wsURL, nil)
-	if err != nil {
-		writeError(w, r, http.StatusBadGateway, CodeUpstreamUnreachable, err.Error())
-		return
-	}
-	defer ws.Close()
-	_ = ws.SetReadDeadline(time.Now().Add(browserInputTimeout))
-	conn := &cdpConn{ws: ws}
+	defer closeConn()
 	top, err := conn.chromeTop()
 	if err != nil {
 		writeError(w, r, http.StatusBadGateway, CodeUpstreamUnreachable, err.Error())
@@ -264,6 +273,76 @@ func (b *browserHost) handleInput(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := conn.callAll(commands); err != nil {
+		writeError(w, r, http.StatusBadGateway, CodeUpstreamUnreachable, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// errNoHistory is returned when a page asked to go back has no earlier entry.
+var errNoHistory = errors.New("the page has no earlier entry in its history")
+
+// navigate does action on the page conn is attached to: "reload" reloads it and "back" goes
+// one entry back in its history. Any other action is an error.
+func (c *cdpConn) navigate(action string) error {
+	switch action {
+	case "reload":
+		_, err := c.call("Page.reload", map[string]any{})
+		return err
+	case "back":
+		raw, err := c.call("Page.getNavigationHistory", map[string]any{})
+		if err != nil {
+			return err
+		}
+		var history struct {
+			CurrentIndex int `json:"currentIndex"`
+			Entries      []struct {
+				ID int `json:"id"`
+			} `json:"entries"`
+		}
+		if err := json.Unmarshal(raw, &history); err != nil {
+			return err
+		}
+		if history.CurrentIndex < 1 || history.CurrentIndex > len(history.Entries) {
+			return errNoHistory
+		}
+		_, err = c.call("Page.navigateToHistoryEntry", map[string]any{"entryId": history.Entries[history.CurrentIndex-1].ID})
+		return err
+	}
+	return fmt.Errorf("unknown action %q", action)
+}
+
+// handleNavigate is POST /browsers/{id}/navigate with {"action": "back" | "reload"}, which
+// Ankur's takeover view uses for its Back and Reload buttons. Going back on a page with no
+// earlier entry is a conflict.
+func (b *browserHost) handleNavigate(w http.ResponseWriter, r *http.Request) {
+	id, ok := b.parseID(w, r)
+	if !ok {
+		return
+	}
+	if !b.requireDisplay(w, r, id) {
+		return
+	}
+	var req struct {
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || (req.Action != "back" && req.Action != "reload") {
+		writeError(w, r, http.StatusBadRequest, CodeInvalidRequest, `body must be {"action": "back"} or {"action": "reload"}`)
+		return
+	}
+	b.inputMu.Lock()
+	defer b.inputMu.Unlock()
+	conn, closeConn, err := openPage(id)
+	if err != nil {
+		writeError(w, r, http.StatusBadGateway, CodeUpstreamUnreachable, err.Error())
+		return
+	}
+	defer closeConn()
+	if err := conn.navigate(req.Action); err != nil {
+		if errors.Is(err, errNoHistory) {
+			writeError(w, r, http.StatusConflict, CodeConflict, err.Error())
+			return
+		}
 		writeError(w, r, http.StatusBadGateway, CodeUpstreamUnreachable, err.Error())
 		return
 	}

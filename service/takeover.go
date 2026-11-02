@@ -12,6 +12,7 @@ import (
 // routes are his alone.
 var takeoverRoutes = []struct{ prefix, suffix, kind string }{
 	{"/browsers/", "/input", "browser"},
+	{"/browsers/", "/navigate", "browser"},
 	{"/terminals/", "/keys", "terminal"},
 }
 
