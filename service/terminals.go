@@ -542,9 +542,13 @@ func (t *terminalHost) handleCapture(w http.ResponseWriter, r *http.Request) {
 
 type keysRequest struct {
 	Keys []string `json:"keys"`
+	// Literal sends each entry as the text it is, where otherwise a name such as Enter or C-c
+	// is read as the key it names.
+	Literal bool `json:"literal"`
 }
 
-// handleKeys is POST /terminals/{id}/keys: sends keys to the pane with tmux send-keys.
+// handleKeys is POST /terminals/{id}/keys: sends keys to the pane with tmux send-keys, as
+// key names or, when literal, as typed text.
 func (t *terminalHost) handleKeys(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !t.requireSession(w, r, id) {
@@ -560,6 +564,10 @@ func (t *terminalHost) handleKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	args := []string{"send-keys", "-t", id}
+	if req.Literal {
+		args = append(args, "-l")
+	}
+	args = append(args, "--")
 	args = append(args, req.Keys...)
 	if err := t.tmuxCmd(args...).Run(); err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, "send-keys: "+err.Error())

@@ -455,3 +455,36 @@ func TestTerminalsDeleteIdempotent(t *testing.T) {
 		t.Fatalf("second delete %d", code)
 	}
 }
+
+func TestTerminalKeysLiteralTypesTextAndKeepsKeyNamesOtherwise(t *testing.T) {
+	_, mux := testTerminalEnv(t)
+	code, body := doJSON(t, mux, http.MethodPost, "/terminals", map[string]any{})
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, body)
+	}
+	var created createTerminalResponse
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatal(err)
+	}
+	keys := "/terminals/" + created.ID + "/keys"
+	if code, body = doJSON(t, mux, http.MethodPost, keys, map[string]any{"keys": []string{"echo Enter -la"}, "literal": true}); code != http.StatusOK {
+		t.Fatalf("literal keys %d %s", code, body)
+	}
+	if code, body = doJSON(t, mux, http.MethodPost, keys, map[string]any{"keys": []string{"Enter"}}); code != http.StatusOK {
+		t.Fatalf("named key %d %s", code, body)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		code, body = doJSON(t, mux, http.MethodGet, "/terminals/"+created.ID+"/capture?lines=20", nil)
+		if code != http.StatusOK {
+			t.Fatalf("capture %d %s", code, body)
+		}
+		if strings.Count(string(body), "Enter -la") >= 2 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the typed text did not run as a command and print itself: %s", body)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}

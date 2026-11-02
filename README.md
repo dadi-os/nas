@@ -20,8 +20,8 @@ Nas does not call other app modules as a client for its own control plane. Its b
 
 ```
 nas/
-  service/          Go control API (provision, status, logs, terminals, fs, browsers, module config)
-  service/helpers   browser and terminal helpers: runner.go (tasks, loop, sleep and wake),
+  service/          Go control API (provision, status, logs, terminals, fs, browsers, takeover, module config)
+  service/helpers   browser and terminal helpers: runner.go (tasks, loop, sleep and wake, pause and hand back),
                     browser/ (CDP client, tools, charter.md, per-agent Chromium folders),
                     terminal/ (tools, charter.md, doctrine/: Ankur's doctrine, the helpers' own copy)
   logging/          Dev Alloy + Loki configs
@@ -186,14 +186,14 @@ Session names are `t<n>` for positive integers. `POST /terminals` with no `id` p
 | `GET` | `/terminals` | — | `[{ id, cwd, created_at, busy }]` | — |
 | `POST` | `/terminals/{id}/exec` | `{ "command": string, "timeout_seconds"?: number (default 120, max 3600), "max_bytes"?: number (default 32768) }` | `{ exit_code, output, truncated, timed_out }` | `not_found`, `busy` (409), `invalid_request` |
 | `GET` | `/terminals/{id}/capture` | `?lines=N` (default 200) | `{ output }` | `not_found`, `invalid_request` |
-| `POST` | `/terminals/{id}/keys` | `{ "keys": string[] }` (verbatim `tmux send-keys`, e.g. `["C-c"]`) | `{ sent: true }` | `not_found`, `invalid_request` |
+| `POST` | `/terminals/{id}/keys` | `{ "keys": string[], "literal"?: boolean }` (`tmux send-keys`: key names such as `["C-c"]`, or with `literal` each entry typed as the text it is) | `{ sent: true }` | `not_found`, `invalid_request` |
 | `DELETE` | `/terminals/{id}` | — | 204 | `not_found` |
 
 `busy` is true when `#{pane_current_command}` is not the login shell, or an exec is in flight. Exec runs the command as `( eval '<command>' )`, so `cd`, `export`, `set -e`, `exit`, and `exec` stay inside that subshell and can never end the session, then appends a nonce marker, polls `capture-pane` every 200ms, and returns output between the echoed command and the marker. On timeout the command keeps running (`timed_out: true`, `exit_code: null`); use `capture` / `keys` to follow up. Truncation keeps head and tail with an elided-bytes note in the middle.
 
 ### Change stream
 
-`GET /events` is a Server-Sent Events stream that emits `{ "type": "changed", "at": <iso> }` when a task is started, steered or reports, and before and after every write to a terminal (create, close, `exec`, `keys`), so a client refetches `GET /tasks`, `GET /browsers` and `GET /terminals` instead of polling them; it also carries each helper's report as a `helper_report` event (see Tasks). Browser input publishes nothing. A browser that dies on its own, or a terminal whose working directory changes without an API call, is not announced; a client refetches on reconnect and when its window returns to view. No replay.
+`GET /events` is a Server-Sent Events stream that emits `{ "type": "changed", "at": <iso> }` when a task is started, steered or reports, and before and after every write to a terminal (create, close, `exec`, `keys`), so a client refetches `GET /tasks`, `GET /browsers` and `GET /terminals` instead of polling them; it also carries each helper's report as a `helper_report` event (see Tasks). Browser input publishes nothing, except the first input that pauses a helper (see Takeover). A browser that dies on its own, or a terminal whose working directory changes without an API call, is not announced; a client refetches on reconnect and when its window returns to view. No replay.
 
 ### Filesystem
 
@@ -238,7 +238,7 @@ A browser spawns Xvfb as root (so it can bind `/tmp/.X11-unix`), then Chromium a
 
 A helper is a purpose-built operator for one browser or one shell, connected to a model but not an agent: no agent row, grants, memory or messaging. Every helper of a kind has the same charter (`service/helpers/<kind>/charter.md`; the terminal helper's is followed by `doctrine/`, its own copy of Ankur's engineering doctrine) and the same tools, and runs one loop on Dwar `/chat/complete`: charter, tools and its history plus the new steer; the model acts, results go into history, until it calls `finish` (a result and files) or `ask` (something only the agent or Ankur can give). A steer that arrives mid-loop joins the history before the next step. After `finish` the helper is idle with its history and resource intact, so the next steer continues from there. Tool results past 120,000 characters are cleared oldest first to short receipts (the newest 50,000 stay).
 
-Each helper run is a task, addressed `task/<kind>/<id>`. Its lifecycle is Nas's, never an agent's: an idle task sleeps after 15 minutes (browser) or 60 (terminal), stopping its resource and keeping its history; a steer to a sleeping task wakes it transparently; a task idle for 24 hours is forgotten. Waking a browser checks memory first and puts the longest-idle awake task to sleep while it is short. Tasks are saved under `$DADI_STATE_DIR/helpers/` and come back asleep after a Nas restart, which also stops every browser left running. Each report (`done`, `needs_input`, `failed`) is published on `GET /events` as a `helper_report` event (`seq`, `task`, `agent_id` of the agent whose steer it answers, `state`, `text`, `files`) and kept as the task's `last_report`.
+Each helper run is a task, addressed `task/<kind>/<id>`. Its lifecycle is Nas's, never an agent's: an idle task sleeps after 15 minutes (browser) or 60 (terminal), stopping its resource and keeping its history; a steer to a sleeping task wakes it transparently; a task idle for 24 hours is forgotten. Waking a browser checks memory first and puts the longest-idle awake task to sleep while it is short. Tasks are saved under `$DADI_STATE_DIR/helpers/` and come back asleep after a Nas restart, which also stops every browser left running. Each report (`done`, `needs_input`, `failed`, `stopped`) is published on `GET /events` as a `helper_report` event (`seq`, `task`, `agent_id` of the agent whose steer it answers, `state`, `text`, `files`) and kept as the task's `last_report`.
 
 The terminal helper's tools: `run` (a command, its full output kept in `~/.cache/dadi-helpers/<task>/`; `background` returns a handle), `job` (follow or stop one), `read`, `search`, `edit`, `write`, `secret` (a command with a Chaavi secret in its environment, scrubbed from the output). It reaches its shell and files through Nas's own `/terminals` and `/fs` API.
 
@@ -246,8 +246,17 @@ The terminal helper's tools: `run` (a command, its full output kept in `~/.cache
 | --- | --- | --- | --- | --- |
 | `POST` | `/tasks/{kind}` | `{ agent_id, message, cwd? }` | `201` the task's view | `invalid_request`, `not_found` (unknown kind), `busy` (409, no memory to wake one and every awake one is working) |
 | `POST` | `/tasks/{kind}/{id}/steer` | `{ agent_id, message }` | the task's view | `invalid_request`, `not_found` (no such task, or forgotten), `busy` |
+| `POST` | `/tasks/{kind}/{id}/pause` | — | the task's view | `not_found`, `conflict` (409, the task is not working or paused) |
+| `POST` | `/tasks/{kind}/{id}/resume` | `{ note? }` | the task's view | `invalid_request`, `not_found`, `conflict` (409, the task is not paused) |
+| `POST` | `/tasks/{kind}/{id}/stop` | — | the task's view, asleep | `not_found`, `conflict` (409, the task is not paused) |
 | `GET` | `/tasks` | — | every task's view, most recently active first | — |
-| `GET` | `/tasks/{kind}/{id}` | — | `{ task, kind, id, owner, steered_by, purpose, status: working \| idle \| asking \| asleep, resource, state, created_at, last_activity, last_report }` | `not_found` |
+| `GET` | `/tasks/{kind}/{id}` | — | `{ task, kind, id, owner, steered_by, purpose, status: working \| paused \| idle \| asking \| asleep, resource, state, created_at, last_activity, last_report }` | `not_found` |
+
+#### Takeover
+
+Ankur can act on the browser or terminal a task holds while its helper works. The first `POST /browsers/{id}/input` or `POST /terminals/{id}/keys` that reaches the resource of a working task pauses that task before the input is applied (the helpers use CDP and `/terminals/{id}/exec`, so these two routes are his alone); the task's status becomes `paused` and `GET /events` signals the change. Pausing takes effect at the next boundary of the helper's loop: a model answer that arrives after the pause is dropped, a tool call already running finishes, and the calls after it are answered as not run. Every later input counts as the task's activity, so a task he drives never sleeps or is forgotten; a paused task is never slept or forgotten at all. A steer to a paused task is held, answered `paused`, and delivered with the hand back. Input for a task that is not working changes nothing but its activity time.
+
+`resume` hands the task back: its helper gets one turn holding Ankur's `note` (when given), the state of the work now, and the held steers, and continues from the page or pane as it is. What he did is not replayed to it. It waits for the paused loop to finish its step, so the task can stay `paused` for a moment after `resume` answers; a second `resume` then changes nothing. `stop` ends the task: after the loop finishes its step the resource sleeps, held steers are dropped, and a `stopped` report tells the agent whose steer it was answering. A paused task with no input for 30 minutes resumes by itself with no note, so an abandoned takeover never leaves an agent waiting. A Nas restart turns a paused task asleep like every other task.
 
 #### The browser helper
 

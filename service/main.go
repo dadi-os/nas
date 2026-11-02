@@ -147,7 +147,7 @@ func main() {
 	runner.Register(mux, writeError, writeJSON)
 
 	slog.Info("nas listening", "addr", listen, "state_dir", state.dir, "home", host.homeDir, "runtime", state.runtime)
-	if err := http.ListenAndServe(listen, withRequestLog(withChangePublish(changes, mux))); err != nil {
+	if err := http.ListenAndServe(listen, withRequestLog(withChangePublish(changes, withTakeover(runner, changes, mux)))); err != nil {
 		slog.Error("listen failed", "code", CodeInternal, "err", err)
 		os.Exit(1)
 	}
