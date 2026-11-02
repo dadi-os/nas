@@ -34,9 +34,10 @@ func takeoverResource(r *http.Request) (kind, resource string, ok bool) {
 	return "", "", false
 }
 
-// withTakeover pauses a working helper the first time Ankur acts on the browser or terminal
-// it holds, before the input reaches the resource, and announces the change on bus. Every
-// later input only counts as activity, which keeps the task awake while he drives.
+// withTakeover pauses a helper, whether working, idle or asking, the first time Ankur acts on
+// the browser or terminal it holds, before the input reaches the resource, and announces the
+// change on bus. Every later input only counts as activity, which keeps the task awake while
+// he drives.
 func withTakeover(runner *helpers.Runner, bus *changeBus, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if kind, resource, ok := takeoverResource(r); ok && runner.Drive(kind, resource) {

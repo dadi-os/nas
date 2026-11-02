@@ -589,15 +589,25 @@ func TestPauseResumeAndStopRefuseTheWrongStatus(t *testing.T) {
 	}
 	waitReport(t, reports)
 	waitStatus(t, r, "terminal", view.ID, StatusIdle)
-	checks := map[string]func() error{
-		"pause":  func() error { _, err := r.Pause("terminal", view.ID); return err },
+	for name, call := range map[string]func() error{
 		"resume": func() error { _, err := r.Resume("terminal", view.ID, ""); return err },
 		"stop":   func() error { _, err := r.Stop("terminal", view.ID); return err },
-	}
-	for name, call := range checks {
+	} {
 		var e Error
 		if err := call(); !errors.As(err, &e) || e.Status != http.StatusConflict || e.Code != "conflict" {
 			t.Errorf("%s on an idle task: %v", name, err)
+		}
+	}
+	r.Sweep(time.Now().Add(2 * time.Minute))
+	waitStatus(t, r, "terminal", view.ID, StatusAsleep)
+	for name, call := range map[string]func() error{
+		"pause":  func() error { _, err := r.Pause("terminal", view.ID); return err },
+		"resume": func() error { _, err := r.Resume("terminal", view.ID, ""); return err },
+		"stop":   func() error { _, err := r.Stop("terminal", view.ID); return err },
+	} {
+		var e Error
+		if err := call(); !errors.As(err, &e) || e.Status != http.StatusConflict || e.Code != "conflict" {
+			t.Errorf("%s on an asleep task: %v", name, err)
 		}
 	}
 	if _, err := r.Pause("terminal", "nope"); err == nil {
@@ -605,7 +615,7 @@ func TestPauseResumeAndStopRefuseTheWrongStatus(t *testing.T) {
 	}
 }
 
-func TestDriveKeepsIdleTasksAwakeAndIgnoresOtherResources(t *testing.T) {
+func TestDriveIgnoresResourcesNoAwakeTaskHolds(t *testing.T) {
 	kit := &fakeKit{}
 	dwar := &fakeDwar{script: [][]Block{{use("u1", "finish", map[string]any{"result": "done"})}}}
 	r, reports, _ := newTestRunner(t, kit, dwar)
@@ -618,15 +628,167 @@ func TestDriveKeepsIdleTasksAwakeAndIgnoresOtherResources(t *testing.T) {
 	if r.Drive("terminal", "other") || r.Drive("browser", "t1") {
 		t.Fatal("input for a resource no task holds changed a task")
 	}
-	r.mu.Lock()
-	r.tasks["terminal/"+view.ID].LastActivity = time.Now().Add(-2 * time.Minute)
-	r.mu.Unlock()
-	if r.Drive("terminal", "t1") {
-		t.Fatal("input paused an idle task")
-	}
-	r.Sweep(time.Now())
 	if got, _ := r.Get("terminal", view.ID); got.Status != StatusIdle {
-		t.Fatalf("input did not count as activity: %s", got.Status)
+		t.Fatalf("status %s", got.Status)
+	}
+}
+
+func TestDriveTakesAnIdleTaskAndHoldsSteersUntilHandBack(t *testing.T) {
+	kit := &fakeKit{}
+	dwar := &fakeDwar{script: [][]Block{
+		{use("u1", "finish", map[string]any{"result": "first"})},
+		{use("u2", "finish", map[string]any{"result": "after the hand back"})},
+	}}
+	r, reports, _ := newTestRunner(t, kit, dwar)
+	view, err := r.Start("terminal", "agent-a", "job", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitReport(t, reports)
+	waitStatus(t, r, "terminal", view.ID, StatusIdle)
+	if !r.Drive("terminal", "t1") {
+		t.Fatal("input did not take an idle task")
+	}
+	if r.Drive("terminal", "t1") {
+		t.Fatal("a second input changed the task again")
+	}
+	held, err := r.Steer("terminal", view.ID, "agent-b", "check the footer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if held.Status != StatusPaused || len(dwar.requests) != 1 {
+		t.Fatalf("steer started work on a task Ankur holds: %s, %d requests", held.Status, len(dwar.requests))
+	}
+	if _, err := r.Resume("terminal", view.ID, "I fixed the header"); err != nil {
+		t.Fatal(err)
+	}
+	rep := waitReport(t, reports)
+	if rep.AgentID != "agent-b" || rep.Text != "after the hand back" {
+		t.Fatalf("report %+v", rep)
+	}
+	turn := fmt.Sprint(dwar.requests[1].Messages[len(dwar.requests[1].Messages)-1].Content)
+	for _, want := range []string{"[Hand back from Ankur]", "I fixed the header", "[Steer from agent-b]", "check the footer", "cwd /home"} {
+		if !strings.Contains(turn, want) {
+			t.Fatalf("hand back turn lacks %q: %s", want, turn)
+		}
+	}
+}
+
+func TestHandBackOfAnIdleOrAskingTaskWithNoSteerKeepsItsStatusAndNote(t *testing.T) {
+	kit := &fakeKit{}
+	dwar := &fakeDwar{script: [][]Block{
+		{use("u1", "ask", map[string]any{"question": "which account?"})},
+		{use("u2", "finish", map[string]any{"result": "used the note"})},
+	}}
+	r, reports, _ := newTestRunner(t, kit, dwar)
+	view, err := r.Start("terminal", "agent-a", "job", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitReport(t, reports)
+	waitStatus(t, r, "terminal", view.ID, StatusAsking)
+	if !r.Drive("terminal", "t1") {
+		t.Fatal("input did not take an asking task")
+	}
+	back, err := r.Resume("terminal", view.ID, "the account is the work one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if back.Status != StatusAsking || len(dwar.requests) != 1 {
+		t.Fatalf("hand back with no steer: %s, %d requests", back.Status, len(dwar.requests))
+	}
+	if _, err := r.Steer("terminal", view.ID, "agent-a", "go on"); err != nil {
+		t.Fatal(err)
+	}
+	waitReport(t, reports)
+	turn := fmt.Sprint(dwar.requests[1].Messages[len(dwar.requests[1].Messages)-1].Content)
+	for _, want := range []string{"the account is the work one", "go on"} {
+		if !strings.Contains(turn, want) {
+			t.Fatalf("next turn lacks %q: %s", want, turn)
+		}
+	}
+}
+
+func TestPauseTakesAnIdleTask(t *testing.T) {
+	kit := &fakeKit{}
+	dwar := &fakeDwar{script: [][]Block{{use("u1", "finish", map[string]any{"result": "done"})}}}
+	r, reports, _ := newTestRunner(t, kit, dwar)
+	view, err := r.Start("terminal", "agent-a", "job", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitReport(t, reports)
+	waitStatus(t, r, "terminal", view.ID, StatusIdle)
+	paused, err := r.Pause("terminal", view.ID)
+	if err != nil || paused.Status != StatusPaused {
+		t.Fatalf("pause of an idle task: %+v, %v", paused, err)
+	}
+	back, err := r.Resume("terminal", view.ID, "")
+	if err != nil || back.Status != StatusIdle {
+		t.Fatalf("resume of a paused idle task: %+v, %v", back, err)
+	}
+}
+
+func TestStopOfAnIdleTaskSleepsItAndReportsOnlyDroppedSteers(t *testing.T) {
+	kit := &fakeKit{}
+	dwar := &fakeDwar{script: [][]Block{
+		{use("u1", "finish", map[string]any{"result": "first"})},
+		{use("u2", "finish", map[string]any{"result": "second"})},
+	}}
+	r, reports, _ := newTestRunner(t, kit, dwar)
+	view, err := r.Start("terminal", "agent-a", "job", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitReport(t, reports)
+	waitStatus(t, r, "terminal", view.ID, StatusIdle)
+	r.Drive("terminal", "t1")
+	stopped, err := r.Stop("terminal", view.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case rep := <-reports:
+		t.Fatalf("stopping a task that had already reported sent %+v", rep)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if stopped.Status != StatusAsleep || kit.sleeps != 1 {
+		t.Fatalf("status %s, sleeps %d", stopped.Status, kit.sleeps)
+	}
+	if _, err := r.Steer("terminal", view.ID, "agent-a", "again"); err != nil {
+		t.Fatal(err)
+	}
+	waitReport(t, reports)
+	waitStatus(t, r, "terminal", view.ID, StatusIdle)
+	r.Drive("terminal", "t1")
+	if _, err := r.Steer("terminal", view.ID, "agent-b", "while he drove"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Stop("terminal", view.ID); err != nil {
+		t.Fatal(err)
+	}
+	rep := waitReport(t, reports)
+	if rep.State != "stopped" || rep.AgentID != "agent-b" || !strings.Contains(rep.Text, "1 steer(s)") {
+		t.Fatalf("report %+v", rep)
+	}
+}
+
+func TestAbandonedTakeoverOfAnIdleTaskReturnsItToIdleWithoutAModelTurn(t *testing.T) {
+	kit := &fakeKit{}
+	dwar := &fakeDwar{script: [][]Block{{use("u1", "finish", map[string]any{"result": "done"})}}}
+	r, reports, _ := newTestRunner(t, kit, dwar)
+	view, err := r.Start("terminal", "agent-a", "job", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitReport(t, reports)
+	waitStatus(t, r, "terminal", view.ID, StatusIdle)
+	r.Drive("terminal", "t1")
+	r.Sweep(time.Now().Add(pauseAbandonAfter + time.Minute))
+	if got, _ := r.Get("terminal", view.ID); got.Status != StatusIdle || len(dwar.requests) != 1 {
+		t.Fatalf("abandoned takeover: %s, %d requests", got.Status, len(dwar.requests))
 	}
 }
 

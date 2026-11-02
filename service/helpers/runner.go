@@ -106,10 +106,12 @@ type Task struct {
 	LastActivity time.Time         `json:"last_activity"`
 	memoMu       sync.Mutex
 	// loopDone is closed when the helper loop started with the task's last move to working
-	// ends; resuming is set while a hand back waits for that loop to end. Both are guarded by
-	// the runner's lock and are not saved.
-	loopDone chan struct{}
-	resuming bool
+	// ends; resuming is set while a hand back waits for that loop to end; pausedFrom is the
+	// status the task had when Ankur took it (working, idle or asking). All three are guarded
+	// by the runner's lock and are not saved.
+	loopDone   chan struct{}
+	resuming   bool
+	pausedFrom Status
 }
 
 // startLoop marks t working with a new loop about to run on it. Callers hold the runner's lock.
@@ -471,7 +473,8 @@ func conflict(t *Task, status Status, want string) Error {
 
 // Drive records that Ankur is acting on the resource of kind that a task holds (a browser
 // slot or a tmux session): the task counts the input as activity, so it neither sleeps nor
-// is forgotten while he drives, and a working helper is paused at its next boundary. It
+// is forgotten while he drives, and a working helper is paused at its next boundary while an
+// idle or asking one is paused at once, so steers sent to it wait until he hands it back. It
 // reports whether a task changed status; input for a resource no awake task holds changes
 // nothing. It is called for every input event, so it only takes the runner's lock.
 func (r *Runner) Drive(kind, resource string) bool {
@@ -488,10 +491,11 @@ func (r *Runner) Drive(kind, resource string) bool {
 		return false
 	}
 	t.LastActivity = time.Now().UTC()
-	if t.Status != StatusWorking {
+	if t.Status == StatusPaused {
 		r.mu.Unlock()
 		return false
 	}
+	t.pausedFrom = t.Status
 	t.Status = StatusPaused
 	r.mu.Unlock()
 	if err := r.save(t); err != nil {
@@ -500,8 +504,9 @@ func (r *Runner) Drive(kind, resource string) bool {
 	return true
 }
 
-// Pause pauses task kind/id's helper: it takes no new step once the one under way ends.
-// Pausing a paused task changes nothing; any other status than working is a conflict.
+// Pause pauses task kind/id's helper: a working one takes no new step once the one under way
+// ends, and an idle or asking one holds the steers it is sent. Pausing a paused task changes
+// nothing; an asleep task is a conflict.
 func (r *Runner) Pause(kind, id string) (View, error) {
 	kit, t, err := r.find(kind, id)
 	if err != nil {
@@ -510,13 +515,14 @@ func (r *Runner) Pause(kind, id string) (View, error) {
 	r.mu.Lock()
 	switch t.Status {
 	case StatusPaused:
-	case StatusWorking:
+	case StatusWorking, StatusIdle, StatusAsking:
+		t.pausedFrom = t.Status
 		t.Status = StatusPaused
 		t.LastActivity = time.Now().UTC()
 	default:
 		status := t.Status
 		r.mu.Unlock()
-		return View{}, conflict(t, status, "a working task can be paused")
+		return View{}, conflict(t, status, "an awake task can be paused")
 	}
 	r.mu.Unlock()
 	return r.view(kit, t), r.save(t)
@@ -526,7 +532,8 @@ func (r *Runner) Pause(kind, id string) (View, error) {
 // state of the work as he left it, and starts its loop again. Steers held while he drove
 // join the same turn. The hand back waits for the paused loop to finish the step it was in,
 // so a task can stay paused for a moment after Resume answers, and a second Resume in that
-// moment changes nothing. A task that is not paused is a conflict.
+// moment changes nothing. A task that was idle or asking when he took it has no loop to
+// continue: see handBackIdle. A task that is not paused is a conflict.
 func (r *Runner) Resume(kind, id, note string) (View, error) {
 	kit, t, err := r.find(kind, id)
 	if err != nil {
@@ -537,6 +544,10 @@ func (r *Runner) Resume(kind, id, note string) (View, error) {
 		status := t.Status
 		r.mu.Unlock()
 		return View{}, conflict(t, status, "a paused task can be resumed")
+	}
+	if t.pausedFrom != StatusWorking {
+		r.mu.Unlock()
+		return r.handBackIdle(kit, t, note)
 	}
 	if t.resuming {
 		r.mu.Unlock()
@@ -576,6 +587,39 @@ func (r *Runner) handBackNow(kit Kit, t *Task, note string) (View, error) {
 	return r.view(kit, t), nil
 }
 
+// handBackIdle hands back a task that was idle or asking when Ankur took it. Its helper has no
+// loop to continue, so with no steer held it goes back to the status it had, and his note
+// waits in its history for the next steer; with steers held it starts the stretch they ask
+// for, preceded by his note and the state of the work, as a working task would.
+func (r *Runner) handBackIdle(kit Kit, t *Task, note string) (View, error) {
+	r.mu.Lock()
+	if t.Status != StatusPaused {
+		r.mu.Unlock()
+		return r.view(kit, t), nil
+	}
+	if len(t.Pending) > 0 {
+		r.handBack(kit, t, note)
+		r.mu.Unlock()
+		if err := r.save(t); err != nil {
+			return View{}, err
+		}
+		go r.run(kit, t)
+		return r.view(kit, t), nil
+	}
+	t.Status = t.pausedFrom
+	t.LastActivity = time.Now().UTC()
+	if note = strings.TrimSpace(note); note != "" {
+		text := Block{"type": "text", "text": "[Hand back from Ankur]\n" + note}
+		if n := len(t.History); n > 0 && t.History[n-1].Role == "user" {
+			t.History[n-1].Content = append(t.History[n-1].Content, text)
+		} else {
+			t.History = append(t.History, Message{Role: "user", Content: []Block{text}})
+		}
+	}
+	r.mu.Unlock()
+	return r.view(kit, t), r.save(t)
+}
+
 // handBack gives a paused helper its loop back: a turn with Ankur's note (or the plain fact
 // that he drove), what he did being no part of it, and the state of the work now, joined by
 // the steers held while he drove. The task is working again. Callers hold r.mu.
@@ -600,8 +644,9 @@ func (r *Runner) handBack(kit Kit, t *Task, note string) {
 }
 
 // Stop ends a paused task's work once its loop has finished the step it was in: its resource
-// goes to sleep with its history kept, the steers held while Ankur drove are dropped, and the
-// agent whose steer it was answering is told in a stopped report. A task that is not paused
+// goes to sleep with its history kept and the steers held while Ankur drove are dropped. The
+// agent whose steer it was answering is told in a stopped report when the task was working or
+// steers were dropped; an idle or asking task had already reported. A task that is not paused
 // is a conflict.
 func (r *Runner) Stop(kind, id string) (View, error) {
 	kit, t, err := r.find(kind, id)
@@ -615,6 +660,7 @@ func (r *Runner) Stop(kind, id string) (View, error) {
 		return View{}, conflict(t, status, "a paused task can be stopped")
 	}
 	held := len(t.Pending)
+	wasWorking := t.pausedFrom == StatusWorking
 	t.Pending = nil
 	t.resuming = false
 	done := t.loopDone
@@ -625,12 +671,17 @@ func (r *Runner) Stop(kind, id string) (View, error) {
 	if err := kit.Sleep(t); err != nil {
 		return View{}, fmt.Errorf("sleep task/%s/%s: %w", t.Kind, t.ID, err)
 	}
+	r.mu.Lock()
+	t.Status = StatusAsleep
+	if !wasWorking && held == 0 {
+		t.LastActivity = time.Now().UTC()
+		r.mu.Unlock()
+		return r.view(kit, t), r.save(t)
+	}
 	text := "Ankur stopped this task while he was driving it."
 	if held > 0 {
 		text += fmt.Sprintf(" %d steer(s) sent while he drove were not read.", held)
 	}
-	r.mu.Lock()
-	t.Status = StatusAsleep
 	report := r.newReport(t, "stopped", text, nil)
 	t.LastActivity = report.At
 	r.mu.Unlock()
