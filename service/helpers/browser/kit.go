@@ -38,8 +38,6 @@ const (
 	callTimeout = 10 * time.Minute
 	// inlineMax is the most characters of extracted data a result carries; more goes to a file.
 	inlineMax = 6_000
-	// workDir is where files the helper makes (extracts, screenshots) are kept, under the dadi home.
-	workDir = ".cache/dadi-helpers"
 	// downloadWait is how long a download started by a click or a URL may take to finish.
 	downloadWait = 120 * time.Second
 	// tabsNote is the memo key holding the URLs of the tabs a sleeping task reopens.
@@ -58,6 +56,9 @@ type Host interface {
 	StartBrowser(profileDir string) (Launch, error)
 	// StopBrowser stops the browser started as id.
 	StopBrowser(id int)
+	// AsDadi runs fn with the filesystem identity of the user the terminal helper's shell runs
+	// as, so what fn creates in the dadi home belongs to that user.
+	AsDadi(fn func() error) error
 }
 
 // Kit is the browser helper kind.
@@ -117,7 +118,7 @@ func (k *Kit) Room() (bool, error) {
 }
 
 // downloadsDir is where downloads land.
-func (k *Kit) downloadsDir() string { return filepath.Join(k.home, "Downloads") }
+func (k *Kit) downloadsDir() string { return filepath.Join(k.home, helpers.DownloadsDir) }
 
 // Wake starts a browser for t on one of its owner's Chromium folders and reopens the tabs
 // it had when it slept.
@@ -587,8 +588,19 @@ func (k *Kit) download(ctx context.Context, s *session, tab *Tab, in input) (str
 
 // taskDir is the directory for files t's helper makes.
 func (k *Kit) taskDir(t *helpers.Task) (string, error) {
-	dir := filepath.Join(k.home, workDir, t.ID)
-	return dir, os.MkdirAll(dir, 0o755)
+	dir := filepath.Join(k.home, helpers.WorkDir, t.ID)
+	return dir, k.host.AsDadi(func() error { return os.MkdirAll(dir, 0o755) })
+}
+
+// writeFile saves data at path, making its folder, as the dadi user so the terminal helper's
+// shell can use what the browser helper made.
+func (k *Kit) writeFile(path string, data []byte) error {
+	return k.host.AsDadi(func() error {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(path, data, 0o644)
+	})
 }
 
 // extract reads rows and keeps large results in a file.
@@ -618,10 +630,7 @@ func (k *Kit) extract(ctx context.Context, t *helpers.Task, tab *Tab, in input) 
 	} else if !filepath.IsAbs(path) {
 		return "", fmt.Errorf("to_file must be an absolute path")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(path, []byte(got.Data), 0o644); err != nil {
+	if err := k.writeFile(path, []byte(got.Data)); err != nil {
 		return "", err
 	}
 	summary := fmt.Sprintf("%d rows over %d page(s) saved to %s", got.Rows, got.Pages, path)
@@ -663,7 +672,7 @@ func (k *Kit) screenshot(ctx context.Context, t *helpers.Task, tab *Tab, in inpu
 		return "", err
 	}
 	path := filepath.Join(dir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
-	if err := os.WriteFile(path, png, 0o644); err != nil {
+	if err := k.writeFile(path, png); err != nil {
 		return "", err
 	}
 	if in.Question == "" {

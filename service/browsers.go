@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dadi-os/nas/service/helpers"
 	"io"
 	"log/slog"
 	"net"
@@ -482,6 +483,9 @@ func (b *browserHost) StartBrowser(profileDir string) (browser.Launch, error) {
 	return browser.Launch{}, fmt.Errorf("all %d browser slots are in use", browserSlots)
 }
 
+// AsDadi runs fn as dadi on the appliance and as the process user elsewhere.
+func (b *browserHost) AsDadi(fn func() error) error { return b.host.asDadi(fn) }
+
 // StopBrowser stops slot id's browser; its Chromium folder is kept.
 func (b *browserHost) StopBrowser(id int) {
 	b.killBrowser(id)
@@ -574,7 +578,7 @@ func (b *browserHost) handleList(w http.ResponseWriter, r *http.Request) {
 		info := browserInfo{
 			ID:           id,
 			Display:      displayName(id),
-			DownloadsDir: filepath.Join(b.host.homeDir, "Downloads"),
+			DownloadsDir: filepath.Join(b.host.homeDir, helpers.DownloadsDir),
 		}
 		if cdp, ok := b.cdpURLFor(r, id); ok {
 			info.CDPURL = cdp

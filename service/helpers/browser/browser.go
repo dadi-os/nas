@@ -102,9 +102,6 @@ func Connect(ctx context.Context, url, downloadsDir string) (*Browser, error) {
 		return nil, err
 	}
 	b.c = c
-	if err := os.MkdirAll(downloadsDir, 0o755); err != nil {
-		return nil, fmt.Errorf("downloads dir: %w", err)
-	}
 	if err := c.send(ctx, "", "Browser.setDownloadBehavior", map[string]any{"behavior": "allowAndName", "downloadPath": downloadsDir, "eventsEnabled": true}, nil); err != nil {
 		_ = c.close()
 		return nil, err

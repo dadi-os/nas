@@ -35,6 +35,8 @@ func (h *chromiumHost) StartBrowser(profile string) (Launch, error) {
 	return Launch{ID: h.next, CDPURL: url}, nil
 }
 
+func (h *chromiumHost) AsDadi(fn func() error) error { return fn() }
+
 func (h *chromiumHost) StopBrowser(id int) {
 	h.mu.Lock()
 	stop := h.stops[id]

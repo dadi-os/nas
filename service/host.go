@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"github.com/dadi-os/nas/service/helpers"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
@@ -119,6 +121,28 @@ func (h *hostRuntime) ensureDirs() error {
 			return fmt.Errorf("chown run dir: %w", err)
 		}
 	}
+	return h.ensureHomeDirs()
+}
+
+// ensureHomeDirs makes, as dadi, the folders in the dadi home that Nas and its helpers write
+// to: downloads and the helpers' output. What earlier builds made there as root goes to dadi,
+// since the terminal helper's shell runs as dadi and could not use it.
+func (h *hostRuntime) ensureHomeDirs() error {
+	for _, name := range []string{helpers.DownloadsDir, helpers.WorkDir} {
+		dir := filepath.Join(h.homeDir, name)
+		if err := h.asDadi(func() error { return os.MkdirAll(dir, 0o755) }); err != nil {
+			return fmt.Errorf("mkdir %s: %w", dir, err)
+		}
+		err := filepath.WalkDir(dir, func(p string, _ fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			return h.chownDadi(p)
+		})
+		if err != nil {
+			return fmt.Errorf("chown %s: %w", dir, err)
+		}
+	}
 	return nil
 }
 
@@ -128,6 +152,19 @@ func (h *hostRuntime) chownDadi(path string) error {
 		return nil
 	}
 	return os.Chown(path, h.dadiUID, h.dadiGID)
+}
+
+// asDadi runs fn with dadi's filesystem identity on the appliance, so what it creates is
+// dadi's, and runs it as the process user elsewhere.
+func (h *hostRuntime) asDadi(fn func() error) error {
+	if !h.switchUser {
+		return fn()
+	}
+	var fnErr error
+	if err := asFSUser(h.dadiUID, h.dadiGID, func() { fnErr = fn() }); err != nil {
+		return err
+	}
+	return fnErr
 }
 
 // defaultCwd is used when terminal / glob / grep omit cwd (the dadi home).

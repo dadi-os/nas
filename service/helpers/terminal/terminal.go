@@ -31,8 +31,6 @@ const (
 	// defaultTimeout and maxTimeout bound a foreground command, in seconds.
 	defaultTimeout = 120
 	maxTimeout     = 3600
-	// logDir is where full command output is kept, under the dadi home.
-	logDir = ".cache/dadi-helpers"
 	// touchedMax is how many touched files the state of the work lists.
 	touchedMax = 20
 )
@@ -305,7 +303,7 @@ func (k *Kit) run(t *helpers.Task, command, cwd string, timeout int, background 
 	if timeout < 1 || timeout > maxTimeout {
 		return "", fmt.Errorf("timeout must be 1 to %d seconds", maxTimeout)
 	}
-	dir := filepath.Join(k.home, logDir, t.ID)
+	dir := filepath.Join(k.home, helpers.WorkDir, t.ID)
 	log := filepath.Join(dir, strconv.FormatInt(time.Now().UnixNano(), 10)+".log")
 	prefix := "mkdir -p " + shellQuote(dir) + " && "
 	if cwd != "" {
