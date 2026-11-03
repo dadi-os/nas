@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -56,6 +57,47 @@ func TestFSReadOffsetLimit(t *testing.T) {
 	}
 	if strings.Contains(resp.Content, "four") {
 		t.Fatalf("should not include four: %q", resp.Content)
+	}
+}
+
+// TestFSReadStreamsEdgeCases covers a missing final newline, a line longer than the read buffer,
+// an offset past the end and the byte bound, all of which total_lines must still count whole.
+func TestFSReadStreamsEdgeCases(t *testing.T) {
+	_, mux, root := testFSEnv(t)
+	long := strings.Repeat("x", 3*readChunk+17)
+	path := filepath.Join(root, "edge.txt")
+	if err := os.WriteFile(path, []byte("a\n"+long+"\nlast"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	read := func(req map[string]any) readResponse {
+		t.Helper()
+		req["path"] = path
+		code, body := doJSON(t, mux, http.MethodPost, "/fs/read", req)
+		if code != http.StatusOK {
+			t.Fatalf("status %d %s", code, body)
+		}
+		var resp readResponse
+		if err := json.Unmarshal(body, &resp); err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+
+	all := read(map[string]any{"max_bytes": 4 * readChunk})
+	if all.TotalLines != 3 || all.Truncated || all.Content != "1\ta\n2\t"+long+"\n3\tlast\n" {
+		t.Fatalf("whole file: total %d truncated %v", all.TotalLines, all.Truncated)
+	}
+	capped := read(map[string]any{"max_bytes": 100})
+	if capped.TotalLines != 3 || !capped.Truncated || capped.Content != "1\ta\n" {
+		t.Fatalf("byte bound: %+v", capped.Truncated)
+	}
+	past := read(map[string]any{"offset": 4})
+	if past.TotalLines != 3 || past.Truncated || past.Content != "" {
+		t.Fatalf("offset past end: %+v", past)
+	}
+	tail := read(map[string]any{"offset": 3})
+	if tail.Content != "3\tlast\n" || tail.Truncated {
+		t.Fatalf("last line without newline: %q", tail.Content)
 	}
 }
 
@@ -333,5 +375,31 @@ func TestFSGrep(t *testing.T) {
 	}
 	if len(resp.Matches) != 1 || resp.Matches[0].Line != 2 {
 		t.Fatalf("matches %+v", resp.Matches)
+	}
+}
+
+// TestFSGrepStopsAtLimit checks that a pattern with far more matches than limit returns limit
+// of them, marked truncated, and succeeds once ripgrep is stopped.
+func TestFSGrepStopsAtLimit(t *testing.T) {
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Skip("rg not on PATH")
+	}
+	_, mux, root := testFSEnv(t)
+	for i := 0; i < 50; i++ {
+		path := filepath.Join(root, fmt.Sprintf("m%02d.txt", i))
+		if err := os.WriteFile(path, []byte(strings.Repeat("hit\n", 200)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, body := doJSON(t, mux, http.MethodPost, "/fs/grep", map[string]any{"pattern": "hit", "cwd": root, "limit": 7})
+	if code != http.StatusOK {
+		t.Fatalf("grep %d %s", code, body)
+	}
+	var resp grepResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Matches) != 7 || !resp.Truncated {
+		t.Fatalf("matches %d truncated %v", len(resp.Matches), resp.Truncated)
 	}
 }

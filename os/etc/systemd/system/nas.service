@@ -1,7 +1,7 @@
 [Unit]
 Description=Nas control plane
-After=network-online.target dadi-browsers.slice dadi-seed.service dadi-home.service headscale.service loki.service bootstrap.service
-Requires=dadi-seed.service dadi-home.service dadi-browsers.slice
+After=network-online.target dadi-browsers.slice dadi-terminals.slice dadi-seed.service dadi-home.service headscale.service loki.service bootstrap.service
+Requires=dadi-seed.service dadi-home.service dadi-browsers.slice dadi-terminals.slice
 Wants=network-online.target headscale.service loki.service bootstrap.service
 
 [Service]

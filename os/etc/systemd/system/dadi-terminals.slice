@@ -1,0 +1,6 @@
+[Unit]
+Description=Nas-managed terminal shells and what they run, capped so the kernel kills a build before Nas or any Dadi module
+
+[Slice]
+MemoryHigh=20%
+MemoryMax=25%

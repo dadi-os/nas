@@ -46,13 +46,20 @@ func newTerminalHost(host *hostRuntime) *terminalHost {
 	}
 }
 
-// tmuxCmd returns a tmux command on the nas tmux socket, run as dadi on the appliance.
+// tmuxCmd returns a tmux command on the nas tmux socket, run as dadi on the appliance. On the
+// appliance new-session, the one command that can start the tmux server, runs in a transient
+// scope under dadi-terminals.slice, so the server and every shell and build under it are capped
+// apart from nas.service and an OOM kills a build, not Nas.
 func (t *terminalHost) tmuxCmd(args ...string) *exec.Cmd {
 	full := append([]string{"-S", t.host.tmuxSocket}, args...)
-	if t.host.switchUser {
-		return exec.Command("runuser", append([]string{"-u", dadiUsername, "--", "tmux"}, full...)...)
+	if !t.host.switchUser {
+		return exec.Command("tmux", full...)
 	}
-	return exec.Command("tmux", full...)
+	argv := append([]string{"runuser", "-u", dadiUsername, "--", "tmux"}, full...)
+	if len(args) > 0 && args[0] == "new-session" {
+		argv = append([]string{"systemd-run", "--scope", "--quiet", "--collect", "--slice=dadi-terminals.slice", "--"}, argv...)
+	}
+	return exec.Command(argv[0], argv[1:]...)
 }
 
 // tmuxOutput runs tmux with args and returns its combined output, with the output in the

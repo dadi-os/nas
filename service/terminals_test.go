@@ -488,3 +488,22 @@ func TestTerminalKeysLiteralTypesTextAndKeepsKeyNamesOtherwise(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 }
+
+// TestTmuxCmdSlice checks that on the appliance only new-session, which can start the tmux
+// server, runs in dadi-terminals.slice, and that elsewhere tmux runs directly.
+func TestTmuxCmdSlice(t *testing.T) {
+	host := &hostRuntime{tmuxSocket: "/run/dadi/tmux.sock", switchUser: true}
+	th := newTerminalHost(host)
+	create := strings.Join(th.tmuxCmd("new-session", "-d", "-s", "t1").Args, " ")
+	if !strings.HasPrefix(create, "systemd-run --scope") || !strings.Contains(create, "--slice=dadi-terminals.slice") || !strings.Contains(create, "runuser -u dadi -- tmux -S /run/dadi/tmux.sock new-session") {
+		t.Fatalf("new-session argv: %s", create)
+	}
+	list := strings.Join(th.tmuxCmd("ls").Args, " ")
+	if strings.Contains(list, "systemd-run") || !strings.HasPrefix(list, "runuser -u dadi -- tmux") {
+		t.Fatalf("ls argv: %s", list)
+	}
+	host.switchUser = false
+	if got := strings.Join(th.tmuxCmd("new-session").Args, " "); got != "tmux -S /run/dadi/tmux.sock new-session" {
+		t.Fatalf("dev argv: %s", got)
+	}
+}

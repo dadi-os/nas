@@ -711,6 +711,10 @@ type logsResponse struct {
 	Entries []logEntry `json:"entries"`
 }
 
+// lokiBodyMax is the most bytes of a Loki query response Nas reads; log lines can be large, so
+// a query over it is refused rather than held in memory.
+const lokiBodyMax = 32 << 20
+
 // handleLogs is GET /logs: entries from Loki filtered by services, level and text over
 // [from, to) (the last hour by default), newest first, up to limit.
 func handleLogs(w http.ResponseWriter, r *http.Request, lokiURL string) {
@@ -810,9 +814,13 @@ func handleLogs(w http.ResponseWriter, r *http.Request, lokiURL string) {
 		return
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, lokiBodyMax+1))
 	if err != nil {
 		writeError(w, r, http.StatusBadGateway, CodeLogQueryFailed, "read loki response")
+		return
+	}
+	if len(body) > lokiBodyMax {
+		writeError(w, r, http.StatusBadGateway, CodeLogQueryFailed, fmt.Sprintf("loki response over %d bytes; narrow the query or lower limit", lokiBodyMax))
 		return
 	}
 	if resp.StatusCode != http.StatusOK {

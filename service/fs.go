@@ -126,6 +126,20 @@ func resolveExistingPrefix(path string) (string, error) {
 	return filepath.Clean(resolved), nil
 }
 
+// readChunk is the buffer size for streaming a file or ripgrep's output; a line longer than it
+// is read in pieces.
+const readChunk = 64 << 10
+
+// discardLine drops the rest of the line br is partway through.
+func discardLine(br *bufio.Reader) error {
+	for {
+		_, err := br.ReadSlice('\n')
+		if err != bufio.ErrBufferFull {
+			return err
+		}
+	}
+}
+
 // isBinaryHead reports whether the first 8 KiB of path contain a NUL byte.
 func isBinaryHead(path string) (bool, error) {
 	f, err := os.Open(path)
@@ -155,7 +169,8 @@ type readResponse struct {
 }
 
 // handleRead is POST /fs/read: a text file as numbered lines from offset, bounded by limit
-// lines and max_bytes. Binary files are refused with CodeBinaryFile.
+// lines and max_bytes. The file is streamed, so its size never sets Nas's memory; total_lines
+// counts the whole file. Binary files are refused with CodeBinaryFile.
 func (f *fsHost) handleRead(w http.ResponseWriter, r *http.Request) {
 	var req readRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -208,36 +223,47 @@ func (f *fsHost) handleRead(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	data, err := io.ReadAll(file)
-	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-		return
-	}
-	allLines := strings.Split(string(data), "\n")
-	if len(allLines) > 0 && allLines[len(allLines)-1] == "" {
-		allLines = allLines[:len(allLines)-1]
-	}
-	total := len(allLines)
-
 	var (
 		b         strings.Builder
 		written   int
 		truncated bool
 		byteCount int
+		total     int
+		stopped   bool
+		cur       []byte
 	)
-	for i := offset - 1; i < total; i++ {
-		if written >= limit {
-			truncated = true
+	br := bufio.NewReaderSize(file, readChunk)
+	for {
+		chunk, rerr := br.ReadSlice('\n')
+		collecting := !stopped && total+1 >= offset
+		if collecting && len(cur) <= maxBytes {
+			cur = append(cur, chunk...)
+		}
+		if rerr == bufio.ErrBufferFull {
+			continue
+		}
+		if rerr != nil && rerr != io.EOF {
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, rerr.Error())
+			return
+		}
+		if rerr == io.EOF && len(chunk) == 0 && len(cur) == 0 {
 			break
 		}
-		entry := fmt.Sprintf("%d\t%s\n", i+1, allLines[i])
-		if byteCount+len(entry) > maxBytes {
-			truncated = true
+		total++
+		if collecting {
+			entry := fmt.Sprintf("%d\t%s\n", total, bytes.TrimSuffix(cur, []byte("\n")))
+			if written >= limit || byteCount+len(entry) > maxBytes {
+				truncated, stopped = true, true
+			} else {
+				b.WriteString(entry)
+				byteCount += len(entry)
+				written++
+			}
+		}
+		cur = cur[:0]
+		if rerr == io.EOF {
 			break
 		}
-		b.WriteString(entry)
-		byteCount += len(entry)
-		written++
 	}
 	writeJSON(w, http.StatusOK, readResponse{
 		Content:    b.String(),
@@ -479,7 +505,8 @@ type grepResponse struct {
 }
 
 // handleGrep is POST /fs/grep: ripgrep matches under cwd (the dadi home when omitted),
-// bounded by limit and max_bytes.
+// bounded by limit and max_bytes. ripgrep's output is streamed and ripgrep is stopped once a
+// bound is hit, so a broad pattern costs only the matches returned.
 func (f *fsHost) handleGrep(w http.ResponseWriter, r *http.Request) {
 	var req grepRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -521,13 +548,13 @@ func (f *fsHost) handleGrep(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "--glob", g)
 	}
 	args = append(args, cwdResolved)
-	cmd := exec.Command("rg", args...)
-	out, err := cmd.Output()
+	cmd := exec.CommandContext(r.Context(), "rg", args...)
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 1 {
-			writeJSON(w, http.StatusOK, grepResponse{Matches: []grepMatch{}, Truncated: false})
-			return
-		}
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, "rg: "+err.Error())
+		return
+	}
+	if err := cmd.Start(); err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, "rg: "+err.Error())
 		return
 	}
@@ -535,44 +562,57 @@ func (f *fsHost) handleGrep(w http.ResponseWriter, r *http.Request) {
 	matches := make([]grepMatch, 0)
 	truncated := false
 	byteCount := 0
-	sc := bufio.NewScanner(bytes.NewReader(out))
-	for sc.Scan() {
-		line := sc.Bytes()
-		var ev struct {
-			Type string `json:"type"`
-			Data struct {
-				Path struct {
-					Text string `json:"text"`
-				} `json:"path"`
-				LineNumber int `json:"line_number"`
-				Lines      struct {
-					Text string `json:"text"`
-				} `json:"lines"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal(line, &ev); err != nil {
+	br := bufio.NewReaderSize(stdout, readChunk)
+	for !truncated {
+		line, rerr := br.ReadSlice('\n')
+		if rerr == bufio.ErrBufferFull {
+			if err := discardLine(br); err != nil {
+				break
+			}
 			continue
 		}
-		if ev.Type != "match" {
-			continue
+		if len(line) > 0 {
+			var ev struct {
+				Type string `json:"type"`
+				Data struct {
+					Path struct {
+						Text string `json:"text"`
+					} `json:"path"`
+					LineNumber int `json:"line_number"`
+					Lines      struct {
+						Text string `json:"text"`
+					} `json:"lines"`
+				} `json:"data"`
+			}
+			if json.Unmarshal(line, &ev) == nil && ev.Type == "match" {
+				abs := ev.Data.Path.Text
+				if !filepathIsAbs(abs) {
+					abs = filepath.Join(cwdResolved, abs)
+				}
+				if resolved, err := f.host.resolveHostPath(abs, true, false); err == nil {
+					m := grepMatch{Path: resolved, Line: ev.Data.LineNumber, Text: strings.TrimRight(ev.Data.Lines.Text, "\n")}
+					entryLen := len(m.Path) + len(m.Text) + 16
+					if len(matches) >= limit || byteCount+entryLen > maxBytes {
+						truncated = true
+					} else {
+						matches = append(matches, m)
+						byteCount += entryLen
+					}
+				}
+			}
 		}
-		text := strings.TrimRight(ev.Data.Lines.Text, "\n")
-		abs := ev.Data.Path.Text
-		if !filepathIsAbs(abs) {
-			abs = filepath.Join(cwdResolved, abs)
-		}
-		resolved, err := f.host.resolveHostPath(abs, true, false)
-		if err != nil {
-			continue
-		}
-		m := grepMatch{Path: resolved, Line: ev.Data.LineNumber, Text: text}
-		entryLen := len(m.Path) + len(m.Text) + 16
-		if len(matches) >= limit || byteCount+entryLen > maxBytes {
-			truncated = true
+		if rerr != nil {
 			break
 		}
-		matches = append(matches, m)
-		byteCount += entryLen
+	}
+	if truncated {
+		_ = cmd.Process.Kill()
+	}
+	if err := cmd.Wait(); err != nil && !truncated {
+		if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 1 {
+			writeError(w, r, http.StatusInternalServerError, CodeInternal, "rg: "+err.Error())
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, grepResponse{Matches: matches, Truncated: truncated})
 }

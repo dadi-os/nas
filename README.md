@@ -160,7 +160,7 @@ Anonymous HTTP on `LISTEN_ADDR`. Nothing is persisted in Nas — **tmux is the r
 | tmux socket | `/run/dadi/tmux.sock` on appliance (`tmpfiles.d`); under `$DADI_STATE_DIR/run` in Compose |
 | Default cwd | `$DADI_HOME` when terminal / glob / grep omit `cwd` |
 
-On the appliance (`DADI_RUNTIME=podman`) Nas runs as root and launches every tmux command via `runuser -u dadi --` with `-S /run/dadi/tmux.sock`. In Compose/dev the process already runs as the container user, so the user switch is skipped; the same socket flag and code path remain.
+On the appliance (`DADI_RUNTIME=podman`) Nas runs as root and launches every tmux command via `runuser -u dadi --` with `-S /run/dadi/tmux.sock`. In Compose/dev the process already runs as the container user, so the user switch is skipped; the same socket flag and code path remain. On the appliance the `new-session` that starts the tmux server also runs under `systemd-run --scope --slice=dadi-terminals.slice`, so every terminal's shell and build shares that slice's memory cap, and the tmux server (and the terminals in it) now outlive a Nas restart.
 
 | Method | Path | Body | Success | Errors |
 | --- | --- | --- | --- | --- |
@@ -311,6 +311,7 @@ The run happens in the background: `202` returns the run immediately (`{ "state"
 | `nas` | host systemd | control API on `127.0.0.1:8092` |
 | `loki` / `alloy` | host systemd | logs |
 | `dadi-browsers.slice` | host slice | transient scopes for nas-spawned Xvfb + Chromium; `MemoryHigh=40%`, `MemoryMax=50%` |
+| `dadi-terminals.slice` | host slice | the transient scope holding the tmux server (started by the first `new-session`) and every terminal's shell and build; `MemoryHigh=20%`, `MemoryMax=25%` |
 | `zram0` | host swap | `zram-generator`, size = RAM, zstd; there is no disk swap |
 | `sddm` + Plasma | host graphical | `sddm-wayland-plasma`; autologin `dadi`; no locker; bone glass desktop |
 | `dwar` / `yaad` / `hath` / `ghar` / `chaavi` (+ postgres / migrate) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8085` (`ghar` uses `Network=host`, binds loopback; Chaavi, `/v1` and the Bitwarden vault together, on `8085`) |
