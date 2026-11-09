@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,9 +43,12 @@ const (
 	notRun = "[not run] Ankur took over before this ran. Look again before you act."
 	// purposeChars is how much of a task's purpose its view shows.
 	purposeChars = 120
-	toolFinish   = "finish"
-	toolAsk      = "ask"
-	textTurn     = "[continue] Text you write reaches no one. Take the next step with a tool, call ask for something only the agent or Ankur can give, or call finish with the result."
+	// logLimitDefault and logLimitMax are the default and largest page of a task's log.
+	logLimitDefault = 200
+	logLimitMax     = 1000
+	toolFinish      = "finish"
+	toolAsk         = "ask"
+	textTurn        = "[continue] Text you write reaches no one. Take the next step with a tool, call ask for something only the agent or Ankur can give, or call finish with the result."
 )
 
 // Status is where a task stands: its helper is working, paused while Ankur drives its
@@ -193,6 +197,7 @@ type Runner struct {
 	mu      sync.Mutex
 	tasks   map[string]*Task
 	seq     int64
+	journal *journal
 }
 
 // Error is a request failure with its HTTP status and stable code.
@@ -213,7 +218,11 @@ func NewRunner(dir, dwarURL string, kits []Kit, publish func(Report)) (*Runner, 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("helpers dir: %w", err)
 	}
-	r := &Runner{dir: dir, dwar: newDwarClient(dwarURL), kits: map[string]Kit{}, publish: publish, tasks: map[string]*Task{}}
+	jr, err := newJournal(filepath.Join(dir, logDirName))
+	if err != nil {
+		return nil, err
+	}
+	r := &Runner{dir: dir, journal: jr, dwar: newDwarClient(dwarURL), kits: map[string]Kit{}, publish: publish, tasks: map[string]*Task{}}
 	for _, kit := range kits {
 		r.kits[kit.Kind()] = kit
 	}
@@ -342,6 +351,46 @@ func (r *Runner) Register(mux *http.ServeMux, writeError func(http.ResponseWrite
 	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, r.List())
 	})
+	mux.HandleFunc("GET /tasks/usage", func(w http.ResponseWriter, req *http.Request) {
+		since, err := time.Parse(time.RFC3339, req.URL.Query().Get("since"))
+		if err != nil {
+			writeError(w, req, http.StatusUnprocessableEntity, "invalid_request", "since is required, an RFC3339 time")
+			return
+		}
+		tasks, err := r.journal.usage(since)
+		if err != nil {
+			fail(w, req, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
+	})
+	mux.HandleFunc("GET /tasks/{kind}/{id}/log", func(w http.ResponseWriter, req *http.Request) {
+		after, limit := int64(0), logLimitDefault
+		var err error
+		if v := req.URL.Query().Get("after_seq"); v != "" {
+			if after, err = strconv.ParseInt(v, 10, 64); err != nil || after < 0 {
+				writeError(w, req, http.StatusUnprocessableEntity, "invalid_request", "after_seq must be a non-negative integer")
+				return
+			}
+		}
+		if v := req.URL.Query().Get("limit"); v != "" {
+			if limit, err = strconv.Atoi(v); err != nil || limit < 1 || limit > logLimitMax {
+				writeError(w, req, http.StatusUnprocessableEntity, "invalid_request", fmt.Sprintf("limit must be an integer from 1 to %d", logLimitMax))
+				return
+			}
+		}
+		kind, id := req.PathValue("kind"), req.PathValue("id")
+		entries, next, exists, err := r.journal.read(kind, id, after, limit)
+		if err != nil {
+			fail(w, req, err)
+			return
+		}
+		if !exists {
+			writeError(w, req, http.StatusNotFound, "not_found", fmt.Sprintf("task/%s/%s has no log", kind, id))
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"task": "task/" + kind + "/" + id, "entries": entries, "next_seq": next})
+	})
 	mux.HandleFunc("GET /tasks/{kind}/{id}", func(w http.ResponseWriter, req *http.Request) {
 		view, err := r.Get(req.PathValue("kind"), req.PathValue("id"))
 		if err != nil {
@@ -350,6 +399,16 @@ func (r *Runner) Register(mux *http.ServeMux, writeError func(http.ResponseWrite
 		}
 		writeJSON(w, http.StatusOK, view)
 	})
+}
+
+// record appends row to t's log as the agent now steering t; a failure is logged and the
+// work goes on. Callers hold r.mu.
+func (r *Runner) record(t *Task, typ string, row entry) {
+	h := row.header()
+	h.Type, h.Agent = typ, t.SteeredBy
+	if err := r.journal.append(t.Kind, t.ID, row); err != nil {
+		slog.Error("helper log failed", "code", "internal_error", "task", t.Kind+"/"+t.ID, "err", err)
+	}
 }
 
 // newID returns a random 8-hex-digit task id.
@@ -444,6 +503,7 @@ func (r *Runner) steer(kit Kit, t *Task, agent, message string) (View, error) {
 	}
 	t.SteeredBy = agent
 	t.LastActivity = time.Now().UTC()
+	r.record(t, entrySteer, &steerRow{From: agent, Message: clipRunes(message, logLongMax), Held: t.Status == StatusPaused, Start: len(t.History) == 0})
 	if t.Status == StatusWorking || t.Status == StatusPaused {
 		t.Pending = append(t.Pending, Steer{From: agent, Message: message})
 		r.mu.Unlock()
@@ -545,6 +605,7 @@ func (r *Runner) Pause(kind, id string) (View, error) {
 		t.pausedFrom = t.Status
 		t.Status = StatusPaused
 		t.LastActivity = time.Now().UTC()
+		r.record(t, entryState, &stateRow{Status: string(t.Status), Reason: "ankur took over"})
 	default:
 		status := t.Status
 		r.mu.Unlock()
@@ -634,6 +695,7 @@ func (r *Runner) handBackIdle(kit Kit, t *Task, note string) (View, error) {
 	}
 	t.Status = t.pausedFrom
 	t.LastActivity = time.Now().UTC()
+	r.record(t, entryState, &stateRow{Status: string(t.Status), Reason: "resume"})
 	if note = strings.TrimSpace(note); note != "" {
 		text := Block{"type": "text", "text": "[Hand back from Ankur]\n" + note}
 		if n := len(t.History); n > 0 && t.History[n-1].Role == "user" {
@@ -667,6 +729,7 @@ func (r *Runner) handBack(kit Kit, t *Task, note string) {
 	}
 	t.startLoop()
 	t.LastActivity = time.Now().UTC()
+	r.record(t, entryState, &stateRow{Status: string(t.Status), Reason: "resume"})
 }
 
 // Stop ends a paused task's work once its loop has finished the step it was in: its resource
@@ -699,6 +762,7 @@ func (r *Runner) Stop(kind, id string) (View, error) {
 	}
 	r.mu.Lock()
 	t.Status = StatusAsleep
+	r.record(t, entryState, &stateRow{Status: string(t.Status), Reason: "stop"})
 	if !wasWorking && held == 0 {
 		t.LastActivity = time.Now().UTC()
 		r.mu.Unlock()
@@ -737,6 +801,7 @@ func (r *Runner) Halt(kind, id string) (View, error) {
 	t.Pending = nil
 	t.resuming = false
 	t.LastActivity = time.Now().UTC()
+	r.record(t, entryState, &stateRow{Status: string(t.Status), Reason: "halt"})
 	r.mu.Unlock()
 	if holdsResource {
 		if err := kit.Halt(t); err != nil {
@@ -777,7 +842,7 @@ func (r *Runner) wake(kit Kit, t *Task) error {
 		if victim == nil {
 			return Error{http.StatusConflict, "busy", fmt.Sprintf("not enough memory to wake another %s, and every awake one is working", t.Kind)}
 		}
-		if err := r.sleep(kit, victim); err != nil {
+		if err := r.sleep(kit, victim, "memory"); err != nil {
 			return err
 		}
 	}
@@ -786,6 +851,7 @@ func (r *Runner) wake(kit Kit, t *Task) error {
 	}
 	r.mu.Lock()
 	t.Status = StatusIdle
+	r.record(t, entryState, &stateRow{Status: string(t.Status), Reason: "wake"})
 	r.mu.Unlock()
 	return nil
 }
@@ -806,13 +872,14 @@ func (r *Runner) longestIdle(kind string) *Task {
 	return oldest
 }
 
-// sleep stops t's resource and marks it asleep, keeping its history.
-func (r *Runner) sleep(kit Kit, t *Task) error {
+// sleep stops t's resource and marks it asleep, keeping its history; reason is logged.
+func (r *Runner) sleep(kit Kit, t *Task, reason string) error {
 	if err := kit.Sleep(t); err != nil {
 		return fmt.Errorf("sleep task/%s/%s: %w", t.Kind, t.ID, err)
 	}
 	r.mu.Lock()
 	t.Status = StatusAsleep
+	r.record(t, entryState, &stateRow{Status: string(t.Status), Reason: reason})
 	r.mu.Unlock()
 	return r.save(t)
 }
@@ -835,13 +902,14 @@ func (r *Runner) Sweep(now time.Time) {
 		switch {
 		case idle > forgetAfter && status != StatusWorking && status != StatusPaused:
 			if status != StatusAsleep && status != StatusStopped {
-				if err := r.sleep(kit, t); err != nil {
+				if err := r.sleep(kit, t, "forget"); err != nil {
 					slog.Error("helper sleep failed", "code", "internal_error", "task", t.Kind+"/"+t.ID, "err", err)
 					continue
 				}
 			}
 			r.mu.Lock()
 			delete(r.tasks, t.Kind+"/"+t.ID)
+			r.record(t, entryState, &stateRow{Status: "forgotten", Reason: "forget"})
 			r.mu.Unlock()
 			if err := os.Remove(r.path(t)); err != nil {
 				slog.Error("helper forget failed", "code", "internal_error", "task", t.Kind+"/"+t.ID, "err", err)
@@ -851,10 +919,13 @@ func (r *Runner) Sweep(now time.Time) {
 				slog.Error("helper resume failed", "code", "internal_error", "task", t.Kind+"/"+t.ID, "err", err)
 			}
 		case (status == StatusIdle || status == StatusAsking) && idle > kit.IdleSleep():
-			if err := r.sleep(kit, t); err != nil {
+			if err := r.sleep(kit, t, "idle"); err != nil {
 				slog.Error("helper sleep failed", "code", "internal_error", "task", t.Kind+"/"+t.ID, "err", err)
 			}
 		}
+	}
+	if err := r.journal.pruneDue(now); err != nil {
+		slog.Error("helper log prune failed", "code", "internal_error", "err", err)
 	}
 }
 
@@ -1031,12 +1102,14 @@ func (r *Runner) run(kit Kit, t *Task) {
 		req := chatRequest{System: kit.Charter(), Messages: r.messages(t), Tools: append(kit.Tools(), askSpec, finishSpec), ToolChoice: "auto"}
 		caller := "nas/helper/" + t.Kind + "/" + t.SteeredBy
 		r.mu.Unlock()
+		began := time.Now()
 		resp, err := r.dwar.complete(caller, req)
 		if err != nil {
 			r.finish(t, "failed", err.Error(), nil)
 			return
 		}
 		r.mu.Lock()
+		r.record(t, entryTurn, newTurnRow(resp, time.Since(began)))
 		if t.Status != StatusWorking {
 			r.mu.Unlock()
 			return
@@ -1068,6 +1141,7 @@ func (r *Runner) run(kit Kit, t *Task) {
 			if err != nil {
 				input = []byte("{}")
 			}
+			calledAt := time.Now()
 			out, callErr := kit.Call(t, name, input)
 			isErr := callErr != nil
 			if isErr {
@@ -1075,6 +1149,7 @@ func (r *Runner) run(kit Kit, t *Task) {
 			}
 			results = append(results, Block{"type": "tool_result", "tool_use_id": id, "content": out, "is_error": isErr})
 			r.mu.Lock()
+			r.record(t, entryResult, &resultRow{ToolUseID: id, Name: name, IsError: isErr, Chars: len([]rune(out)), Head: clipRunes(out, logTextMax), Ms: time.Since(calledAt).Milliseconds()})
 			t.ResultSizes[id] = len(out)
 			t.ResultOrder = append(t.ResultOrder, id)
 			r.mu.Unlock()
@@ -1149,6 +1224,7 @@ func (r *Runner) newReport(t *Task, state, text string, files []string) Report {
 		report.Files = []string{}
 	}
 	t.LastReport = &report
+	r.record(t, entryReport, &reportRow{State: state, Text: clipRunes(report.Text, logLongMax), Files: report.Files})
 	return report
 }
 

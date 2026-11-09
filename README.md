@@ -21,7 +21,7 @@ Nas does not call other app modules as a client for its own control plane. Its b
 ```
 nas/
   service/          Go control API (provision, status, logs, terminals, fs, browsers, takeover, module config)
-  service/helpers   browser and terminal helpers: runner.go (tasks, loop, sleep and wake, pause and hand back),
+  service/helpers   browser and terminal helpers: runner.go (tasks, loop, sleep and wake, pause and hand back), journal.go (durable activity log),
                     browser/ (CDP client, tools, charter.md, per-agent Chromium folders),
                     terminal/ (tools, charter.md, doctrine/: Ankur's doctrine, the helpers' own copy)
   logging/          Dev Alloy + Loki configs
@@ -242,6 +242,8 @@ A helper is a purpose-built operator for one browser or one shell, connected to 
 
 Each helper run is a task, addressed `task/<kind>/<id>`. Its lifecycle is Nas's, never an agent's: an idle task sleeps after 15 minutes (browser) or 60 (terminal), stopping its resource and keeping its history; a steer to a sleeping task wakes it transparently; a task idle for 24 hours is forgotten. Waking a browser checks memory first and puts the longest-idle awake task to sleep while it is short. Tasks are saved under `$DADI_STATE_DIR/helpers/` and come back asleep after a Nas restart, which also stops every browser left running. Each report (`done`, `needs_input`, `failed`, `stopped`) is published on `GET /events` as a `helper_report` event (`seq`, `task`, `agent_id` of the agent whose steer it answers, `state`, `text`, `files`) and kept as the task's `last_report`.
 
+Every task also has a durable activity log, an append-only JSONL file `$DADI_STATE_DIR/helpers/log/<kind>-<id>.jsonl` (a subdirectory, so the task loader, which reads only `*.json` files in the helpers dir itself, never sees it). It survives the task's 24-hour forget and is pruned 30 days after its last write (`logRetention`, checked hourly by the sweeper). One JSON object per line, `seq` counting from 1 per task, `at` RFC3339Nano UTC, `agent` the agent steering the task at that moment: `steer` (`from`, `message` clipped to 4000 characters, `held` while Ankur drove, `start` for the task's first steer), `turn` (`ms`, `stop_reason`, `usage` {`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`}, `thinking` up to 4000 characters, `text` up to 2000, `calls` [{`id`, `name`, `input` compact JSON up to 2000}]), `result` (`tool_use_id`, `name`, `is_error`, `chars` full length, `head` up to 2000, `ms`), `state` (`status`, `reason`: wake, sleep, memory, idle, forget, ankur took over, resume, stop, halt) and `report` (`state`, `text` up to 4000, `files`). Clipped text ends in `…`. A failed log write is logged as `helper log failed` and the helper carries on.
+
 The terminal helper's tools: `run` (a command, its full output kept in `~/.cache/dadi-helpers/<task>/`; `background` returns a handle), `job` (follow or stop one), `read`, `search`, `edit`, `write`, `secret` (a command with a Chaavi secret in its environment, scrubbed from the output). It reaches its shell and files through Nas's own `/terminals` and `/fs` API.
 
 | Method | Path | Body | Success | Errors |
@@ -254,6 +256,8 @@ The terminal helper's tools: `run` (a command, its full output kept in `~/.cache
 | `POST` | `/tasks/{kind}/{id}/halt` | — | the task's view, `stopped` | `not_found` |
 | `GET` | `/tasks` | — | every task's view, most recently active first | — |
 | `GET` | `/tasks/{kind}/{id}` | — | `{ task, kind, id, owner, steered_by, purpose, status: working \| paused \| idle \| asking \| asleep \| stopped, resource, state, created_at, last_activity, last_report }` | `not_found` |
+| `GET` | `/tasks/{kind}/{id}/log?after_seq=0&limit=200` | — | `{ task, entries, next_seq }`: entries oldest first (limit default 200, max 1000); `next_seq` is the last seq returned, `null` when no later entry exists. Works for a forgotten task whose log remains | `invalid_request` (422), `not_found` (no log) |
+| `GET` | `/tasks/usage?since=<RFC3339>` | — | `{ tasks: [{ task, kind, owner, steps, calls, input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens, first_at, last_at }] }`, newest `last_at` first; `calls` counts turn rows, `steps` result rows, `owner` is the agent on the newest row, only rows at or after `since` count | `invalid_request` (422, `since` missing or invalid) |
 
 #### Halt
 

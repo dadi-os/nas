@@ -70,6 +70,7 @@ type fakeDwar struct {
 	requests []chatRequest
 	callers  []string
 	hold     chan struct{}
+	usage    Usage
 }
 
 func (d *fakeDwar) server(t *testing.T) *httptest.Server {
@@ -94,7 +95,7 @@ func (d *fakeDwar) server(t *testing.T) *httptest.Server {
 		next := d.script[0]
 		d.script = d.script[1:]
 		d.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(chatResponse{Content: next, StopReason: "tool_use"})
+		_ = json.NewEncoder(w).Encode(chatResponse{Content: next, StopReason: "tool_use", Usage: d.usage})
 	}))
 	t.Cleanup(srv.Close)
 	return srv

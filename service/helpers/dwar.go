@@ -47,6 +47,7 @@ type chatRequest struct {
 type chatResponse struct {
 	Content    []Block `json:"content"`
 	StopReason string  `json:"stop_reason"`
+	Usage      Usage   `json:"usage"`
 }
 
 // dwarClient calls Dwar's POST /chat/complete, which runs the caller's system prompt only.
