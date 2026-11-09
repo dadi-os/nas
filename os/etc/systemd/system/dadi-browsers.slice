@@ -1,6 +1,12 @@
 [Unit]
-Description=Nas-managed Chromium and Xvfb, capped so the kernel kills a browser before any Dadi module
+Description=Nas-managed Chromium and Xvfb, capped as one pool so browsers slow down or die before any Dadi module does
 
 [Slice]
 MemoryHigh=40%
 MemoryMax=50%
+MemorySwapMax=25%
+CPUWeight=50
+CPUQuota=400%
+IOWeight=50
+ManagedOOMSwap=kill
+ManagedOOMMemoryPressure=kill

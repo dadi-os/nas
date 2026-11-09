@@ -189,6 +189,10 @@ func (b *browserHost) chromiumArgs(profile string, port int) []string {
 		"--no-default-browser-check",
 		fmt.Sprintf("--window-size=%d,%d", browserScreenW, browserScreenH),
 		"--disable-features=TranslateUI",
+		// Xvfb has no GPU, so Fedora's default GPU-raster flags only make each browser's GPU
+		// process software-render every frame, a constant CPU burn per browser.
+		"--disable-gpu",
+		"--disable-software-rasterizer",
 	}
 	if b.host.runtime == "compose" {
 		args = append(args, "--no-sandbox", "--disable-dev-shm-usage")

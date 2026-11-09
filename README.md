@@ -320,7 +320,7 @@ The run happens in the background: `202` returns the run immediately (`{ "state"
 | `caddy` | host systemd | `:80` mesh Host-header; `:443` public Headscale |
 | `nas` | host systemd | control API on `127.0.0.1:8092` |
 | `loki` / `alloy` | host systemd | logs |
-| `dadi-browsers.slice` | host slice | transient scopes for nas-spawned Xvfb + Chromium; `MemoryHigh=40%`, `MemoryMax=50%` |
+| `dadi-browsers.slice` | host slice | transient scopes for nas-spawned Xvfb + Chromium, capped as one pool with no browser-count limit; `MemoryHigh=40%`, `MemoryMax=50%`, `MemorySwapMax=25%`, `CPUQuota=400%`, `CPUWeight=50`, `IOWeight=50`, and systemd-oomd kills it first (`ManagedOOMSwap=kill`, `ManagedOOMMemoryPressure=kill`) |
 | `dadi-terminals.slice` | host slice | the transient scope holding the tmux server (started by the first `new-session`) and every terminal's shell and build; `MemoryHigh=20%`, `MemoryMax=25%` |
 | `zram0` | host swap | `zram-generator`, size = RAM, zstd; there is no disk swap |
 | `sddm` + Plasma | host graphical | `sddm-wayland-plasma`; autologin `dadi`; no locker; bone glass desktop |
