@@ -337,6 +337,7 @@ services:
       DWAR_URL: http://dwar:8080
       CHAAVI_URL: http://chaavi:8080
       BROWSER_CGROUP: /sys/fs/cgroup
+      TERMINAL_KILL_GRACE_SECONDS: "10"
       DADI_STATE_DIR: /var/lib/dadi
       DADI_HOME: /home/dadi
       DADI_RUNTIME: compose

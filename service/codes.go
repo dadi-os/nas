@@ -18,4 +18,6 @@ const (
 	CodeBinaryFile           = "binary_file"
 	CodeConflict             = "conflict"
 	CodeInternal             = "internal_error"
+	CodeCommandTimeout       = "command_timeout"
+	CodeShellUnresponsive    = "shell_unresponsive"
 )

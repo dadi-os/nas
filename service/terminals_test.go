@@ -36,7 +36,7 @@ func testTerminalEnv(t *testing.T) (*terminalHost, *http.ServeMux) {
 	if err := os.MkdirAll(host.runDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	th := newTerminalHost(host)
+	th := newTerminalHost(host, 3*time.Second)
 	mux := http.NewServeMux()
 	th.register(mux)
 	t.Cleanup(func() {
@@ -493,7 +493,7 @@ func TestTerminalKeysLiteralTypesTextAndKeepsKeyNamesOtherwise(t *testing.T) {
 // server, runs in dadi-terminals.slice, and that elsewhere tmux runs directly.
 func TestTmuxCmdSlice(t *testing.T) {
 	host := &hostRuntime{tmuxSocket: "/run/dadi/tmux.sock", switchUser: true}
-	th := newTerminalHost(host)
+	th := newTerminalHost(host, 3*time.Second)
 	create := strings.Join(th.tmuxCmd("new-session", "-d", "-s", "t1").Args, " ")
 	if !strings.HasPrefix(create, "systemd-run --scope") || !strings.Contains(create, "--slice=dadi-terminals.slice") || !strings.Contains(create, "runuser -u dadi -- tmux -S /run/dadi/tmux.sock new-session") {
 		t.Fatalf("new-session argv: %s", create)
@@ -505,5 +505,111 @@ func TestTmuxCmdSlice(t *testing.T) {
 	host.switchUser = false
 	if got := strings.Join(th.tmuxCmd("new-session").Args, " "); got != "tmux -S /run/dadi/tmux.sock new-session" {
 		t.Fatalf("dev argv: %s", got)
+	}
+}
+
+// execJSON runs command in terminal id through the exec route and returns its response.
+func execJSON(t *testing.T, mux *http.ServeMux, id, command string, timeout int) execResponse {
+	t.Helper()
+	code, body := doJSON(t, mux, http.MethodPost, "/terminals/"+id+"/exec", map[string]any{"command": command, "timeout_seconds": timeout})
+	if code != http.StatusOK {
+		t.Fatalf("exec %q: %d %s", command, code, body)
+	}
+	var resp execResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func createTerminal(t *testing.T, mux *http.ServeMux) string {
+	t.Helper()
+	code, body := doJSON(t, mux, http.MethodPost, "/terminals", map[string]any{})
+	if code != http.StatusOK {
+		t.Fatalf("create %d %s", code, body)
+	}
+	var created createTerminalResponse
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatal(err)
+	}
+	return created.ID
+}
+
+// TestExecTimeoutKillsTheCommandAndLeavesAUsableShell checks that a command outliving its
+// timeout is killed rather than left holding the pane, so the next exec is not queued behind it.
+func TestExecTimeoutKillsTheCommandAndLeavesAUsableShell(t *testing.T) {
+	_, mux := testTerminalEnv(t)
+	id := createTerminal(t, mux)
+
+	started := time.Now()
+	hung := execJSON(t, mux, id, "sleep 120", 1)
+	if !hung.TimedOut || !hung.Killed || hung.ShellEnded || hung.ExitCode != nil {
+		t.Fatalf("hung exec: %+v", hung)
+	}
+	if time.Since(started) > 8*time.Second {
+		t.Fatalf("a 1s timeout took %s", time.Since(started))
+	}
+	next := execJSON(t, mux, id, "echo alive", 10)
+	if next.TimedOut || next.ExitCode == nil || *next.ExitCode != 0 || !strings.Contains(next.Output, "alive") {
+		t.Fatalf("shell unusable after the kill: %+v", next)
+	}
+}
+
+// TestExecClosesStdinSoACommandCannotSwallowTheNextLine checks that a command reading stdin
+// sees end of file instead of consuming the exec marker typed after it.
+func TestExecClosesStdinSoACommandCannotSwallowTheNextLine(t *testing.T) {
+	_, mux := testTerminalEnv(t)
+	id := createTerminal(t, mux)
+	resp := execJSON(t, mux, id, "cat; echo after-cat", 10)
+	if resp.TimedOut || resp.ExitCode == nil || *resp.ExitCode != 0 || !strings.Contains(resp.Output, "after-cat") {
+		t.Fatalf("cat blocked on the terminal: %+v", resp)
+	}
+}
+
+// TestPkillMatchingTheCommandTextDoesNotKillTheShell checks that a command naming its own text
+// in pkill -f does not end the shell: the command text is not in any process's argv.
+func TestPkillMatchingTheCommandTextDoesNotKillTheShell(t *testing.T) {
+	_, mux := testTerminalEnv(t)
+	id := createTerminal(t, mux)
+	execJSON(t, mux, id, "pkill -f no_such_fetch_script_9917.py; true", 10)
+	next := execJSON(t, mux, id, "echo alive", 10)
+	if next.ExitCode == nil || !strings.Contains(next.Output, "alive") {
+		t.Fatalf("shell dead after pkill -f: %+v", next)
+	}
+}
+
+// TestDeleteWithTreeKillsBackgroundJobsThatSurviveAClosedSession checks that tree=true kills
+// the process a nohup'd job started, and that a plain delete leaves it running.
+func TestDeleteWithTreeKillsBackgroundJobsThatSurviveAClosedSession(t *testing.T) {
+	_, mux := testTerminalEnv(t)
+	alive := func(marker string) bool {
+		return exec.Command("pgrep", "-f", marker).Run() == nil
+	}
+	plain, tree := "sleep 30511", "sleep 30512"
+	t.Cleanup(func() {
+		_ = exec.Command("pkill", "-f", plain).Run()
+		_ = exec.Command("pkill", "-f", tree).Run()
+	})
+
+	for _, tc := range []struct {
+		command string
+		tree    bool
+	}{{plain, false}, {tree, true}} {
+		id := createTerminal(t, mux)
+		execJSON(t, mux, id, "nohup "+tc.command+" >/dev/null 2>&1 &", 10)
+		path := "/terminals/" + id
+		if tc.tree {
+			path += "?tree=true"
+		}
+		if code, body := doJSON(t, mux, http.MethodDelete, path, nil); code != http.StatusNoContent {
+			t.Fatalf("delete %d %s", code, body)
+		}
+	}
+	time.Sleep(500 * time.Millisecond)
+	if !alive(plain) {
+		t.Fatal("a plain delete killed the nohup job")
+	}
+	if alive(tree) {
+		t.Fatal("tree=true left the job running")
 	}
 }

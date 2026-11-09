@@ -20,6 +20,7 @@ type fakeKit struct {
 	mu      sync.Mutex
 	wakes   int
 	sleeps  int
+	halts   int
 	calls   []string
 	room    func() bool
 	gate    chan struct{}
@@ -41,6 +42,7 @@ func (k *fakeKit) Wake(t *Task) error {
 	return nil
 }
 func (k *fakeKit) Sleep(t *Task) error { k.mu.Lock(); k.sleeps++; k.mu.Unlock(); return nil }
+func (k *fakeKit) Halt(t *Task) error  { k.mu.Lock(); k.halts++; k.mu.Unlock(); return nil }
 func (k *fakeKit) Room() (bool, error) {
 	if k.room == nil {
 		return true, nil
@@ -839,4 +841,115 @@ func TestPausedTaskReloadsAsleepAfterRestart(t *testing.T) {
 		t.Fatalf("reloaded %+v, %v", got, err)
 	}
 	dwar.hold <- struct{}{}
+}
+
+func TestHaltEndsAWorkingTaskAndRefusesLaterSteers(t *testing.T) {
+	kit := &fakeKit{gate: make(chan struct{}), started: make(chan struct{}, 4)}
+	dwar := &fakeDwar{script: [][]Block{
+		{use("u1", "run", map[string]any{"command": "one"})},
+		{use("u2", "finish", map[string]any{"result": "should never be reported"})},
+	}}
+	r, reports, _ := newTestRunner(t, kit, dwar)
+	view, err := r.Start("terminal", "agent-a", "job", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-kit.started
+	if _, err := r.Steer("terminal", view.ID, "agent-b", "while it works"); err != nil {
+		t.Fatal(err)
+	}
+	halted, err := r.Halt("terminal", view.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if halted.Status != StatusStopped || kit.halts != 1 || halted.Resource != "" {
+		t.Fatalf("status %s, halts %d, resource %q", halted.Status, kit.halts, halted.Resource)
+	}
+	rep := waitReport(t, reports)
+	if rep.State != "stopped" || !strings.Contains(rep.Text, "1 steer(s)") {
+		t.Fatalf("report %+v", rep)
+	}
+	close(kit.gate)
+	time.Sleep(200 * time.Millisecond)
+	if got, _ := r.Get("terminal", view.ID); got.Status != StatusStopped {
+		t.Fatalf("the loop revived a stopped task: %s", got.Status)
+	}
+	if len(dwar.requests) != 1 {
+		t.Fatalf("the stopped loop took another step: %d requests", len(dwar.requests))
+	}
+	_, err = r.Steer("terminal", view.ID, "agent-a", "are you there")
+	var e Error
+	if !errors.As(err, &e) || e.Status != http.StatusConflict || e.Code != "task_stopped" {
+		t.Fatalf("steer of a stopped task: %v", err)
+	}
+	if kit.wakes != 1 {
+		t.Fatalf("a steer woke a stopped task: %d wakes", kit.wakes)
+	}
+}
+
+func TestHaltOfAnIdleOrStoppedTaskIsQuietAndRepeatable(t *testing.T) {
+	kit := &fakeKit{}
+	dwar := &fakeDwar{script: [][]Block{{use("u1", "finish", map[string]any{"result": "x"})}}}
+	r, reports, dir := newTestRunner(t, kit, dwar)
+	view, err := r.Start("terminal", "agent-a", "job", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitReport(t, reports)
+	waitStatus(t, r, "terminal", view.ID, StatusIdle)
+	for i := 0; i < 2; i++ {
+		halted, err := r.Halt("terminal", view.ID)
+		if err != nil || halted.Status != StatusStopped {
+			t.Fatalf("halt %d: %+v %v", i, halted, err)
+		}
+	}
+	select {
+	case rep := <-reports:
+		t.Fatalf("an idle task's halt reported %+v", rep)
+	default:
+	}
+	if kit.halts != 1 {
+		t.Fatalf("halts %d: the repeat killed a resource the task no longer holds", kit.halts)
+	}
+	reloaded, err := NewRunner(dir, dwar.server(t).URL, []Kit{kit}, func(Report) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := reloaded.Get("terminal", view.ID); err != nil || got.Status != StatusStopped {
+		t.Fatalf("stopped task after restart: %+v %v", got, err)
+	}
+}
+
+func TestHaltRouteAnswersTaskStoppedOnSteer(t *testing.T) {
+	kit := &fakeKit{}
+	dwar := &fakeDwar{script: [][]Block{{use("u1", "finish", map[string]any{"result": "x"})}}}
+	r, reports, _ := newTestRunner(t, kit, dwar)
+	view, err := r.Start("terminal", "agent-a", "job", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitReport(t, reports)
+	mux := http.NewServeMux()
+	r.Register(mux, func(w http.ResponseWriter, _ *http.Request, status int, code, msg string) {
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"type": code, "message": msg}})
+	}, func(w http.ResponseWriter, status int, v any) {
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(v)
+	})
+	post := func(path, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)))
+		return rec
+	}
+	if rec := post("/tasks/terminal/"+view.ID+"/halt", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"status":"stopped"`) {
+		t.Fatalf("halt %d %s", rec.Code, rec.Body)
+	}
+	rec := post("/tasks/terminal/"+view.ID+"/steer", `{"agent_id":"agent-a","message":"hi"}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"type":"task_stopped"`) {
+		t.Fatalf("steer %d %s", rec.Code, rec.Body)
+	}
+	if rec := post("/tasks/terminal/nope/halt", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("halt of an unknown task %d", rec.Code)
+	}
 }

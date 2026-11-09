@@ -243,6 +243,9 @@ func (k *Kit) Sleep(t *helpers.Task) error {
 	return nil
 }
 
+// Halt stops t's browser as Sleep does; Chromium and its child processes end with it.
+func (k *Kit) Halt(t *helpers.Task) error { return k.Sleep(t) }
+
 // State lists the open tabs with their URL and title, or the tabs a sleeping task reopens.
 func (k *Kit) State(t *helpers.Task) string {
 	k.mu.Lock()

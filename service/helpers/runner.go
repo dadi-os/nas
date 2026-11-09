@@ -49,7 +49,7 @@ const (
 
 // Status is where a task stands: its helper is working, paused while Ankur drives its
 // browser or terminal, idle after a finish, waiting on an answer it asked for, or asleep
-// with its resource stopped and its history kept.
+// with its resource stopped and its history kept, or stopped for good by Halt.
 type Status string
 
 const (
@@ -58,6 +58,7 @@ const (
 	StatusIdle    Status = "idle"
 	StatusAsking  Status = "asking"
 	StatusAsleep  Status = "asleep"
+	StatusStopped Status = "stopped"
 )
 
 // Kit is one kind of helper: its charter, its tools, and how it wakes, sleeps and acts on
@@ -71,6 +72,9 @@ type Kit interface {
 	Wake(t *Task) error
 	// Sleep stops the task's resource and frees its memory, keeping what Wake restores.
 	Sleep(t *Task) error
+	// Halt stops the task's resource and every process it started, including background
+	// jobs that survive Sleep. It is safe to repeat.
+	Halt(t *Task) error
 	Call(t *Task, name string, input json.RawMessage) (string, error)
 	// State is the short state of the work: tabs and their pages, or directory and files touched.
 	State(t *Task) string
@@ -238,7 +242,9 @@ func NewRunner(dir, dwarURL string, kits []Kit, publish func(Report)) (*Runner, 
 			}
 			continue
 		}
-		t.Status = StatusAsleep
+		if t.Status != StatusStopped {
+			t.Status = StatusAsleep
+		}
 		if t.Memo == nil {
 			t.Memo = map[string]string{}
 		}
@@ -319,6 +325,14 @@ func (r *Runner) Register(mux *http.ServeMux, writeError func(http.ResponseWrite
 	})
 	mux.HandleFunc("POST /tasks/{kind}/{id}/stop", func(w http.ResponseWriter, req *http.Request) {
 		view, err := r.Stop(req.PathValue("kind"), req.PathValue("id"))
+		if err != nil {
+			fail(w, req, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, view)
+	})
+	mux.HandleFunc("POST /tasks/{kind}/{id}/halt", func(w http.ResponseWriter, req *http.Request) {
+		view, err := r.Halt(req.PathValue("kind"), req.PathValue("id"))
 		if err != nil {
 			fail(w, req, err)
 			return
@@ -408,8 +422,11 @@ func (r *Runner) Steer(kind, id, agent, message string) (View, error) {
 		return View{}, Error{http.StatusNotFound, "not_found", fmt.Sprintf("task/%s/%s does not exist or was forgotten after 24 idle hours", kind, id)}
 	}
 	r.mu.Lock()
-	asleep := t.Status == StatusAsleep
+	stopped, asleep := t.Status == StatusStopped, t.Status == StatusAsleep
 	r.mu.Unlock()
+	if stopped {
+		return View{}, stoppedError(t)
+	}
 	if asleep {
 		if err := r.wake(kit, t); err != nil {
 			return View{}, err
@@ -421,6 +438,10 @@ func (r *Runner) Steer(kind, id, agent, message string) (View, error) {
 // steer queues message for a working or paused helper, or appends it and starts the loop.
 func (r *Runner) steer(kit Kit, t *Task, agent, message string) (View, error) {
 	r.mu.Lock()
+	if t.Status == StatusStopped {
+		r.mu.Unlock()
+		return View{}, stoppedError(t)
+	}
 	t.SteeredBy = agent
 	t.LastActivity = time.Now().UTC()
 	if t.Status == StatusWorking || t.Status == StatusPaused {
@@ -466,6 +487,11 @@ func (r *Runner) interrupted(t *Task) bool {
 	return t.Status != StatusWorking
 }
 
+// stoppedError is the Error for a steer sent to a task Halt ended.
+func stoppedError(t *Task) Error {
+	return Error{http.StatusConflict, "task_stopped", fmt.Sprintf("task/%s/%s was stopped and cannot be steered; start a new task", t.Kind, t.ID)}
+}
+
 // conflict is the Error for a pause, resume or stop the task's status does not allow.
 func conflict(t *Task, status Status, want string) Error {
 	return Error{http.StatusConflict, "conflict", fmt.Sprintf("task/%s/%s is %s; only %s", t.Kind, t.ID, status, want)}
@@ -481,7 +507,7 @@ func (r *Runner) Drive(kind, resource string) bool {
 	r.mu.Lock()
 	var t *Task
 	for _, candidate := range r.tasks {
-		if candidate.Kind == kind && candidate.Resource == resource && candidate.Status != StatusAsleep {
+		if candidate.Kind == kind && candidate.Resource == resource && candidate.Status != StatusAsleep && candidate.Status != StatusStopped {
 			t = candidate
 			break
 		}
@@ -692,6 +718,50 @@ func (r *Runner) Stop(kind, id string) (View, error) {
 	return r.view(kit, t), nil
 }
 
+// Halt is the hard stop: whatever the task is doing, it ends for good in status stopped. Its
+// loop takes no further step (a tool call already running is cut short by the kill and its
+// result dropped), its resource and every process under it are killed, held steers are
+// dropped, and every later steer is refused task_stopped. An asleep task has no resource to kill. The agent whose steer was in flight
+// is told in a stopped report. Halting a stopped task only repeats the kill.
+func (r *Runner) Halt(kind, id string) (View, error) {
+	kit, t, err := r.find(kind, id)
+	if err != nil {
+		return View{}, err
+	}
+	r.mu.Lock()
+	wasStopped := t.Status == StatusStopped
+	holdsResource := t.Status != StatusAsleep && (!wasStopped || t.Resource != "")
+	inFlight := t.Status == StatusWorking || t.Status == StatusPaused || len(t.Pending) > 0
+	held := len(t.Pending)
+	t.Status = StatusStopped
+	t.Pending = nil
+	t.resuming = false
+	t.LastActivity = time.Now().UTC()
+	r.mu.Unlock()
+	if holdsResource {
+		if err := kit.Halt(t); err != nil {
+			return View{}, fmt.Errorf("halt task/%s/%s: %w", t.Kind, t.ID, err)
+		}
+		t.Resource = ""
+	}
+	if wasStopped || !inFlight {
+		return r.view(kit, t), r.save(t)
+	}
+	text := "This task was stopped; its resource and every process it started were killed."
+	if held > 0 {
+		text += fmt.Sprintf(" %d steer(s) were not read.", held)
+	}
+	r.mu.Lock()
+	report := r.newReport(t, "stopped", text, nil)
+	r.mu.Unlock()
+	if err := r.save(t); err != nil {
+		slog.Error("helper save failed", "code", "internal_error", "task", report.Task, "err", err)
+	}
+	slog.Info("helper halted", "task", report.Task)
+	r.publish(report)
+	return r.view(kit, t), nil
+}
+
 // wake starts t's resource, first putting the longest-idle awake task of its kind to sleep
 // while memory is short. With nothing left to put to sleep it fails busy.
 func (r *Runner) wake(kit Kit, t *Task) error {
@@ -764,7 +834,7 @@ func (r *Runner) Sweep(now time.Time) {
 		r.mu.Unlock()
 		switch {
 		case idle > forgetAfter && status != StatusWorking && status != StatusPaused:
-			if status != StatusAsleep {
+			if status != StatusAsleep && status != StatusStopped {
 				if err := r.sleep(kit, t); err != nil {
 					slog.Error("helper sleep failed", "code", "internal_error", "task", t.Kind+"/"+t.ID, "err", err)
 					continue
@@ -1086,6 +1156,10 @@ func (r *Runner) newReport(t *Task, state, text string, files []string) Report {
 // saved and published. Steers that arrived as the stretch ended start the next one.
 func (r *Runner) finish(t *Task, state, text string, files []string) {
 	r.mu.Lock()
+	if t.Status == StatusStopped {
+		r.mu.Unlock()
+		return
+	}
 	report := r.newReport(t, state, text, files)
 	t.Status = StatusIdle
 	if state == "needs_input" {

@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -36,13 +37,18 @@ type terminalHost struct {
 	mu       sync.Mutex
 	createMu sync.Mutex
 	busy     map[string]struct{}
+	// killGrace is how long a shell gets, after the command that outlived its timeout is
+	// killed, to print the exec marker before the session itself is ended.
+	killGrace time.Duration
 }
 
-// newTerminalHost returns the terminal API backed by host's tmux server.
-func newTerminalHost(host *hostRuntime) *terminalHost {
+// newTerminalHost returns the terminal API backed by host's tmux server. killGrace is
+// TERMINAL_KILL_GRACE_SECONDS.
+func newTerminalHost(host *hostRuntime, killGrace time.Duration) *terminalHost {
 	return &terminalHost{
-		host: host,
-		busy: make(map[string]struct{}),
+		host:      host,
+		busy:      make(map[string]struct{}),
+		killGrace: killGrace,
 	}
 }
 
@@ -293,11 +299,18 @@ type execResponse struct {
 	Output    string `json:"output"`
 	Truncated bool   `json:"truncated"`
 	TimedOut  bool   `json:"timed_out"`
+	// Killed is true when the command outlived its timeout and its process group was killed;
+	// the shell is still usable.
+	Killed bool `json:"killed"`
+	// ShellEnded is true when the shell did not answer within killGrace of that kill and the
+	// session was ended with every process under it; the terminal id is gone.
+	ShellEnded bool `json:"shell_ended"`
 }
 
 // handleExec runs one command in session id and waits for its exit marker. The command is
-// evaluated in a subshell, so nothing it does to shell state (set -e, exit, exec, cd) outlives
-// it or ends the session.
+// evaluated in a subshell with stdin closed, so nothing it does to shell state (set -e, exit,
+// exec, cd) outlives it or ends the session, and it cannot swallow what is typed after it.
+// A command still running at its timeout is killed (see endCommand).
 func (t *terminalHost) handleExec(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !t.requireSession(w, r, id) {
@@ -360,7 +373,7 @@ func (t *terminalHost) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nonce := hex.EncodeToString(nonceBytes)
-	execLine := "( eval " + shellSingleQuote(req.Command) + " ); printf '\\n" + execMarker + "%s %d\\n' " + shellSingleQuote(nonce) + " $?"
+	execLine := "( eval " + shellSingleQuote(req.Command) + " ) </dev/null; printf '\\n" + execMarker + "%s %d\\n' " + shellSingleQuote(nonce) + " $?"
 	if err := t.tmuxCmd("send-keys", "-t", id, "-l", "--", execLine).Run(); err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, "send-keys: "+err.Error())
 		return
@@ -370,39 +383,159 @@ func (t *terminalHost) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deadline := time.Now().Add(time.Duration(timeout) * time.Second)
 	markerPrefix := execMarker + nonce + " "
-	var (
-		exitCode *int
-		output   string
-		timedOut bool
-	)
-	for {
-		capOut, err := t.tmuxOutput("capture-pane", "-p", "-J", "-t", id, "-S", "-")
-		if err != nil {
-			writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
-			return
-		}
-		if code, body, ok := parseExecCapture(capOut, execLine, markerPrefix); ok {
-			exitCode = &code
-			output = body
-			break
-		}
-		if time.Now().After(deadline) {
-			timedOut = true
-			output = partialExecOutput(capOut, execLine)
-			break
-		}
-		time.Sleep(execPollInterval)
+	var resp execResponse
+	code, output, capOut, ok, err := t.awaitMarker(id, execLine, markerPrefix, time.Now().Add(time.Duration(timeout)*time.Second))
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
+		return
+	}
+	if ok {
+		resp.ExitCode = &code
+	} else {
+		resp.TimedOut = true
+		output = partialExecOutput(capOut, execLine)
+		resp.Killed, resp.ShellEnded = t.endCommand(id, execLine, markerPrefix, timeout)
 	}
 
 	truncated, trunc := truncateHeadTail(output, maxBytes)
-	writeJSON(w, http.StatusOK, execResponse{
-		ExitCode:  exitCode,
-		Output:    truncated,
-		Truncated: trunc,
-		TimedOut:  timedOut,
-	})
+	resp.Output = truncated
+	resp.Truncated = trunc
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// awaitMarker polls session id's pane until markerPrefix's exit-code line appears or deadline
+// passes. It returns the exit code and output when ok, and always the last capture.
+func (t *terminalHost) awaitMarker(id, execLine, markerPrefix string, deadline time.Time) (code int, output, capture string, ok bool, err error) {
+	for {
+		capture, err = t.tmuxOutput("capture-pane", "-p", "-J", "-t", id, "-S", "-")
+		if err != nil {
+			return 0, "", "", false, err
+		}
+		if code, output, ok = parseExecCapture(capture, execLine, markerPrefix); ok {
+			return code, output, capture, true, nil
+		}
+		if time.Now().After(deadline) {
+			return 0, "", capture, false, nil
+		}
+		time.Sleep(execPollInterval)
+	}
+}
+
+// endCommand deals with a command that outlived its timeout: it kills the pane's foreground
+// process group, then waits up to killGrace for the shell to print the exec marker. A shell
+// that does so is killed=true and stays; one that does not is ended with every process under
+// it (shellEnded=true), so a wedged shell is never left behind for the next exec to queue on.
+func (t *terminalHost) endCommand(id, execLine, markerPrefix string, timeout int) (killed, shellEnded bool) {
+	if err := t.killForeground(id); err != nil {
+		slog.Error("terminal foreground kill failed", "code", CodeInternal, "terminal", id, "err", err)
+	} else if _, _, _, ok, err := t.awaitMarker(id, execLine, markerPrefix, time.Now().Add(t.killGrace)); err == nil && ok {
+		slog.Warn("terminal command killed at its timeout", "code", CodeCommandTimeout, "terminal", id, "timeout_seconds", timeout)
+		return true, false
+	}
+	if err := t.kill(id, true); err != nil {
+		slog.Error("terminal kill failed", "code", CodeInternal, "terminal", id, "err", err)
+	}
+	slog.Error("terminal shell unresponsive after its command was killed, session ended", "code", CodeShellUnresponsive, "terminal", id, "timeout_seconds", timeout)
+	return false, true
+}
+
+// processEntry is one row of the process table.
+type processEntry struct{ pid, pgid int }
+
+// listProcesses returns the processes that have tty (such as "pts/3") as their controlling
+// terminal, as pid and process group.
+func listProcesses(tty string) ([]processEntry, error) {
+	out, err := exec.Command("ps", "-t", tty, "-o", "pid=,pgid=").Output()
+	if err != nil {
+		return nil, fmt.Errorf("ps -t %s: %w", tty, err)
+	}
+	var procs []processEntry
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 0 {
+			continue
+		}
+		pid, err1 := strconv.Atoi(f[0])
+		pgid, err2 := 0, error(nil)
+		if len(f) == 2 {
+			pgid, err2 = strconv.Atoi(f[1])
+		}
+		if len(f) != 2 || err1 != nil || err2 != nil {
+			return nil, fmt.Errorf("ps -t %s: unreadable row %q", tty, line)
+		}
+		procs = append(procs, processEntry{pid, pgid})
+	}
+	return procs, nil
+}
+
+// panePID returns the pid of session id's shell.
+func (t *terminalHost) panePID(id string) (int, error) {
+	out, err := t.tmuxOutput("display-message", "-p", "-t", id, "#{pane_pid}")
+	if err != nil {
+		return 0, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, fmt.Errorf("pane pid %q: %w", strings.TrimSpace(out), err)
+	}
+	return pid, nil
+}
+
+// killForeground SIGKILLs the foreground process group of session id's terminal, the running
+// command and everything it started, unless that group is the shell's own.
+func (t *terminalHost) killForeground(id string) error {
+	pid, err := t.panePID(id)
+	if err != nil {
+		return err
+	}
+	out, err := exec.Command("ps", "-o", "tpgid=,pgid=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return fmt.Errorf("ps %d: %w", pid, err)
+	}
+	f := strings.Fields(string(out))
+	if len(f) != 2 {
+		return fmt.Errorf("ps %d: unreadable row %q", pid, strings.TrimSpace(string(out)))
+	}
+	fg, err1 := strconv.Atoi(f[0])
+	own, err2 := strconv.Atoi(f[1])
+	if err1 != nil || err2 != nil {
+		return fmt.Errorf("ps %d: unreadable row %q", pid, strings.TrimSpace(string(out)))
+	}
+	if fg <= 0 || fg == own {
+		return nil
+	}
+	if err := syscall.Kill(-fg, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+		return fmt.Errorf("kill group %d: %w", fg, err)
+	}
+	return nil
+}
+
+// killTree SIGKILLs every process on the controlling terminal tty, with each process group
+// they occupy. A background job started from the shell keeps that terminal after its subshell
+// exits and Nas's exec leaves it orphaned, so walking children would miss it. Nas's own group
+// is never signalled. A process that started its own session (setsid) is out of reach.
+func killTree(tty string) error {
+	procs, err := listProcesses(tty)
+	if err != nil {
+		return err
+	}
+	self := syscall.Getpgrp()
+	groups := map[int]bool{}
+	for _, p := range procs {
+		if p.pgid > 1 && p.pgid != self {
+			groups[p.pgid] = true
+		}
+	}
+	for g := range groups {
+		_ = syscall.Kill(-g, syscall.SIGKILL)
+	}
+	for _, p := range procs {
+		if p.pid != os.Getpid() {
+			_ = syscall.Kill(p.pid, syscall.SIGKILL)
+		}
+	}
+	return nil
 }
 
 // parseExecCapture finds markerPrefix's exit-code line in a pane capture and returns the
@@ -583,7 +716,8 @@ func (t *terminalHost) handleKeys(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"sent": true})
 }
 
-// handleDelete is DELETE /terminals/{id}: kills the session. A session that is already gone
+// handleDelete is DELETE /terminals/{id}: kills the session. With ?tree=true every process the
+// shell started, background jobs included, is killed with it. A session that is already gone
 // is a success.
 func (t *terminalHost) handleDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -591,17 +725,30 @@ func (t *terminalHost) handleDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusNotFound, CodeNotFound, "not_found")
 		return
 	}
-	if err := t.kill(id); err != nil {
+	if err := t.kill(id, r.URL.Query().Get("tree") == "true"); err != nil {
 		writeError(w, r, http.StatusInternalServerError, CodeInternal, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// kill ends session id; a session that is already gone is not an error.
-func (t *terminalHost) kill(id string) error {
+// kill ends session id; a session that is already gone is not an error. With tree, every
+// process under the shell is killed first.
+func (t *terminalHost) kill(id string, tree bool) error {
 	if !t.hasSession(id) {
 		return nil
+	}
+	if tree {
+		tty, err := t.tmuxOutput("display-message", "-p", "-t", id, "#{pane_tty}")
+		if err != nil {
+			return err
+		}
+		if err := killTree(strings.TrimPrefix(strings.TrimSpace(tty), "/dev/")); err != nil {
+			return err
+		}
+		if !t.hasSession(id) {
+			return nil
+		}
 	}
 	if err := t.tmuxCmd("kill-session", "-t", id).Run(); err != nil {
 		return fmt.Errorf("kill-session: %w", err)

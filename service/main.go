@@ -63,6 +63,11 @@ func main() {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
 	}
+	killGrace, err := requireSeconds("TERMINAL_KILL_GRACE_SECONDS")
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeConfigMissing)
+		os.Exit(1)
+	}
 	state, err := loadStateConfig()
 	if err != nil {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
@@ -77,7 +82,7 @@ func main() {
 		slog.Error(err.Error(), "code", CodeInternal)
 		os.Exit(1)
 	}
-	terminals := newTerminalHost(host)
+	terminals := newTerminalHost(host, killGrace)
 	files := newFSHost(host)
 	browsers := newBrowserHost(host)
 

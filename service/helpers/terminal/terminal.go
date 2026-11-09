@@ -150,6 +150,15 @@ func (k *Kit) Sleep(t *helpers.Task) error {
 	return k.call(http.MethodDelete, k.nas+"/terminals/"+t.Resource, nil, nil)
 }
 
+// Halt kills t's shell and every process under it, background jobs included. A task whose
+// shell is gone has nothing to kill.
+func (k *Kit) Halt(t *helpers.Task) error {
+	if t.Resource == "" {
+		return nil
+	}
+	return k.call(http.MethodDelete, k.nas+"/terminals/"+t.Resource+"?tree=true", nil, nil)
+}
+
 // State is the shell's directory, its running background jobs, and the files touched.
 func (k *Kit) State(t *helpers.Task) string {
 	lines := []string{"Working directory: " + t.Cwd}
@@ -191,9 +200,11 @@ func shellQuote(s string) string {
 }
 
 type execResult struct {
-	ExitCode *int   `json:"exit_code"`
-	Output   string `json:"output"`
-	TimedOut bool   `json:"timed_out"`
+	ExitCode   *int   `json:"exit_code"`
+	Output     string `json:"output"`
+	TimedOut   bool   `json:"timed_out"`
+	Killed     bool   `json:"killed"`
+	ShellEnded bool   `json:"shell_ended"`
 }
 
 // exec runs command in t's shell.
@@ -212,7 +223,7 @@ func (k *Kit) Tools() []helpers.ToolSpec {
 		return map[string]any{"type": "object", "additionalProperties": false, "required": required, "properties": props}
 	}
 	return []helpers.ToolSpec{
-		{Name: "run", Description: "Run a shell command as dadi, in cwd (default the shell's directory). Each runs in a fresh subshell, so cd and export do not carry over. Returns the exit code and the last 16000 bytes of output, with the full output's log path. A command still running at timeout keeps running in the background of the shell; background true starts a long command (a dev server, a long build) and returns a job handle at once.", InputSchema: obj([]string{"command"}, map[string]any{
+		{Name: "run", Description: "Run a shell command as dadi, in cwd (default the shell's directory). Each runs in a fresh subshell, so cd and export do not carry over. Returns the exit code and the last 16000 bytes of output, with the full output's log path. A command still running at its timeout is killed with its process group; background true starts a long command (a dev server, a long build) and returns a job handle at once.", InputSchema: obj([]string{"command"}, map[string]any{
 			"command": str("The shell command"), "cwd": str("Absolute directory to run in"),
 			"timeout":    map[string]any{"type": "integer", "description": "Seconds to wait (default 120, max 3600)"},
 			"background": map[string]any{"type": "boolean", "description": "Start it in the background and return a handle"},
@@ -322,8 +333,19 @@ func (k *Kit) run(t *helpers.Task, command, cwd string, timeout int, background 
 	if err != nil {
 		return "", err
 	}
+	if res.ShellEnded {
+		if err := k.Wake(t); err != nil {
+			return "", fmt.Errorf("shell unresponsive after the command was killed, and a new shell could not start: %w", err)
+		}
+		for key := range t.Notes() {
+			if strings.HasPrefix(key, "job:") {
+				t.Note(key, "")
+			}
+		}
+		return fmt.Sprintf("shell unresponsive: no completion within %ds, the command was killed and the shell did not answer, so it was ended with every process under it (background jobs included) and a new shell started in %s. Output so far in %s:\n%s", timeout, t.Cwd, log, res.Output), nil
+	}
 	if res.TimedOut {
-		return fmt.Sprintf("still running after %ds; output so far in %s:\n%s", timeout, log, res.Output), nil
+		return fmt.Sprintf("killed: no completion within %ds, so the command's process group was killed (use background true for work that runs longer). Output so far in %s:\n%s", timeout, log, res.Output), nil
 	}
 	return fmt.Sprintf("exit %d (full output: %s)\n%s", *res.ExitCode, log, res.Output), nil
 }

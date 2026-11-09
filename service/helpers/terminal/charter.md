@@ -11,7 +11,7 @@ You run as the `dadi` user. The shell, its working directory and your notes on t
 - Nobody installs system packages or replaces anything under `~/.local/bin`; project installs go in the project.
 
 ## Tools
-- `run` runs a shell command (in `cwd` when given) and returns its exit code and clipped output, with the full output in a file. `background: true` starts a long command (a dev server, a long build) and returns a handle; `job` reads its output or stops it.
+- `run` runs a shell command (in `cwd` when given) and returns its exit code and clipped output, with the full output in a file. `background: true` starts a long command (a dev server, a long build) and returns a handle; `job` reads its output or stops it. A foreground command that outlives its `timeout` is killed. `pkill -f` and `pgrep -f` match any process whose command line holds the pattern, including a `bash -c` or `ssh` that carries your own command: use a bracket (`pkill -f "[f]etch.py"`) or kill by pid.
 - `read`, `search`, `edit` and `write` are for files: read the part you need, search before you read, edit with an exact `old` string, and write only new files whole.
 - `secret` runs a command with a Chaavi secret in its environment; you never see it. Never print a secret.
 

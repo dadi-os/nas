@@ -43,6 +43,7 @@ Required on the control service (fail at startup if missing):
 | `LOKI_URL` | Loki base URL for `GET /logs` |
 | `DWAR_URL` | Dwar base URL; helpers call its `/chat/complete` |
 | `CHAAVI_URL` | Chaavi base URL; the terminal helper's `secret` tool and the browser helper's `sign_in` read through it |
+| `TERMINAL_KILL_GRACE_SECONDS` | Positive whole seconds a shell gets, after the command that outlived its exec timeout is killed, to answer before its session is ended with every process under it |
 | `BROWSER_CGROUP` | Directory of the cgroup whose `memory.max` and `memory.current` limit browsers: `/sys/fs/cgroup/dadi.slice/dadi-browsers.slice` on the appliance, `/sys/fs/cgroup` (the container's own) in Compose. Nas fails at startup if it cannot read both files (`nas.service` requires `dadi-browsers.slice`, which makes systemd create the cgroup) |
 | `LISTEN_ADDR` | HTTP listen address |
 | `DADI_STATE_DIR` | Persistent state root (dadiOS-owned; agents cannot write it) |
@@ -184,12 +185,12 @@ Session names are `t<n>` for positive integers. `POST /terminals` with no `id` p
 | --- | --- | --- | --- | --- |
 | `POST` | `/terminals` | `{ "id"?: string, "cwd"?: string }` (`id` is `t<n>`; `cwd` defaults to state dir) | `{ id, cwd }` | `invalid_request`, `conflict` (409, id already running) |
 | `GET` | `/terminals` | — | `[{ id, cwd, created_at, busy }]` | — |
-| `POST` | `/terminals/{id}/exec` | `{ "command": string, "timeout_seconds"?: number (default 120, max 3600), "max_bytes"?: number (default 32768) }` | `{ exit_code, output, truncated, timed_out }` | `not_found`, `busy` (409), `invalid_request` |
+| `POST` | `/terminals/{id}/exec` | `{ "command": string, "timeout_seconds"?: number (default 120, max 3600), "max_bytes"?: number (default 32768) }` | `{ exit_code, output, truncated, timed_out, killed, shell_ended }` | `not_found`, `busy` (409), `invalid_request` |
 | `GET` | `/terminals/{id}/capture` | `?lines=N` (default 200) | `{ output }` | `not_found`, `invalid_request` |
 | `POST` | `/terminals/{id}/keys` | `{ "keys": string[], "literal"?: boolean }` (`tmux send-keys`: key names such as `["C-c"]`, or with `literal` each entry typed as the text it is) | `{ sent: true }` | `not_found`, `invalid_request` |
-| `DELETE` | `/terminals/{id}` | — | 204 | `not_found` |
+| `DELETE` | `/terminals/{id}` | `?tree=true` also kills every process on the terminal, background jobs included | 204 | `not_found` |
 
-`busy` is true when `#{pane_current_command}` is not the login shell, or an exec is in flight. Exec runs the command as `( eval '<command>' )`, so `cd`, `export`, `set -e`, `exit`, and `exec` stay inside that subshell and can never end the session, then appends a nonce marker, polls `capture-pane` every 200ms, and returns output between the echoed command and the marker. On timeout the command keeps running (`timed_out: true`, `exit_code: null`); use `capture` / `keys` to follow up. Truncation keeps head and tail with an elided-bytes note in the middle.
+`busy` is true when `#{pane_current_command}` is not the login shell, or an exec is in flight. Exec runs the command as `( eval '<command>' )`, so `cd`, `export`, `set -e`, `exit`, and `exec` stay inside that subshell and can never end the session, then appends a nonce marker, polls `capture-pane` every 200ms, and returns output between the echoed command and the marker. The command runs with stdin closed (`</dev/null`), so it cannot swallow the marker line typed after it. A command still running at its timeout is killed with its foreground process group (`timed_out: true`, `exit_code: null`, `killed: true`, logged `command_timeout`), then the shell gets `TERMINAL_KILL_GRACE_SECONDS` to print the marker; a shell that does not is ended with every process on its terminal (`shell_ended: true`, logged `shell_unresponsive`) and the id is gone, so a wedged shell never stays behind for the next exec to queue on. Work meant to outlive a timeout belongs in a background job, started from the helper's `run`. Truncation keeps head and tail with an elided-bytes note in the middle.
 
 ### Change stream
 
@@ -246,12 +247,17 @@ The terminal helper's tools: `run` (a command, its full output kept in `~/.cache
 | Method | Path | Body | Success | Errors |
 | --- | --- | --- | --- | --- |
 | `POST` | `/tasks/{kind}` | `{ agent_id, message, cwd? }` | `201` the task's view | `invalid_request`, `not_found` (unknown kind), `busy` (409, no memory to wake one and every awake one is working) |
-| `POST` | `/tasks/{kind}/{id}/steer` | `{ agent_id, message }` | the task's view | `invalid_request`, `not_found` (no such task, or forgotten), `busy` |
+| `POST` | `/tasks/{kind}/{id}/steer` | `{ agent_id, message }` | the task's view | `invalid_request`, `not_found` (no such task, or forgotten), `busy`, `task_stopped` (409, the task was halted) |
 | `POST` | `/tasks/{kind}/{id}/pause` | — | the task's view | `not_found`, `conflict` (409, the task is asleep) |
 | `POST` | `/tasks/{kind}/{id}/resume` | `{ note? }` | the task's view | `invalid_request`, `not_found`, `conflict` (409, the task is not paused) |
 | `POST` | `/tasks/{kind}/{id}/stop` | — | the task's view, asleep | `not_found`, `conflict` (409, the task is not paused) |
+| `POST` | `/tasks/{kind}/{id}/halt` | — | the task's view, `stopped` | `not_found` |
 | `GET` | `/tasks` | — | every task's view, most recently active first | — |
-| `GET` | `/tasks/{kind}/{id}` | — | `{ task, kind, id, owner, steered_by, purpose, status: working \| paused \| idle \| asking \| asleep, resource, state, created_at, last_activity, last_report }` | `not_found` |
+| `GET` | `/tasks/{kind}/{id}` | — | `{ task, kind, id, owner, steered_by, purpose, status: working \| paused \| idle \| asking \| asleep \| stopped, resource, state, created_at, last_activity, last_report }` | `not_found` |
+
+#### Halt
+
+`POST /tasks/{kind}/{id}/halt` is the hard stop, open to any caller (an agent, not only Ankur's takeover `stop`). Whatever the task is doing, it ends in status `stopped`: its loop takes no further step, its resource and every process under it are killed (a terminal's shell and background jobs through `DELETE /terminals/{id}?tree=true`, a browser's Chromium), held steers are dropped, and a `stopped` report goes to the agent whose steer was in flight (none when the task was idle or asleep and nothing was held). Every later steer is refused `409 task_stopped` instead of queueing; `stopped` survives a Nas restart and the task is forgotten after 24 idle hours like any other. Halting a stopped task changes nothing; an asleep task has no resource to kill, so jobs a terminal task left running before it slept are not reached. Processes that start their own session (`setsid`) are not reached either.
 
 #### Takeover
 

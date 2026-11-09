@@ -178,3 +178,46 @@ func TestReadRangeAndEditsShowInTheState(t *testing.T) {
 		t.Fatalf("state %q", state)
 	}
 }
+
+func TestKilledCommandIsReportedWithItsTimeout(t *testing.T) {
+	f := &fakeNas{exec: func(string) map[string]any {
+		return map[string]any{"exit_code": nil, "output": "partial", "timed_out": true, "killed": true}
+	}}
+	kit, task := newTestKit(t, f)
+	out, err := kit.Call(task, "run", json.RawMessage(`{"command":"sleep 999","timeout":5}`))
+	if err != nil || !strings.HasPrefix(out, "killed: no completion within 5s") || !strings.HasSuffix(out, "partial") {
+		t.Fatalf("result %q %v", out, err)
+	}
+}
+
+func TestUnresponsiveShellIsReplacedAndSaidSo(t *testing.T) {
+	f := &fakeNas{exec: func(string) map[string]any {
+		return map[string]any{"exit_code": nil, "output": "", "timed_out": true, "shell_ended": true}
+	}}
+	kit, task := newTestKit(t, f)
+	task.Note("job:4242", "/tmp/log")
+	task.Resource = "t1"
+	out, err := kit.Call(task, "run", json.RawMessage(`{"command":"sleep 999","timeout":5}`))
+	if err != nil || !strings.HasPrefix(out, "shell unresponsive: no completion within 5s") {
+		t.Fatalf("result %q %v", out, err)
+	}
+	if task.Resource != "t3" || strings.Contains(kit.State(task), "Background jobs") {
+		t.Fatalf("shell not replaced or jobs kept: %+v %s", task, kit.State(task))
+	}
+}
+
+func TestHaltKillsTheShellsProcessTree(t *testing.T) {
+	f := &fakeNas{}
+	kit, task := newTestKit(t, f)
+	if err := kit.Halt(task); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.requests[len(f.requests)-1]; got != "DELETE /terminals/t3" {
+		t.Fatalf("last request %s", got)
+	}
+	task.Resource = ""
+	before := len(f.requests)
+	if err := kit.Halt(task); err != nil || len(f.requests) != before {
+		t.Fatalf("halt with no shell made a request: %v", err)
+	}
+}
