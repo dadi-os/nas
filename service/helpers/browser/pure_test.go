@@ -285,3 +285,13 @@ func TestCharterCarriesTheManagersSignInRules(t *testing.T) {
 		}
 	}
 }
+
+func TestFrontURLIsTheTabInFrontOnly(t *testing.T) {
+	tabs := []TabInfo{{ID: "a", URL: "https://one.example"}, {ID: "b", URL: "https://two.example", Front: true}, {ID: "c", URL: "https://three.example"}}
+	if got := frontURL(tabs); got != "https://two.example" {
+		t.Fatalf("frontURL: %q", got)
+	}
+	if got := frontURL(tabs[:1]); got != "" {
+		t.Fatalf("no tab in front must give no URL, got %q", got)
+	}
+}

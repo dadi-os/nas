@@ -88,6 +88,12 @@ type Kit interface {
 	Room() (bool, error)
 }
 
+// frontPager is implemented by a kit whose resource shows one page at a time.
+type frontPager interface {
+	// FrontURL is the address of the page the resource shows, or "" when none is in front.
+	FrontURL(t *Task) string
+}
+
 // Task is one helper run, addressed task/<kind>/<id>. Its fields persist across sleep and
 // Nas restarts; a kit keeps what it needs to wake in Resource, Folder, Cwd and its notes
 // (Note, Notes), which are safe to change while the task is being listed.
@@ -173,15 +179,18 @@ type Report struct {
 
 // View is a task as GET /tasks shows it.
 type View struct {
-	Task         string    `json:"task"`
-	Kind         string    `json:"kind"`
-	ID           string    `json:"id"`
-	Owner        string    `json:"owner"`
-	SteeredBy    string    `json:"steered_by"`
-	Purpose      string    `json:"purpose"`
-	Status       Status    `json:"status"`
-	Resource     string    `json:"resource,omitempty"`
-	State        string    `json:"state"`
+	Task      string `json:"task"`
+	Kind      string `json:"kind"`
+	ID        string `json:"id"`
+	Owner     string `json:"owner"`
+	SteeredBy string `json:"steered_by"`
+	Purpose   string `json:"purpose"`
+	Status    Status `json:"status"`
+	Resource  string `json:"resource,omitempty"`
+	State     string `json:"state"`
+	// ActiveURL is the address of the page in front in a browser task, empty for other kinds
+	// and while no page is in front.
+	ActiveURL    string    `json:"active_url,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	LastActivity time.Time `json:"last_activity"`
 	LastReport   *Report   `json:"last_report,omitempty"`
@@ -708,15 +717,17 @@ func (r *Runner) handBackIdle(kit Kit, t *Task, note string) (View, error) {
 	return r.view(kit, t), r.save(t)
 }
 
-// handBack gives a paused helper its loop back: a turn with Ankur's note (or the plain fact
-// that he drove), what he did being no part of it, and the state of the work now, joined by
-// the steers held while he drove. The task is working again. Callers hold r.mu.
-func (r *Runner) handBack(kit Kit, t *Task, note string) {
+// handBack gives a paused helper its loop back: a turn with the summary of what Ankur did
+// (or the plain fact that he drove, when there is none), and the state of the work now,
+// joined by the steers held while he drove. The task is working again. Callers hold r.mu.
+func (r *Runner) handBack(kit Kit, t *Task, summary string) {
 	head := "[Resumed after Ankur drove]"
-	if note = strings.TrimSpace(note); note != "" {
-		head = "[Hand back from Ankur]\n" + note
+	follow := fmt.Sprintf("Ankur used this %s while you were paused. What he did is not replayed to you: look at it again before your next step.", t.Kind)
+	if summary = strings.TrimSpace(summary); summary != "" {
+		head = "[Hand back from Ankur]\n" + summary
+		follow = fmt.Sprintf("That is a summary of what Ankur did in this %s while you were paused. Look at the %s again before your next step.", t.Kind, screenOf(t.Kind))
 	}
-	blocks := []Block{{"type": "text", "text": fmt.Sprintf("%s\n\nAnkur used this %s while you were paused. What he did is not replayed to you: look at it again before your next step.\n\n[State of the work]\n%s", head, t.Kind, kit.State(t))}}
+	blocks := []Block{{"type": "text", "text": fmt.Sprintf("%s\n\n%s\n\n[State of the work]\n%s", head, follow, kit.State(t))}}
 	for _, s := range t.Pending {
 		blocks = append(blocks, Block{"type": "text", "text": fmt.Sprintf("[Steer from %s]\n%s", s.From, s.Message)})
 		t.SteeredBy = s.From
@@ -730,6 +741,14 @@ func (r *Runner) handBack(kit Kit, t *Task, note string) {
 	t.startLoop()
 	t.LastActivity = time.Now().UTC()
 	r.record(t, entryState, &stateRow{Status: string(t.Status), Reason: "resume"})
+}
+
+// screenOf is what a task of the kind shows Ankur: a browser's page or a terminal's pane.
+func screenOf(kind string) string {
+	if kind == "browser" {
+		return "page"
+	}
+	return "terminal"
 }
 
 // Stop ends a paused task's work once its loop has finished the step it was in: its resource
@@ -978,13 +997,16 @@ func (r *Runner) Get(kind, id string) (View, error) {
 func (r *Runner) view(kit Kit, t *Task) View {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	state := ""
+	state, active := "", ""
 	if t.Status != StatusAsleep {
 		state = kit.State(t)
+		if f, ok := kit.(frontPager); ok {
+			active = f.FrontURL(t)
+		}
 	}
 	return View{
 		Task: "task/" + t.Kind + "/" + t.ID, Kind: t.Kind, ID: t.ID, Owner: t.Owner, SteeredBy: t.SteeredBy,
-		Purpose: clip(t.Purpose, purposeChars), Status: t.Status, Resource: t.Resource, State: state,
+		Purpose: clip(t.Purpose, purposeChars), Status: t.Status, Resource: t.Resource, State: state, ActiveURL: active,
 		CreatedAt: t.CreatedAt, LastActivity: t.LastActivity, LastReport: t.LastReport,
 	}
 }

@@ -287,6 +287,35 @@ func (k *Kit) State(t *helpers.Task) string {
 	return out
 }
 
+// FrontURL is the URL of the tab in front, which is the page the browser's screen shows; it is
+// empty while the browser is asleep or no tab is in front.
+func (k *Kit) FrontURL(t *helpers.Task) string {
+	k.mu.Lock()
+	s := k.sessions[t.ID]
+	k.mu.Unlock()
+	if s == nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), stateTimeout)
+	defer cancel()
+	tabs, err := s.b.Tabs(ctx)
+	if err != nil {
+		slog.Error("front tab not read", "code", "internal_error", "task", "browser/"+t.ID, "err", err)
+		return ""
+	}
+	return frontURL(tabs)
+}
+
+// frontURL is the URL of the tab marked in front, or "" when none is.
+func frontURL(tabs []TabInfo) string {
+	for _, tab := range tabs {
+		if tab.Front {
+			return tab.URL
+		}
+	}
+	return ""
+}
+
 // session returns t's running browser, starting it again first when its Chromium is gone
 // (killed for memory or crashed). Nothing a tool was asked to do has run yet at that point.
 func (k *Kit) session(t *helpers.Task) (*session, error) {

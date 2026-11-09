@@ -442,10 +442,13 @@ func TestDrivePausesAtTheBoundaryAndHandBackResumesWithTheNote(t *testing.T) {
 	waitReport(t, reports)
 	last := dwar.requests[1].Messages[len(dwar.requests[1].Messages)-1]
 	text := fmt.Sprint(last.Content)
-	for _, want := range []string{"tool_result", "[Hand back from Ankur]", "I signed in by hand", "cwd /home", "not replayed"} {
+	for _, want := range []string{"tool_result", "[Hand back from Ankur]", "I signed in by hand", "cwd /home", "summary of what Ankur did", "Look at the terminal again"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("resume turn lacks %q: %s", want, text)
 		}
+	}
+	if strings.Contains(text, "not replayed") {
+		t.Fatalf("a summary was given, yet the turn says nothing is known: %s", text)
 	}
 }
 
@@ -477,7 +480,8 @@ func TestPauseDropsAModelAnswerThatArrivesAfterIt(t *testing.T) {
 	if rep := waitReport(t, reports); rep.Text != "after the hand back" {
 		t.Fatalf("report %+v", rep)
 	}
-	if !strings.Contains(fmt.Sprint(dwar.requests[1].Messages), "[Resumed after Ankur drove]") {
+	plain := fmt.Sprint(dwar.requests[1].Messages)
+	if !strings.Contains(plain, "[Resumed after Ankur drove]") || !strings.Contains(plain, "not replayed to you") {
 		t.Fatalf("no plain resume turn: %v", dwar.requests[1].Messages)
 	}
 }
@@ -952,5 +956,27 @@ func TestHaltRouteAnswersTaskStoppedOnSteer(t *testing.T) {
 	}
 	if rec := post("/tasks/terminal/nope/halt", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("halt of an unknown task %d", rec.Code)
+	}
+}
+
+type frontKit struct{ fakeKit }
+
+func (k *frontKit) FrontURL(t *Task) string { return "https://front.example" }
+
+func TestViewCarriesTheFrontPageOfAKitThatHasOne(t *testing.T) {
+	kit := &frontKit{}
+	dwar := &fakeDwar{script: [][]Block{{use("u1", "finish", map[string]any{"result": "ok"})}}}
+	r, reports, _ := newTestRunner(t, kit, dwar)
+	view, err := r.Start("terminal", "agent-a", "job", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitReport(t, reports)
+	got, err := r.Get("terminal", view.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ActiveURL != "https://front.example" {
+		t.Fatalf("ActiveURL %q", got.ActiveURL)
 	}
 }
