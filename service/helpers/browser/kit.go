@@ -41,8 +41,8 @@ const (
 	// blockedAfter is how many failed calls in a row on one site end the helper's work on it.
 	blockedAfter = 3
 	staleContext = "Cannot find context with specified id"
-	// inlineMax is the most characters of extracted data a result carries; more goes to a file.
-	inlineMax = 6_000
+	// extractMaxChars is the most characters of extracted data a result carries; the helper cannot read files.
+	extractMaxChars = 8_000
 	// downloadWait is how long a download started by a click or a URL may take to finish.
 	downloadWait = 120 * time.Second
 	// tabsNote is the memo key holding the URLs of the tabs a sleeping task reopens.
@@ -369,12 +369,11 @@ func (k *Kit) Tools() []helpers.ToolSpec {
 		{Name: "look", Description: "See a page: its URL, title and a compact outline of interactive elements and landmarks, each with a ref (e12) that stays with its element between looks. Frames and open shadow roots are included. scope (a ref, or text on the page) returns just that region. Never the whole DOM.", InputSchema: obj(nil, map[string]any{"scope": str("A ref or text naming the region to read")})},
 		{Name: "act", Description: "Do a batch of actions in order on a tab (click, type, select, key, scroll, check, upload, wait, dialog), for example a whole form in one call. Each waits for its element to be visible, stable, enabled and uncovered, and scrolls it into view. Returns what changed: the new URL, new tabs, downloads, an open dialog and the new outline lines. It stops at the first action that fails and never repeats it; look before you try again.", InputSchema: obj([]string{"actions"}, map[string]any{"actions": map[string]any{"type": "array", "items": action, "description": "Actions to run in order"}})},
 		{Name: "find", Description: "Refs of the elements anywhere on the page, frames and shadow roots included, whose text, role or label contains query.", InputSchema: obj([]string{"query"}, map[string]any{"query": str("Text, role or label to match")})},
-		{Name: "extract", Description: "Read a table, list or the page's text into rows, following next-page or load-more controls for up to pages pages. format table gives CSV, json an array of objects, text the page text. Results over a few thousand characters (or when to_file is set) are written to a file and come back as its path with a summary and the first rows.", InputSchema: obj([]string{"what", "format"}, map[string]any{
-			"what":    str("What to read, such as \"the transactions table\""),
-			"format":  map[string]any{"type": "string", "enum": []string{"table", "json", "text"}},
-			"to_file": map[string]any{"type": []string{"string", "boolean"}, "description": "true, or an absolute path, to write the result to a file whatever its size"},
-			"pages":   map[string]any{"type": "integer", "description": "Most pages or load-more clicks to follow (default 1)"},
-			"next":    str("Text of the next-page or load-more control, when it is not Next or Load more"),
+		{Name: "extract", Description: "Read a table, list or the page's text into rows, following next-page or load-more controls for up to pages pages. format table gives CSV, json an array of objects, text the page text. A result over 8,000 characters is cut with a note; narrow what to read the rest.", InputSchema: obj([]string{"what", "format"}, map[string]any{
+			"what":   str("What to read, such as \"the transactions table\""),
+			"format": map[string]any{"type": "string", "enum": []string{"table", "json", "text"}},
+			"pages":  map[string]any{"type": "integer", "description": "Most pages or load-more clicks to follow (default 1)"},
+			"next":   str("Text of the next-page or load-more control, when it is not Next or Load more"),
 		})},
 		{Name: "screenshot", Description: "Save a PNG of the tab, or of the element at scope (a ref), and return its path. Pass question to have the image described and get the answer back; use it only for what an outline cannot show: canvas, charts, layout, captchas.", InputSchema: obj(nil, map[string]any{"scope": str("A ref to capture just that element"), "question": str("What to find out from the image")})},
 		{Name: "tabs", Description: "Manage tabs. With no arguments, list them. open loads a URL in a new tab, switch brings a tab to the front, close closes one.", InputSchema: map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"open": str("URL to open in a new tab"), "switch": str("Tab id to bring to the front"), "close": str("Tab id to close")}}},
@@ -389,26 +388,25 @@ func (k *Kit) Tools() []helpers.ToolSpec {
 }
 
 type input struct {
-	Tab      string          `json:"tab"`
-	Scope    string          `json:"scope"`
-	Question string          `json:"question"`
-	Actions  []Action        `json:"actions"`
-	Query    string          `json:"query"`
-	What     string          `json:"what"`
-	Format   string          `json:"format"`
-	ToFile   json.RawMessage `json:"to_file"`
-	Pages    int             `json:"pages"`
-	Next     string          `json:"next"`
-	Open     string          `json:"open"`
-	Switch   string          `json:"switch"`
-	Close    string          `json:"close"`
-	URL      string          `json:"url"`
-	Wait     string          `json:"wait"`
-	Ref      string          `json:"ref"`
-	Paths    []string        `json:"paths"`
-	Site     string          `json:"site"`
-	Item     string          `json:"item"`
-	Use      string          `json:"use"`
+	Tab      string   `json:"tab"`
+	Scope    string   `json:"scope"`
+	Question string   `json:"question"`
+	Actions  []Action `json:"actions"`
+	Query    string   `json:"query"`
+	What     string   `json:"what"`
+	Format   string   `json:"format"`
+	Pages    int      `json:"pages"`
+	Next     string   `json:"next"`
+	Open     string   `json:"open"`
+	Switch   string   `json:"switch"`
+	Close    string   `json:"close"`
+	URL      string   `json:"url"`
+	Wait     string   `json:"wait"`
+	Ref      string   `json:"ref"`
+	Paths    []string `json:"paths"`
+	Site     string   `json:"site"`
+	Item     string   `json:"item"`
+	Use      string   `json:"use"`
 }
 
 // Call runs one tool on t's browser. A failure is returned as the tool's error and is never
@@ -516,8 +514,28 @@ func (s *session) tab(ctx context.Context, id string) (*Tab, error) {
 	return s.b.Tab(ctx, "")
 }
 
+// retriesStale names the tools dispatch runs once more when the page replaced its execution
+// context under the first try. act, upload and download are left out: they change the page, and
+// a batch never repeats. navigate retries inside itself.
+var retriesStale = map[string]bool{"look": true, "find": true, "extract": true, "screenshot": true, "sign_in": true}
+
 // dispatch runs the named tool.
 func (k *Kit) dispatch(ctx context.Context, t *helpers.Task, s *session, name string, in input) (string, error) {
+	return retryStale(name, func() (string, error) { return k.dispatchOnce(ctx, t, s, name, in) })
+}
+
+// retryStale runs try, and once more when tool name is in retriesStale and the first try failed
+// on a replaced execution context.
+func retryStale(name string, try func() (string, error)) (string, error) {
+	out, err := try()
+	if err != nil && retriesStale[name] && strings.Contains(err.Error(), staleContext) {
+		return try()
+	}
+	return out, err
+}
+
+// dispatchOnce is one try of dispatch.
+func (k *Kit) dispatchOnce(ctx context.Context, t *helpers.Task, s *session, name string, in input) (string, error) {
 	if name == "tabs" {
 		return k.tabs(ctx, s, in)
 	}
@@ -536,7 +554,7 @@ func (k *Kit) dispatch(ctx context.Context, t *helpers.Task, s *session, name st
 	case "find":
 		return tab.Find(ctx, in.Query)
 	case "extract":
-		return k.extract(ctx, t, tab, in)
+		return k.extract(ctx, tab, in)
 	case "screenshot":
 		return k.screenshot(ctx, t, tab, in)
 	case "navigate":
@@ -703,41 +721,13 @@ func (k *Kit) writeFile(path string, data []byte) error {
 	})
 }
 
-// extract reads rows and keeps large results in a file.
-func (k *Kit) extract(ctx context.Context, t *helpers.Task, tab *Tab, in input) (string, error) {
+// extract reads rows and returns them inline, cut at extractMaxChars.
+func (k *Kit) extract(ctx context.Context, tab *Tab, in input) (string, error) {
 	got, err := tab.Extract(ctx, ExtractOptions{What: in.What, Format: in.Format, Pages: in.Pages, Next: in.Next})
 	if err != nil {
 		return "", err
 	}
-	path := ""
-	wantFile := len(got.Data) > inlineMax
-	if len(in.ToFile) > 0 && string(in.ToFile) != "false" && string(in.ToFile) != "null" {
-		wantFile = true
-		var p string
-		if json.Unmarshal(in.ToFile, &p) == nil {
-			path = p
-		}
-	}
-	if !wantFile {
-		return got.Data, nil
-	}
-	if path == "" {
-		dir, err := k.taskDir(t)
-		if err != nil {
-			return "", err
-		}
-		path = filepath.Join(dir, fmt.Sprintf("extract-%d.%s", time.Now().UnixNano(), got.Ext))
-	} else if !filepath.IsAbs(path) {
-		return "", fmt.Errorf("to_file must be an absolute path")
-	}
-	if err := k.writeFile(path, []byte(got.Data)); err != nil {
-		return "", err
-	}
-	summary := fmt.Sprintf("%d rows over %d page(s) saved to %s", got.Rows, got.Pages, path)
-	if len(got.Headers) > 0 {
-		summary += "\ncolumns: " + strings.Join(got.Headers, " | ")
-	}
-	return summary + "\nfirst rows:\n" + got.Preview, nil
+	return clipText(got.Data, extractMaxChars, "narrow what to read the rest"), nil
 }
 
 // screenshot saves a PNG and, when asked a question, has Dwar describe it.

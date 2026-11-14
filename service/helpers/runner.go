@@ -49,6 +49,10 @@ const (
 	toolFinish      = "finish"
 	toolAsk         = "ask"
 	stepWarning     = "[budget] %d turns left on this steer: finish with what you have read; list what you did not read and why."
+	stepsOut        = "[budget] No turns left on this steer: call finish now with what you have read; list what you did not read and why."
+	reportMaxChars  = 900
+	reportRefuseAt  = 1_200
+	reportTooLong   = "[too long] This report is %d characters. Cut it to %d: lead with what the steer asked; drop what it did not, and what you did to get it. Then call finish again."
 	textTurn        = "[continue] Text you write reaches no one. Take the next step with a tool, call ask for something only the agent or Ankur can give, or call finish with the result."
 )
 
@@ -1124,7 +1128,99 @@ func (r *Runner) messages(t *Task) []Message {
 		}
 		out[i] = Message{Role: m.Role, Content: content}
 	}
+	return compactSteers(out)
+}
+
+// startsSteer reports whether m opens a steer: it carries a steer's text and is the first
+// message or follows a finish or ask.
+func startsSteer(history []Message, i int) bool {
+	hasSteer := false
+	for _, b := range history[i].Content {
+		if text, _ := b["text"].(string); b["type"] == "text" && strings.HasPrefix(text, "[Steer from ") {
+			hasSteer = true
+		}
+	}
+	if !hasSteer {
+		return false
+	}
+	return i == 0 || endsTurn(history[i-1])
+}
+
+// endsTurn reports whether m is an assistant message that calls finish or ask.
+func endsTurn(m Message) bool {
+	for _, b := range m.Content {
+		if b["type"] == "tool_use" && (b["name"] == toolFinish || b["name"] == toolAsk) {
+			return true
+		}
+	}
+	return false
+}
+
+// compactSteers reduces every steer before the newest to its steer message and the report it
+// finished with, so a follow-up steer does not carry the earlier steers' pages and calls. A
+// steer that ended in ask, or in nothing, stays whole.
+func compactSteers(history []Message) []Message {
+	var starts []int
+	for i := range history {
+		if startsSteer(history, i) {
+			starts = append(starts, i)
+		}
+	}
+	if len(starts) < 2 {
+		return history
+	}
+	out := append([]Message{}, history[:starts[0]]...)
+	compacted := false
+	for n, from := range starts {
+		to := len(history)
+		if n+1 < len(starts) {
+			to = starts[n+1]
+		}
+		seg := history[from:to]
+		head := seg[0]
+		if compacted {
+			head = withoutResults(head)
+		}
+		report, ok := finishReport(seg)
+		if !ok || n == len(starts)-1 {
+			out = append(out, head)
+			out = append(out, seg[1:]...)
+			compacted = false
+			continue
+		}
+		out = append(out, head, Message{Role: "assistant", Content: []Block{{"type": "text", "text": "[Your report] " + report}}})
+		compacted = true
+	}
 	return out
+}
+
+// withoutResults is m without its tool results, which answer calls that are no longer there.
+func withoutResults(m Message) Message {
+	var content []Block
+	for _, b := range m.Content {
+		if b["type"] != "tool_result" {
+			content = append(content, b)
+		}
+	}
+	return Message{Role: m.Role, Content: content}
+}
+
+// finishReport is the result of the finish that ends seg.
+func finishReport(seg []Message) (string, bool) {
+	for i := len(seg) - 1; i >= 0; i-- {
+		if seg[i].Role != "assistant" {
+			continue
+		}
+		for _, b := range seg[i].Content {
+			if b["type"] == "tool_use" && b["name"] == toolFinish {
+				input, _ := b["input"].(map[string]any)
+				result, ok := input["result"].(string)
+				return result, ok
+			}
+		}
+		return "", false
+	}
+	return "", false
 }
 
 // run is a helper's loop: call the model, run its tools, fold in steers that arrived, until
@@ -1139,6 +1235,7 @@ func (r *Runner) run(kit Kit, t *Task) {
 	defer close(done)
 	textTurns := 0
 	steps := 0
+	refused := false
 	for {
 		r.mu.Lock()
 		req := chatRequest{System: kit.Charter(), Messages: r.messages(t), Tools: append(kit.Tools(), askSpec, finishSpec), ToolChoice: "auto"}
@@ -1174,6 +1271,14 @@ func (r *Runner) run(kit Kit, t *Task) {
 			if r.interrupted(t) {
 				results = append(results, Block{"type": "tool_result", "tool_use_id": id, "content": notRun, "is_error": true})
 				continue
+			}
+			if name == toolFinish && !refused {
+				input, _ := b["input"].(map[string]any)
+				if result, _ := input["result"].(string); len([]rune(result)) > reportRefuseAt {
+					refused = true
+					results = append(results, Block{"type": "tool_result", "tool_use_id": id, "content": fmt.Sprintf(reportTooLong, len([]rune(result)), reportMaxChars), "is_error": true})
+					continue
+				}
 			}
 			if name == toolFinish || name == toolAsk {
 				if end == nil {
@@ -1216,6 +1321,8 @@ func (r *Runner) run(kit Kit, t *Task) {
 		steps++
 		if steps == r.budget.Warn {
 			results = append(results, Block{"type": "text", "text": fmt.Sprintf(stepWarning, r.budget.Max-steps)})
+		} else if steps == r.budget.Max {
+			results = append(results, Block{"type": "text", "text": stepsOut})
 		}
 		r.mu.Lock()
 		if t.Status != StatusWorking {

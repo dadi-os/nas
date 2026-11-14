@@ -97,6 +97,34 @@ func onlyPasskeyItem(items []chaaviItem) []chaaviItem {
 	return items
 }
 
+// chooseLogin is the one Chaavi login of site that in names: the item called in.Item, else the
+// only one with a passkey, whichever way (in.Use) it signs in.
+func chooseLogin(items []chaaviItem, in input, site string) (chaaviItem, error) {
+	if in.Item != "" {
+		var named []chaaviItem
+		for _, it := range items {
+			if strings.EqualFold(it.Name, in.Item) {
+				named = append(named, it)
+			}
+		}
+		items = named
+	}
+	if len(items) > 1 {
+		items = onlyPasskeyItem(items)
+	}
+	switch {
+	case len(items) == 0:
+		return chaaviItem{}, fmt.Errorf("Chaavi has no login for %s", site)
+	case len(items) > 1:
+		var names []string
+		for _, it := range items {
+			names = append(names, jsonString(it.Name))
+		}
+		return chaaviItem{}, fmt.Errorf("Chaavi has %d logins for %s (%s); pass item to choose one", len(items), site, strings.Join(names, ", "))
+	}
+	return items[0], nil
+}
+
 // signIn signs the tab in with the Chaavi login for its site.
 func (k *Kit) signIn(ctx context.Context, tab *Tab, in input) (string, error) {
 	site := siteOf(in.Site)
@@ -110,29 +138,10 @@ func (k *Kit) signIn(ctx context.Context, tab *Tab, in input) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if in.Item != "" {
-		var named []chaaviItem
-		for _, it := range items {
-			if strings.EqualFold(it.Name, in.Item) {
-				named = append(named, it)
-			}
-		}
-		items = named
+	item, err := chooseLogin(items, in, site)
+	if err != nil {
+		return "", err
 	}
-	if len(items) > 1 && in.Use != "login" {
-		items = onlyPasskeyItem(items)
-	}
-	switch {
-	case len(items) == 0:
-		return "", fmt.Errorf("Chaavi has no login for %s", site)
-	case len(items) > 1:
-		var names []string
-		for _, it := range items {
-			names = append(names, jsonString(it.Name))
-		}
-		return "", fmt.Errorf("Chaavi has %d logins for %s (%s); pass item to choose one", len(items), site, strings.Join(names, ", "))
-	}
-	item := items[0]
 	hasPasskey := item.Login != nil && len(item.Login.Passkeys) > 0
 	if hasPasskey && in.Use != "login" {
 		return k.signInPasskey(ctx, tab, item)

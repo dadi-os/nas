@@ -1046,3 +1046,92 @@ func TestViewCarriesTheFrontPageOfAKitThatHasOne(t *testing.T) {
 		t.Fatalf("ActiveURL %q", got.ActiveURL)
 	}
 }
+
+// TestStepBudgetTellsTheHelperWhenNoTurnsAreLeft checks that the finish-only request carries
+// the instruction to report what was read.
+func TestStepBudgetTellsTheHelperWhenNoTurnsAreLeft(t *testing.T) {
+	kit := &fakeKit{}
+	var script [][]Block
+	for i := 1; i <= testBudget.Max; i++ {
+		script = append(script, []Block{use(fmt.Sprintf("u%d", i), "run", map[string]any{"command": "ls"})})
+	}
+	script = append(script, []Block{use("fin", "finish", map[string]any{"result": "partial"})})
+	dwar := &fakeDwar{script: script}
+	r, reports, _ := newTestRunner(t, kit, dwar)
+	if _, err := r.Start("terminal", "agent-a", "list", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitReport(t, reports)
+	last := fmt.Sprint(dwar.requests[testBudget.Max].Messages)
+	if !strings.Contains(last, "No turns left") || strings.Contains(fmt.Sprint(dwar.requests[testBudget.Max-1].Messages), "No turns left") {
+		t.Fatal("the out-of-turns instruction is missing on the finish-only request or came early")
+	}
+}
+
+// TestFinishOverTheLimitIsRefusedOnce sends back a long report once and takes the next one
+// whatever its length.
+func TestFinishOverTheLimitIsRefusedOnce(t *testing.T) {
+	long := strings.Repeat("x", reportRefuseAt+1)
+	dwar := &fakeDwar{script: [][]Block{
+		{use("f1", "finish", map[string]any{"result": long})},
+		{use("f2", "finish", map[string]any{"result": long})},
+	}}
+	r, reports, _ := newTestRunner(t, &fakeKit{}, dwar)
+	if _, err := r.Start("terminal", "agent-a", "list", ""); err != nil {
+		t.Fatal(err)
+	}
+	if rep := waitReport(t, reports); rep.State != "done" || rep.Text != long {
+		t.Fatalf("report %q", rep.Text)
+	}
+	if len(dwar.requests) != 2 || !strings.Contains(fmt.Sprint(dwar.requests[1].Messages), "[too long]") {
+		t.Fatalf("%d requests; the refusal did not reach the helper", len(dwar.requests))
+	}
+	short := &fakeDwar{script: [][]Block{{use("f", "finish", map[string]any{"result": strings.Repeat("y", reportRefuseAt)})}}}
+	r2, reports2, _ := newTestRunner(t, &fakeKit{}, short)
+	if _, err := r2.Start("terminal", "agent-a", "list", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitReport(t, reports2)
+	if len(short.requests) != 1 {
+		t.Fatalf("a report at the limit was refused: %d requests", len(short.requests))
+	}
+}
+
+// TestEarlierSteersReachTheModelAsTheirReports keeps the newest steer whole and reduces each
+// finished one before it to its steer and its report.
+func TestEarlierSteersReachTheModelAsTheirReports(t *testing.T) {
+	steer := func(n string, withResult bool) Message {
+		content := []Block{}
+		if withResult {
+			content = append(content, Block{"type": "tool_result", "tool_use_id": "fin" + n, "content": "delivered"})
+		}
+		return Message{Role: "user", Content: append(content, Block{"type": "text", "text": "[Steer from a]\nsteer " + n})}
+	}
+	turn := func(id, name string, in map[string]any) []Message {
+		return []Message{
+			{Role: "assistant", Content: []Block{use(id, name, in)}},
+			{Role: "user", Content: []Block{{"type": "tool_result", "tool_use_id": id, "content": "page " + id}}},
+		}
+	}
+	h := []Message{steer("1", false)}
+	h = append(h, turn("u1", "look", nil)...)
+	h = append(h, Message{Role: "assistant", Content: []Block{use("fin1", "finish", map[string]any{"result": "report one"})}})
+	h = append(h, steer("2", true))
+	h = append(h, turn("u2", "look", nil)...)
+	got := compactSteers(h)
+	text := fmt.Sprint(got)
+	if strings.Contains(text, "page u1") || !strings.Contains(text, "report one") || !strings.Contains(text, "page u2") {
+		t.Fatalf("history %v", got)
+	}
+	if len(got) != 5 || got[0].Role != "user" || got[1].Role != "assistant" || got[2].Role != "user" {
+		t.Fatalf("shape %v", got)
+	}
+	for _, b := range got[2].Content {
+		if b["type"] == "tool_result" {
+			t.Fatal("the new steer still answers a call that was compacted away")
+		}
+	}
+	if single := compactSteers(h[:3]); len(single) != 3 {
+		t.Fatal("a single steer was changed")
+	}
+}

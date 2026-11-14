@@ -2,6 +2,7 @@ package browser
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -316,5 +317,55 @@ func TestSignInChoosesTheOnePasskeyItem(t *testing.T) {
 	}
 	if got := onlyPasskeyItem([]chaaviItem{withKey, withKey}); len(got) != 2 {
 		t.Fatalf("two passkeys: %+v", got)
+	}
+}
+
+// TestChooseLoginUsesThePasskeyItemEvenForLoginUse picks the one item with a passkey among
+// several, whichever way the helper asks to sign in, and still asks when none or several do.
+func TestChooseLoginUsesThePasskeyItemEvenForLoginUse(t *testing.T) {
+	var withKey, plain chaaviItem
+	withKey.Name, plain.Name = "MSU Okta", "Engineering MSU"
+	withKey.Login = &struct {
+		Username *string `json:"username"`
+		Passkeys []struct {
+			RPID string `json:"rpId"`
+		} `json:"passkeys"`
+	}{Passkeys: []struct {
+		RPID string `json:"rpId"`
+	}{{RPID: "msu.edu"}}}
+	for _, use := range []string{"", "login", "passkey"} {
+		got, err := chooseLogin([]chaaviItem{plain, withKey}, input{Use: use}, "msu.edu")
+		if err != nil || got.Name != "MSU Okta" {
+			t.Fatalf("use %q: %v %v", use, got.Name, err)
+		}
+	}
+	if _, err := chooseLogin([]chaaviItem{plain, plain}, input{Use: "login"}, "msu.edu"); err == nil || !strings.Contains(err.Error(), "2 logins") {
+		t.Fatalf("two plain logins: %v", err)
+	}
+	if got, err := chooseLogin([]chaaviItem{plain, withKey}, input{Item: "engineering msu"}, "msu.edu"); err != nil || got.Name != "Engineering MSU" {
+		t.Fatalf("named: %v %v", got.Name, err)
+	}
+}
+
+// TestRetryStaleRunsReadsAgainButNeverAnAct retries a stale execution context once for the
+// reading tools and leaves the tools that change the page alone.
+func TestRetryStaleRunsReadsAgainButNeverAnAct(t *testing.T) {
+	for name, want := range map[string]int{"find": 2, "extract": 2, "sign_in": 2, "look": 2, "act": 1, "upload": 1} {
+		calls := 0
+		out, err := retryStale(name, func() (string, error) {
+			calls++
+			if calls == 1 {
+				return "", errors.New("Cannot find context with specified id")
+			}
+			return "ok", nil
+		})
+		if calls != want || (want == 2 && (err != nil || out != "ok")) || (want == 1 && err == nil) {
+			t.Fatalf("%s: %d calls, %q %v", name, calls, out, err)
+		}
+	}
+	calls := 0
+	_, err := retryStale("find", func() (string, error) { calls++; return "", errors.New("Cannot find context with specified id") })
+	if calls != 2 || err == nil {
+		t.Fatalf("a second stale error: %d calls, %v", calls, err)
 	}
 }

@@ -80,7 +80,6 @@ type Extracted struct {
 	Rows    int
 	Headers []string
 	Pages   int
-	Preview string
 }
 
 // Extract reads the table or list matching opts.What into rows, following the next-page or
@@ -184,14 +183,6 @@ func render(tab Table, format string, pages int) (Extracted, error) {
 		}
 		out.Data, out.Ext = string(raw), "json"
 	}
-	var preview []string
-	for i, row := range tab.Rows {
-		if i == 5 {
-			break
-		}
-		preview = append(preview, strings.Join(row, " | "))
-	}
-	out.Preview = strings.Join(preview, "\n")
 	return out, nil
 }
 
@@ -228,5 +219,5 @@ func (t *Tab) extractText(ctx context.Context, pages int, next string) (Extracte
 	if strings.TrimSpace(data) == "" {
 		return Extracted{}, errors.New("the page has no text")
 	}
-	return Extracted{Data: data, Ext: "txt", Rows: len(parts), Pages: followed, Preview: clipText(data, 400, "")}, nil
+	return Extracted{Data: data, Ext: "txt", Rows: len(parts), Pages: followed}, nil
 }
