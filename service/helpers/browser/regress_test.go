@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -540,6 +541,39 @@ func TestDialogDoesNotHangTheBatch(t *testing.T) {
 	}
 	if got := jsIn(t, ctx, tab, "", `window.ok`); got != false {
 		t.Fatalf("confirm returned %v", got)
+	}
+}
+
+// TestAlertOnLoadDoesNotHangPageCommands is the Piazza case: a page that calls alert() while
+// it loads returns from navigate at once, and a page command made while the dialog is open
+// fails with the dialog named instead of waiting for it.
+func TestAlertOnLoadDoesNotHangPageCommands(t *testing.T) {
+	b, _ := newBrowser(t)
+	ctx := testCtx(t)
+	srv := serve(t, map[string]string{"/": `<script>alert("The post you are looking for cannot be found")</script>`})
+	tab, err := b.Tab(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	if _, err := tab.Navigate(ctx, srv.URL, "load"); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(started) > commandTimeout {
+		t.Fatalf("navigate took %s", time.Since(started))
+	}
+	frames, err := tab.framesInOrder(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started = time.Now()
+	err = tab.eval(ctx, frames[0], "document.readyState", nil)
+	if !errors.Is(err, errDialogOpen) || time.Since(started) > 5*time.Second {
+		t.Fatalf("eval with a dialog open: %v after %s", err, time.Since(started))
+	}
+	yes := true
+	if _, err := tab.Act(ctx, []Action{{Type: "dialog", Accept: &yes}}); err != nil {
+		t.Fatal(err)
 	}
 }
 

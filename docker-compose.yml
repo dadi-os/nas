@@ -338,6 +338,8 @@ services:
       CHAAVI_URL: http://chaavi:8080
       BROWSER_CGROUP: /sys/fs/cgroup
       TERMINAL_KILL_GRACE_SECONDS: "10"
+      HELPER_STEPS_WARN: "14"
+      HELPER_STEPS_MAX: "18"
       DADI_STATE_DIR: /var/lib/dadi
       DADI_HOME: /home/dadi
       DADI_RUNTIME: compose

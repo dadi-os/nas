@@ -7,7 +7,7 @@ import (
 )
 
 // outlineMaxChars is how much of an outline a look returns; the rest is cut with a note.
-const outlineMaxChars = 16_000
+const outlineMaxChars = 6_000
 
 // clipText shortens s to max characters, cutting at a line end and saying what to do next.
 func clipText(s string, max int, hint string) string {

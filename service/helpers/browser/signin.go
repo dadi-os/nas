@@ -83,6 +83,20 @@ func (t *Tab) tickRemember(ctx context.Context, f loginFields) error {
 	return nil
 }
 
+// onlyPasskeyItem is the one item that has a passkey, or items when none or several do.
+func onlyPasskeyItem(items []chaaviItem) []chaaviItem {
+	var with []chaaviItem
+	for _, it := range items {
+		if it.Login != nil && len(it.Login.Passkeys) > 0 {
+			with = append(with, it)
+		}
+	}
+	if len(with) == 1 {
+		return with
+	}
+	return items
+}
+
 // signIn signs the tab in with the Chaavi login for its site.
 func (k *Kit) signIn(ctx context.Context, tab *Tab, in input) (string, error) {
 	site := siteOf(in.Site)
@@ -104,6 +118,9 @@ func (k *Kit) signIn(ctx context.Context, tab *Tab, in input) (string, error) {
 			}
 		}
 		items = named
+	}
+	if len(items) > 1 && in.Use != "login" {
+		items = onlyPasskeyItem(items)
 	}
 	switch {
 	case len(items) == 0:

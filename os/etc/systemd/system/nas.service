@@ -13,6 +13,8 @@ Environment=DWAR_URL=http://127.0.0.1:8081
 Environment=CHAAVI_URL=http://127.0.0.1:8085
 Environment=BROWSER_CGROUP=/sys/fs/cgroup/dadi.slice/dadi-browsers.slice
 Environment=TERMINAL_KILL_GRACE_SECONDS=10
+Environment=HELPER_STEPS_WARN=14
+Environment=HELPER_STEPS_MAX=18
 Environment=DADI_STATE_DIR=/var/lib/dadi
 Environment=DADI_HOME=/var/home/dadi
 Environment=DADI_RUNTIME=podman

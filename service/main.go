@@ -68,6 +68,16 @@ func main() {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
 	}
+	stepsWarn, err := requireInt("HELPER_STEPS_WARN")
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeConfigMissing)
+		os.Exit(1)
+	}
+	stepsMax, err := requireInt("HELPER_STEPS_MAX")
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeConfigMissing)
+		os.Exit(1)
+	}
 	state, err := loadStateConfig()
 	if err != nil {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
@@ -132,7 +142,7 @@ func main() {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
 	}
-	runner, err := helpers.NewRunner(filepath.Join(state.dir, "helpers"), dwarURL, []helpers.Kit{terminalKit, browserKit}, changes.publishReport)
+	runner, err := helpers.NewRunner(filepath.Join(state.dir, "helpers"), dwarURL, helpers.StepBudget{Warn: stepsWarn, Max: stepsMax}, []helpers.Kit{terminalKit, browserKit}, changes.publishReport)
 	if err != nil {
 		slog.Error(err.Error(), "code", CodeInternal)
 		os.Exit(1)

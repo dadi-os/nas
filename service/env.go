@@ -29,3 +29,17 @@ func requireSeconds(key string) (time.Duration, error) {
 	}
 	return time.Duration(n) * time.Second, nil
 }
+
+// requireInt returns the positive whole number in key, or an error with CodeConfigMissing
+// semantics.
+func requireInt(key string) (int, error) {
+	raw, err := requireEnv(key)
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("%s must be a positive whole number", key)
+	}
+	return n, nil
+}

@@ -34,8 +34,13 @@ const (
 	// stateTimeout bounds reading the open tabs for a task listing, which the runner does while
 	// holding its lock.
 	stateTimeout = 3 * time.Second
-	// callTimeout bounds one tool call.
-	callTimeout = 10 * time.Minute
+	// callTimeout bounds one tool call; downloadCallTimeout bounds the download tool, which waits for a file.
+	callTimeout         = 90 * time.Second
+	downloadCallTimeout = 10 * time.Minute
+	// staleContext is the protocol error of a page command sent to an execution context a navigation just replaced.
+	// blockedAfter is how many failed calls in a row on one site end the helper's work on it.
+	blockedAfter = 3
+	staleContext = "Cannot find context with specified id"
 	// inlineMax is the most characters of extracted data a result carries; more goes to a file.
 	inlineMax = 6_000
 	// downloadWait is how long a download started by a click or a URL may take to finish.
@@ -82,6 +87,8 @@ type session struct {
 	b      *Browser
 	agent  string
 	folder string
+	// failures counts the calls in a row that failed on each site.
+	failures map[string]int
 }
 
 // New builds the browser kit. browsersDir holds the per-agent Chromium folders
@@ -417,13 +424,64 @@ func (k *Kit) Call(t *helpers.Task, name string, raw json.RawMessage) (string, e
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	timeout := callTimeout
+	if name == "download" {
+		timeout = downloadCallTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	out, err := k.dispatch(ctx, t, s, name, in)
 	if saveErr := k.saveTabs(ctx, t, s); saveErr != nil {
 		slog.Error("browser tabs not saved", "code", "internal_error", "task", "browser/"+t.ID, "err", saveErr)
 	}
+	if err != nil {
+		err = fmt.Errorf("%w%s", err, k.noteFailure(ctx, s, in))
+	} else {
+		k.noteSuccess(ctx, s, in)
+	}
 	return out, err
+}
+
+// callSite is the site a call worked on: its URL's, else the front tab's.
+func callSite(ctx context.Context, s *session, in input) string {
+	if site := siteOf(in.URL); site != "" {
+		return site
+	}
+	tabs, err := s.b.Tabs(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, tab := range tabs {
+		if tab.Front {
+			return siteOf(tab.URL)
+		}
+	}
+	return ""
+}
+
+// noteFailure counts a failed call against its site and, at blockedAfter failures in a row,
+// returns the instruction to stop working on that site.
+func (k *Kit) noteFailure(ctx context.Context, s *session, in input) string {
+	site := callSite(ctx, s, in)
+	if site == "" {
+		return ""
+	}
+	if s.failures == nil {
+		s.failures = map[string]int{}
+	}
+	s.failures[site]++
+	if s.failures[site] < blockedAfter {
+		return ""
+	}
+	return fmt.Sprintf("\n[blocked] %d failed calls in a row on %s: stop on this site, call finish with what you have read and what you did not.", s.failures[site], site)
+}
+
+// noteSuccess clears a site's run of failures.
+func (k *Kit) noteSuccess(ctx context.Context, s *session, in input) {
+	if len(s.failures) == 0 {
+		return
+	}
+	delete(s.failures, callSite(ctx, s, in))
 }
 
 // saveTabs keeps the URLs of t's open tabs, which a wake reopens, and notes the sites they
@@ -568,8 +626,18 @@ func describeDownload(d Download) string {
 	return fmt.Sprintf("%s saved to %s", d.Name, d.Path)
 }
 
-// navigate loads a URL and returns the outline, or the download the URL turned into.
+// navigate loads a URL and returns the outline, or the download the URL turned into. It tries
+// once more when the page replaced its execution context under the first try.
 func (k *Kit) navigate(ctx context.Context, tab *Tab, in input) (string, error) {
+	out, err := k.navigateOnce(ctx, tab, in)
+	if err != nil && strings.Contains(err.Error(), staleContext) {
+		return k.navigateOnce(ctx, tab, in)
+	}
+	return out, err
+}
+
+// navigateOnce is one try of navigate.
+func (k *Kit) navigateOnce(ctx context.Context, tab *Tab, in input) (string, error) {
 	if _, err := url.ParseRequestURI(in.URL); err != nil {
 		return "", fmt.Errorf("url must be a full address: %w", err)
 	}

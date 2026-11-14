@@ -48,6 +48,7 @@ const (
 	logLimitMax     = 1000
 	toolFinish      = "finish"
 	toolAsk         = "ask"
+	stepWarning     = "[budget] %d turns left on this steer: finish with what you have read; list what you did not read and why."
 	textTurn        = "[continue] Text you write reaches no one. Take the next step with a tool, call ask for something only the agent or Ankur can give, or call finish with the result."
 )
 
@@ -203,10 +204,17 @@ type Runner struct {
 	dwar    *dwarClient
 	kits    map[string]Kit
 	publish func(Report)
+	budget  StepBudget
 	mu      sync.Mutex
 	tasks   map[string]*Task
 	seq     int64
 	journal *journal
+}
+
+// StepBudget limits the model turns a helper takes on one steer: at Warn turns it is told how
+// many are left, and from Max turns it may only call finish.
+type StepBudget struct {
+	Warn, Max int
 }
 
 // Error is a request failure with its HTTP status and stable code.
@@ -222,8 +230,12 @@ func (e Error) Error() string {
 }
 
 // NewRunner loads the tasks saved under dir as asleep and drops those past forgetAfter. A
-// loaded task keeps the Resource it last had, which its kit's Wake clears up first. publish receives every report as it is made.
-func NewRunner(dir, dwarURL string, kits []Kit, publish func(Report)) (*Runner, error) {
+// loaded task keeps the Resource it last had, which its kit's Wake clears up first. budget
+// limits each steer's turns. publish receives every report as it is made.
+func NewRunner(dir, dwarURL string, budget StepBudget, kits []Kit, publish func(Report)) (*Runner, error) {
+	if budget.Warn < 1 || budget.Max <= budget.Warn {
+		return nil, fmt.Errorf("step budget needs 0 < warn < max, got warn %d and max %d", budget.Warn, budget.Max)
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("helpers dir: %w", err)
 	}
@@ -231,7 +243,7 @@ func NewRunner(dir, dwarURL string, kits []Kit, publish func(Report)) (*Runner, 
 	if err != nil {
 		return nil, err
 	}
-	r := &Runner{dir: dir, journal: jr, dwar: newDwarClient(dwarURL), kits: map[string]Kit{}, publish: publish, tasks: map[string]*Task{}}
+	r := &Runner{dir: dir, journal: jr, dwar: newDwarClient(dwarURL), budget: budget, kits: map[string]Kit{}, publish: publish, tasks: map[string]*Task{}}
 	for _, kit := range kits {
 		r.kits[kit.Kind()] = kit
 	}
@@ -816,6 +828,10 @@ func (r *Runner) Halt(kind, id string) (View, error) {
 	holdsResource := t.Status != StatusAsleep && (!wasStopped || t.Resource != "")
 	inFlight := t.Status == StatusWorking || t.Status == StatusPaused || len(t.Pending) > 0
 	held := len(t.Pending)
+	state := ""
+	if inFlight && holdsResource {
+		state = kit.State(t)
+	}
 	t.Status = StatusStopped
 	t.Pending = nil
 	t.resuming = false
@@ -834,6 +850,9 @@ func (r *Runner) Halt(kind, id string) (View, error) {
 	text := "This task was stopped; its resource and every process it started were killed."
 	if held > 0 {
 		text += fmt.Sprintf(" %d steer(s) were not read.", held)
+	}
+	if state != "" {
+		text += "\n[State of the work when it stopped]\n" + state
 	}
 	r.mu.Lock()
 	report := r.newReport(t, "stopped", text, nil)
@@ -1119,9 +1138,13 @@ func (r *Runner) run(kit Kit, t *Task) {
 	r.mu.Unlock()
 	defer close(done)
 	textTurns := 0
+	steps := 0
 	for {
 		r.mu.Lock()
 		req := chatRequest{System: kit.Charter(), Messages: r.messages(t), Tools: append(kit.Tools(), askSpec, finishSpec), ToolChoice: "auto"}
+		if steps >= r.budget.Max {
+			req.Tools, req.ToolChoice = []ToolSpec{finishSpec}, "any"
+		}
 		caller := "nas/helper/" + t.Kind + "/" + t.SteeredBy
 		r.mu.Unlock()
 		began := time.Now()
@@ -1190,6 +1213,10 @@ func (r *Runner) run(kit Kit, t *Task) {
 		} else {
 			textTurns = 0
 		}
+		steps++
+		if steps == r.budget.Warn {
+			results = append(results, Block{"type": "text", "text": fmt.Sprintf(stepWarning, r.budget.Max-steps)})
+		}
 		r.mu.Lock()
 		if t.Status != StatusWorking {
 			if len(results) > 0 {
@@ -1203,6 +1230,9 @@ func (r *Runner) run(kit Kit, t *Task) {
 		}
 		pending := t.Pending
 		t.Pending = nil
+		if len(pending) > 0 {
+			steps = 0
+		}
 		for _, s := range pending {
 			results = append(results, Block{"type": "text", "text": fmt.Sprintf("[Steer from %s]\n%s", s.From, s.Message)})
 			t.SteeredBy = s.From

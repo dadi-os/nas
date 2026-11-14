@@ -301,7 +301,7 @@ func TestLogDirIsNotLoadedAsATask(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "log", "terminal-"+view.ID+".jsonl")); err != nil {
 		t.Fatal(err)
 	}
-	again, err := NewRunner(dir, "http://unused", []Kit{kit}, func(Report) {})
+	again, err := NewRunner(dir, "http://unused", testBudget, []Kit{kit}, func(Report) {})
 	if err != nil {
 		t.Fatal(err)
 	}

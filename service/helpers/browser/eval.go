@@ -64,10 +64,33 @@ func (t *Tab) frameByID(id string) (*frame, bool) {
 	return &cp, true
 }
 
+// errDialogOpen is what a page command returns when a JavaScript dialog is holding the page.
+var errDialogOpen = errors.New("a JavaScript dialog is open and holds the page; answer it with a dialog action")
+
+// sendPage runs a command that executes in the page, which Chromium does not answer while a
+// JavaScript dialog is open. It gives up after commandTimeout and as soon as the tab has a dialog.
+func (t *Tab) sendPage(ctx context.Context, sess, method string, params, out any) error {
+	pctx, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
+	signal := t.dialogSignal()
+	go func() {
+		select {
+		case <-signal:
+			cancel()
+		case <-pctx.Done():
+		}
+	}()
+	err := t.b.c.send(pctx, sess, method, params, out)
+	if err != nil && ctx.Err() == nil && t.dialogNow() != nil {
+		return errDialogOpen
+	}
+	return err
+}
+
 // eval runs expression in frame f's page and decodes its value into out (when non-nil).
 func (t *Tab) eval(ctx context.Context, f *frame, expression string, out any) error {
 	var r evalResult
-	err := t.b.c.send(ctx, f.sess, "Runtime.evaluate", map[string]any{
+	err := t.sendPage(ctx, f.sess, "Runtime.evaluate", map[string]any{
 		"expression": expression, "contextId": f.ctx, "returnByValue": true, "awaitPromise": true, "userGesture": true,
 	}, &r)
 	if err != nil {
@@ -86,7 +109,7 @@ func (t *Tab) eval(ctx context.Context, f *frame, expression string, out any) er
 // object id when the result is an object and its JSON value otherwise.
 func (t *Tab) evalObject(ctx context.Context, f *frame, expression string) (string, json.RawMessage, error) {
 	var r evalResult
-	err := t.b.c.send(ctx, f.sess, "Runtime.evaluate", map[string]any{
+	err := t.sendPage(ctx, f.sess, "Runtime.evaluate", map[string]any{
 		"expression": expression, "contextId": f.ctx, "returnByValue": false,
 	}, &r)
 	if err != nil {
@@ -105,7 +128,7 @@ func (el element) call(ctx context.Context, fn string, out any, args ...any) err
 		params[i] = map[string]any{"value": a}
 	}
 	var r evalResult
-	err := el.t.b.c.send(ctx, el.f.sess, "Runtime.callFunctionOn", map[string]any{
+	err := el.t.sendPage(ctx, el.f.sess, "Runtime.callFunctionOn", map[string]any{
 		"objectId": el.oid, "functionDeclaration": fn, "arguments": params, "returnByValue": true, "awaitPromise": true, "userGesture": true,
 	}, &r)
 	if err != nil {

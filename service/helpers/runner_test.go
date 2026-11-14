@@ -14,6 +14,9 @@ import (
 	"time"
 )
 
+// testBudget is the step budget of the test runners.
+var testBudget = StepBudget{Warn: 3, Max: 5}
+
 // fakeKit is a Kit that records wakes, sleeps and calls; Call signals started, then blocks on
 // gate, when they are set.
 type fakeKit struct {
@@ -110,7 +113,7 @@ func newTestRunner(t *testing.T, kit Kit, dwar *fakeDwar) (*Runner, chan Report,
 	t.Helper()
 	dir := t.TempDir()
 	reports := make(chan Report, 16)
-	r, err := NewRunner(dir, dwar.server(t).URL, []Kit{kit}, func(rep Report) { reports <- rep })
+	r, err := NewRunner(dir, dwar.server(t).URL, testBudget, []Kit{kit}, func(rep Report) { reports <- rep })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,6 +191,69 @@ func TestHelperRunsToolsThenFinishes(t *testing.T) {
 	}
 	if dwar.callers[0] != "nas/helper/terminal/agent-a" {
 		t.Fatalf("caller %s", dwar.callers[0])
+	}
+}
+
+// TestStepBudgetWarnsThenForcesFinish gives a helper that never finishes a warning at the
+// warn turn and, from the max turn, a request that offers only finish.
+func TestStepBudgetWarnsThenForcesFinish(t *testing.T) {
+	kit := &fakeKit{}
+	var script [][]Block
+	for i := 1; i <= testBudget.Max; i++ {
+		script = append(script, []Block{use(fmt.Sprintf("u%d", i), "run", map[string]any{"command": "ls"})})
+	}
+	script = append(script, []Block{use("fin", "finish", map[string]any{"result": "partial"})})
+	dwar := &fakeDwar{script: script}
+	r, reports, _ := newTestRunner(t, kit, dwar)
+	if _, err := r.Start("terminal", "agent-a", "list", ""); err != nil {
+		t.Fatal(err)
+	}
+	if rep := waitReport(t, reports); rep.State != "done" || rep.Text != "partial" {
+		t.Fatalf("report %+v", rep)
+	}
+	if len(dwar.requests) != testBudget.Max+1 {
+		t.Fatalf("%d requests", len(dwar.requests))
+	}
+	warned := fmt.Sprint(dwar.requests[testBudget.Warn].Messages)
+	if !strings.Contains(warned, "[budget] 2 turns left") || strings.Contains(fmt.Sprint(dwar.requests[testBudget.Warn-1].Messages), "[budget]") {
+		t.Fatal("the warning is missing at the warn turn or came early")
+	}
+	for i, req := range dwar.requests {
+		finishOnly := i == testBudget.Max
+		if finishOnly != (len(req.Tools) == 1 && req.Tools[0].Name == toolFinish && req.ToolChoice == "any") {
+			t.Fatalf("request %d tools %d choice %s", i, len(req.Tools), req.ToolChoice)
+		}
+	}
+}
+
+// TestStepBudgetRestartsWithASteer lets a steer that arrives mid-loop start a fresh budget.
+func TestStepBudgetRestartsWithASteer(t *testing.T) {
+	kit := &fakeKit{gate: make(chan struct{}), started: make(chan struct{}, 8)}
+	var script [][]Block
+	for i := 1; i <= testBudget.Max; i++ {
+		script = append(script, []Block{use(fmt.Sprintf("u%d", i), "run", map[string]any{"command": "ls"})})
+	}
+	script = append(script, []Block{use("fin", "finish", map[string]any{"result": "ok"})})
+	dwar := &fakeDwar{script: script}
+	r, reports, _ := newTestRunner(t, kit, dwar)
+	view, err := r.Start("terminal", "agent-a", "list", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-kit.started
+	for i := 0; i < testBudget.Max-1; i++ {
+		kit.gate <- struct{}{}
+		<-kit.started
+	}
+	if _, err := r.Steer("terminal", view.ID, "agent-a", "again"); err != nil {
+		t.Fatal(err)
+	}
+	close(kit.gate)
+	waitReport(t, reports)
+	for i, req := range dwar.requests {
+		if len(req.Tools) == 1 {
+			t.Fatalf("request %d was finish-only although a steer restarted the budget", i)
+		}
 	}
 }
 
@@ -333,7 +399,7 @@ func TestTasksReloadAsleepAfterRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitReport(t, reports)
-	reloaded, err := NewRunner(dir, dwar.server(t).URL, []Kit{kit}, func(Report) {})
+	reloaded, err := NewRunner(dir, dwar.server(t).URL, testBudget, []Kit{kit}, func(Report) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -838,7 +904,7 @@ func TestPausedTaskReloadsAsleepAfterRestart(t *testing.T) {
 	if _, err := r.Pause("terminal", view.ID); err != nil {
 		t.Fatal(err)
 	}
-	reloaded, err := NewRunner(dir, dwar.server(t).URL, []Kit{kit}, func(Report) {})
+	reloaded, err := NewRunner(dir, dwar.server(t).URL, testBudget, []Kit{kit}, func(Report) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -871,7 +937,7 @@ func TestHaltEndsAWorkingTaskAndRefusesLaterSteers(t *testing.T) {
 		t.Fatalf("status %s, halts %d, resource %q", halted.Status, kit.halts, halted.Resource)
 	}
 	rep := waitReport(t, reports)
-	if rep.State != "stopped" || !strings.Contains(rep.Text, "1 steer(s)") {
+	if rep.State != "stopped" || !strings.Contains(rep.Text, "1 steer(s)") || !strings.Contains(rep.Text, "cwd /home") {
 		t.Fatalf("report %+v", rep)
 	}
 	close(kit.gate)
@@ -916,7 +982,7 @@ func TestHaltOfAnIdleOrStoppedTaskIsQuietAndRepeatable(t *testing.T) {
 	if kit.halts != 1 {
 		t.Fatalf("halts %d: the repeat killed a resource the task no longer holds", kit.halts)
 	}
-	reloaded, err := NewRunner(dir, dwar.server(t).URL, []Kit{kit}, func(Report) {})
+	reloaded, err := NewRunner(dir, dwar.server(t).URL, testBudget, []Kit{kit}, func(Report) {})
 	if err != nil {
 		t.Fatal(err)
 	}

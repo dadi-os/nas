@@ -295,3 +295,26 @@ func TestFrontURLIsTheTabInFrontOnly(t *testing.T) {
 		t.Fatalf("no tab in front must give no URL, got %q", got)
 	}
 }
+
+// TestSignInChoosesTheOnePasskeyItem picks the login with a passkey among several, and leaves
+// the choice to the caller when none or several have one.
+func TestSignInChoosesTheOnePasskeyItem(t *testing.T) {
+	withKey := chaaviItem{Name: "Email", Login: &struct {
+		Username *string `json:"username"`
+		Passkeys []struct {
+			RPID string `json:"rpId"`
+		} `json:"passkeys"`
+	}{Passkeys: []struct {
+		RPID string `json:"rpId"`
+	}{{RPID: "msu.edu"}}}}
+	without := chaaviItem{Name: "Engineering"}
+	if got := onlyPasskeyItem([]chaaviItem{without, withKey}); len(got) != 1 || got[0].Name != "Email" {
+		t.Fatalf("one passkey: %+v", got)
+	}
+	if got := onlyPasskeyItem([]chaaviItem{without, {Name: "Other"}}); len(got) != 2 {
+		t.Fatalf("no passkey: %+v", got)
+	}
+	if got := onlyPasskeyItem([]chaaviItem{withKey, withKey}); len(got) != 2 {
+		t.Fatalf("two passkeys: %+v", got)
+	}
+}
