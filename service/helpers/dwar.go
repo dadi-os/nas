@@ -27,6 +27,9 @@ type Block = map[string]any
 type Message struct {
 	Role    string  `json:"role"`
 	Content []Block `json:"content"`
+	// CacheBreakpoint ends the prefix the next steer resends unchanged; Dwar accepts it on at
+	// most one message of a request and keeps a long-lived provider cache entry there.
+	CacheBreakpoint bool `json:"cache_breakpoint,omitempty"`
 }
 
 // ToolSpec is a tool as the model sees it.

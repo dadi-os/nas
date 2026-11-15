@@ -283,6 +283,7 @@ func TestCharterCarriesTheManagersSignInRules(t *testing.T) {
 		"Security Key or Biometric Authenticator", "An Okta push happens only if the passkey click itself fails",
 		"trigger it once and `ask` once", "Never trigger a push to answer a mere question",
 		"matching on the sender and never on subject words",
+		"`navigate` and `act` return the page", "`due_date_pages`",
 	} {
 		if !strings.Contains(k.Charter(), want) {
 			t.Errorf("charter lacks %q", want)
@@ -355,7 +356,7 @@ func TestChooseLoginUsesThePasskeyItemEvenForLoginUse(t *testing.T) {
 func TestRetryStaleRunsReadsAgainButNeverAnAct(t *testing.T) {
 	for name, want := range map[string]int{"find": 2, "extract": 2, "sign_in": 2, "look": 2, "act": 1, "upload": 1} {
 		calls := 0
-		out, err := retryStale(name, func() (string, error) {
+		out, err := retryStale(name, func() error { return nil }, func() (string, error) {
 			calls++
 			if calls == 1 {
 				return "", errors.New("Cannot find context with specified id")
@@ -367,9 +368,59 @@ func TestRetryStaleRunsReadsAgainButNeverAnAct(t *testing.T) {
 		}
 	}
 	calls := 0
-	_, err := retryStale("find", func() (string, error) { calls++; return "", errors.New("Cannot find context with specified id") })
+	_, err := retryStale("find", func() error { return nil }, func() (string, error) { calls++; return "", errors.New("Cannot find context with specified id") })
 	if calls != 2 || err == nil {
 		t.Fatalf("a second stale error: %d calls, %v", calls, err)
+	}
+}
+
+// TestRetryStaleWaitsForTheNewDocumentBeforeTheRetry runs the load wait between the stale
+// failure and the retry, and ends on the wait's error without retrying when it fails.
+func TestRetryStaleWaitsForTheNewDocumentBeforeTheRetry(t *testing.T) {
+	var order []string
+	out, err := retryStale("look", func() error { order = append(order, "loaded"); return nil }, func() (string, error) {
+		order = append(order, "try")
+		if len(order) == 1 {
+			return "", errors.New("Cannot find context with specified id")
+		}
+		return "ok", nil
+	})
+	if err != nil || out != "ok" || strings.Join(order, ",") != "try,loaded,try" {
+		t.Fatalf("order %v: %q %v", order, out, err)
+	}
+	tries := 0
+	_, err = retryStale("look", func() error { return errors.New("the page did not finish loading") }, func() (string, error) {
+		tries++
+		return "", errors.New("Cannot find context with specified id")
+	})
+	if tries != 1 || err == nil || !strings.Contains(err.Error(), "did not finish loading") {
+		t.Fatalf("a failed wait: %d tries, %v", tries, err)
+	}
+}
+
+// TestNoteFinishSavesDueDatePagesAndIgnoresAFinishWithoutThem saves the pages under their host,
+// replacing what it had, and rejects a page that is not a full address.
+func TestNoteFinishSavesDueDatePagesAndIgnoresAFinishWithoutThem(t *testing.T) {
+	store := testSites(t)
+	k := &Kit{profiles: store}
+	if err := k.NoteFinish(map[string]any{"answer": "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, _ := store.Get("d2l.msu.edu"); found {
+		t.Fatal("a finish without pages wrote a profile")
+	}
+	page := func(name, url string) any { return map[string]any{"name": name, "url": url} }
+	if err := k.NoteFinish(map[string]any{"due_date_pages": []any{page("Old", "https://d2l.msu.edu/old")}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.NoteFinish(map[string]any{"due_date_pages": []any{page("Calendar", "https://d2l.msu.edu/d2l/le/calendar/9")}}); err != nil {
+		t.Fatal(err)
+	}
+	if p, _, _ := store.Get("d2l.msu.edu"); len(p.DueDatePages) != 1 || p.DueDatePages[0].Name != "Calendar" {
+		t.Fatalf("profile %+v", p)
+	}
+	if err := k.NoteFinish(map[string]any{"due_date_pages": []any{page("Calendar", "calendar")}}); err == nil {
+		t.Fatal("a relative url was saved")
 	}
 }
 

@@ -493,6 +493,23 @@ func noteHost(t *helpers.Task, address string) {
 	t.Note(hostsNote, strings.Trim(strings.Join(append(known, host), ","), ","))
 }
 
+// NoteFinish saves the finish's due_date_pages in the profile of each page's host, replacing the
+// pages those hosts had. A finish without them changes nothing.
+func (k *Kit) NoteFinish(input map[string]any) error {
+	list, ok := input["due_date_pages"].([]any)
+	if !ok {
+		return nil
+	}
+	pages := make([]sites.Page, 0, len(list))
+	for _, item := range list {
+		entry, _ := item.(map[string]any)
+		name, _ := entry["name"].(string)
+		address, _ := entry["url"].(string)
+		pages = append(pages, sites.Page{Name: name, URL: address})
+	}
+	return k.profiles.ReplaceDueDatePages(pages)
+}
+
 // TakeHosts is the host names the task navigated since the last call, in first-visit order, and
 // forgets them.
 func (k *Kit) TakeHosts(t *helpers.Task) []string {
@@ -650,14 +667,25 @@ var retriesStale = map[string]bool{"look": true, "find": true, "extract": true, 
 
 // dispatch runs the named tool.
 func (k *Kit) dispatch(ctx context.Context, t *helpers.Task, s *session, name string, in input) (string, error) {
-	return retryStale(name, func() (string, error) { return k.dispatchOnce(ctx, t, s, name, in) })
+	loaded := func() error {
+		tab, err := s.tab(ctx, in.Tab)
+		if err != nil {
+			return err
+		}
+		return tab.waitLoad(ctx, "load")
+	}
+	return retryStale(name, loaded, func() (string, error) { return k.dispatchOnce(ctx, t, s, name, in) })
 }
 
 // retryStale runs try, and once more when tool name is in retriesStale and the first try failed
-// on a replaced execution context.
-func retryStale(name string, try func() (string, error)) (string, error) {
+// on a replaced execution context: the retry waits for the new document with loaded first, so a
+// redirect chain has finished. A failed wait is the error.
+func retryStale(name string, loaded func() error, try func() (string, error)) (string, error) {
 	out, err := try()
 	if err != nil && retriesStale[name] && strings.Contains(err.Error(), staleContext) {
+		if err := loaded(); err != nil {
+			return "", err
+		}
 		return try()
 	}
 	return out, err
@@ -773,11 +801,15 @@ func describeDownload(d Download) string {
 	return fmt.Sprintf("%s saved to %s", d.Name, d.Path)
 }
 
-// navigate loads a URL and returns the outline, or the download the URL turned into. It tries
-// once more when the page replaced its execution context under the first try.
+// navigate loads a URL and returns the outline, or the download the URL turned into. When the
+// page replaced its execution context under the first try, it waits for the new document to load
+// and tries once more.
 func (k *Kit) navigate(ctx context.Context, tab *Tab, in input) (string, error) {
 	out, err := k.navigateOnce(ctx, tab, in)
 	if err != nil && strings.Contains(err.Error(), staleContext) {
+		if err := tab.waitLoad(ctx, "load"); err != nil {
+			return "", err
+		}
 		return k.navigateOnce(ctx, tab, in)
 	}
 	return out, err

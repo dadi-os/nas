@@ -586,6 +586,11 @@ func (t *Tab) Act(ctx context.Context, actions []Action) (string, error) {
 		fmt.Fprintf(&b, "download %s: %s %s\n", d.Name, d.State, d.Path)
 	}
 	changed, err := t.changedLines(ctx)
+	if err != nil && strings.Contains(err.Error(), staleContext) {
+		if err = t.waitLoad(ctx, "load"); err == nil {
+			changed, err = t.changedLines(ctx)
+		}
+	}
 	if err != nil {
 		fmt.Fprintf(&b, "could not read the page after the actions: %v\n", err)
 	} else {

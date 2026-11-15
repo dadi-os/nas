@@ -352,54 +352,68 @@ func TestTasksReloadAsleepAfterRestart(t *testing.T) {
 	}
 }
 
-func TestOldResultsAreClearedPastTheBudget(t *testing.T) {
-	task := &Task{ResultSizes: map[string]int{}, Cleared: map[string]bool{}}
-	for i := 0; i < 4; i++ {
-		id := fmt.Sprintf("u%d", i)
-		task.ResultOrder = append(task.ResultOrder, id)
-		task.ResultSizes[id] = 40_000
-		task.History = append(task.History, Message{Role: "user", Content: []Block{{"type": "tool_result", "tool_use_id": id, "content": strings.Repeat("x", 40_000), "is_error": false}}})
+// outlineHistory is a history of one tool call and result per (id, name) pair.
+func outlineHistory(calls [][2]string) *Task {
+	task := &Task{Cleared: map[string]bool{}}
+	for _, call := range calls {
+		task.History = append(task.History,
+			Message{Role: "assistant", Content: []Block{use(call[0], call[1], map[string]any{})}},
+			Message{Role: "user", Content: []Block{{"type": "tool_result", "tool_use_id": call[0], "content": "url: https://x.example/" + call[0] + "\nbody " + call[0], "is_error": false}}})
 	}
-	r := &Runner{}
-	msgs := r.messages(task)
-	cleared := 0
+	return task
+}
+
+// resultText is the content of the tool result answering call id in msgs.
+func resultText(msgs []Message, id string) string {
 	for _, m := range msgs {
-		if text, _ := m.Content[0]["content"].(string); strings.HasPrefix(text, "[cleared]") {
-			cleared++
+		for _, b := range m.Content {
+			if b["tool_use_id"] == id {
+				text, _ := b["content"].(string)
+				return text
+			}
 		}
 	}
-	if cleared != 3 || !task.Cleared["u0"] || task.Cleared["u3"] {
-		t.Fatalf("cleared %d, map %v", cleared, task.Cleared)
+	return ""
+}
+
+// TestPageOutlinesOlderThanTheNewestTwoBecomeReceipts clears look, navigate and act results past
+// the newest two, keeps extract results whole, and leaves the stored history unchanged.
+func TestPageOutlinesOlderThanTheNewestTwoBecomeReceipts(t *testing.T) {
+	task := outlineHistory([][2]string{{"u1", "navigate"}, {"u2", "extract"}, {"u3", "look"}, {"u4", "act"}, {"u5", "look"}})
+	r := &Runner{}
+	msgs := r.messages(task)
+	for _, id := range []string{"u1", "u3"} {
+		if text := resultText(msgs, id); !strings.HasPrefix(text, "[cleared] url: https://x.example/"+id) {
+			t.Fatalf("%s not cleared: %q", id, text)
+		}
 	}
-	if text, _ := task.History[0].Content[0]["content"].(string); strings.HasPrefix(text, "[cleared]") {
+	for _, id := range []string{"u2", "u4", "u5"} {
+		if text := resultText(msgs, id); strings.HasPrefix(text, "[cleared]") || !strings.Contains(text, "body "+id) {
+			t.Fatalf("%s cleared: %q", id, text)
+		}
+	}
+	if text, _ := task.History[1].Content[0]["content"].(string); strings.HasPrefix(text, "[cleared]") {
 		t.Fatal("clearing rewrote the stored history")
 	}
 }
 
-// TestHistoryIsAppendOnlyUnderTheBudget sends every page outline whole and keeps the earlier
-// messages byte-identical as new ones arrive, so the model's cached prefix holds.
-func TestHistoryIsAppendOnlyUnderTheBudget(t *testing.T) {
-	task := &Task{ResultSizes: map[string]int{}, Cleared: map[string]bool{}}
+// TestEachNewOutlineClearsTheOldestKept keeps earlier messages byte-identical except for the one
+// outline that falls out of the newest two, and clears nothing while two outlines or fewer exist.
+func TestEachNewOutlineClearsTheOldestKept(t *testing.T) {
+	task := &Task{Cleared: map[string]bool{}}
 	r := &Runner{}
-	var previous string
-	for i := 1; i <= 5; i++ {
+	for i := 1; i <= 4; i++ {
 		id := fmt.Sprintf("u%d", i)
-		task.ResultOrder = append(task.ResultOrder, id)
-		task.ResultSizes[id] = 100
 		task.History = append(task.History,
 			Message{Role: "assistant", Content: []Block{use(id, "look", map[string]any{})}},
-			Message{Role: "user", Content: []Block{{"type": "tool_result", "tool_use_id": id, "content": fmt.Sprintf("url: https://x.example/%d\nbody %d", i, i), "is_error": false}}})
+			Message{Role: "user", Content: []Block{{"type": "tool_result", "tool_use_id": id, "content": "body " + id, "is_error": false}}})
 		got := fmt.Sprint(r.messages(task))
-		if !strings.HasPrefix(got[:len(got)-1], previous[:max(len(previous)-1, 0)]) {
-			t.Fatalf("turn %d rewrote earlier history: %s", i, got)
+		if cleared := strings.Count(got, "[cleared]"); cleared != max(i-keptOutlines, 0) {
+			t.Fatalf("turn %d cleared %d: %s", i, cleared, got)
 		}
-		if strings.Contains(got, "[outline cleared]") || strings.Contains(got, "[cleared]") {
-			t.Fatalf("turn %d cleared a result under the budget: %s", i, got)
-		}
-		previous = got
 	}
-	if !strings.Contains(previous, "body 1") {
-		t.Fatal("the oldest outline was cut")
+	if !task.Cleared["u1"] || !task.Cleared["u2"] || task.Cleared["u3"] || task.Cleared["u4"] {
+		t.Fatalf("cleared map %v", task.Cleared)
 	}
 }
 
@@ -1063,6 +1077,18 @@ func TestEarlierSteersReachTheModelAsTheirReports(t *testing.T) {
 	if single := compactSteers(h[:3]); len(single) != 3 {
 		t.Fatal("a single steer was changed")
 	}
+	marked := 0
+	for i, m := range got {
+		if m.CacheBreakpoint {
+			marked++
+			if i != 1 || !strings.Contains(fmt.Sprint(m.Content), "[Your report] report one") {
+				t.Fatalf("breakpoint on message %d: %v", i, m)
+			}
+		}
+	}
+	if marked != 1 {
+		t.Fatalf("%d messages carry the cache breakpoint", marked)
+	}
 }
 
 // TestLongFinishIsDeliveredWithItsDetailAsAFile finishes with a 5,000-character answer and a
@@ -1116,6 +1142,54 @@ func (k *hostFakeKit) TakeHosts(t *Task) []string {
 	hosts := k.hosts
 	k.hosts = nil
 	return hosts
+}
+
+// finishFakeKit records the finish inputs it is given and refuses the first.
+type finishFakeKit struct {
+	fakeKit
+	inputs []map[string]any
+}
+
+func (k *finishFakeKit) NoteFinish(input map[string]any) error {
+	k.inputs = append(k.inputs, input)
+	if len(k.inputs) == 1 {
+		return errors.New("page url is not a full address")
+	}
+	return nil
+}
+
+// TestFinishThatTheKitRefusesToNoteIsNotDelivered answers the finish with the kit's error and
+// delivers the corrected one.
+func TestFinishThatTheKitRefusesToNoteIsNotDelivered(t *testing.T) {
+	pages := []any{map[string]any{"name": "Calendar", "url": "https://d2l.msu.edu/d2l/le/calendar/1"}}
+	dwar := &fakeDwar{script: [][]Block{
+		{use("f1", "finish", map[string]any{"answer": "first", "due_date_pages": pages})},
+		{use("f2", "finish", map[string]any{"answer": "second", "due_date_pages": pages})},
+	}}
+	kit := &finishFakeKit{}
+	r, reports, _ := newTestRunner(t, kit, dwar)
+	if _, err := r.Start("terminal", "agent-a", "read", ""); err != nil {
+		t.Fatal(err)
+	}
+	rep := waitReport(t, reports)
+	if rep.Text != "second" || len(kit.inputs) != 2 || kit.inputs[1]["due_date_pages"] == nil {
+		t.Fatalf("report %q, inputs %v", rep.Text, kit.inputs)
+	}
+	if !strings.Contains(fmt.Sprint(dwar.requests[1].Messages), "finish was not delivered: page url is not a full address") {
+		t.Fatalf("the model was not told: %v", dwar.requests[1].Messages)
+	}
+}
+
+// TestFinishSchemaTakesDueDatePages lets a finish name the pages that listed due dates.
+func TestFinishSchemaTakesDueDatePages(t *testing.T) {
+	props := finishSpec.InputSchema["properties"].(map[string]any)
+	pages, ok := props["due_date_pages"].(map[string]any)
+	if !ok || pages["type"] != "array" {
+		t.Fatalf("finish schema %v", props)
+	}
+	if required := finishSpec.InputSchema["required"].([]string); len(required) != 1 || required[0] != "answer" {
+		t.Fatalf("required %v", required)
+	}
 }
 
 // TestReportCarriesTheHostsTheKitNavigated gives the report its kit's hosts, and an empty list
