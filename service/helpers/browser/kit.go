@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -55,6 +56,9 @@ const (
 	// profiledNote is the prefix of the memo keys marking the hosts whose site profile the task
 	// has already been shown.
 	profiledNote = "profiled:"
+	// hostsNote is the memo key holding the host names navigated since the task's last report,
+	// comma-separated.
+	hostsNote = "hosts"
 	// toolNoteSite records a fact about a site in its profile.
 	toolNoteSite = "note_site"
 )
@@ -465,9 +469,39 @@ func (k *Kit) Call(t *helpers.Task, name string, raw json.RawMessage) (string, e
 		k.noteSuccess(ctx, s, in)
 		if name == "navigate" {
 			out += k.profileNote(t, in.URL)
+			noteHost(t, in.URL)
+		}
+		if name == "navigate" || name == "act" || name == "sign_in" {
+			noteHost(t, k.FrontURL(t))
 		}
 	}
 	return out, err
+}
+
+// noteHost adds the host of address to the hosts the task has navigated since its last report,
+// once each, in first-visit order.
+func noteHost(t *helpers.Task, address string) {
+	u, err := url.Parse(address)
+	if err != nil || u.Hostname() == "" {
+		return
+	}
+	host := strings.ToLower(u.Hostname())
+	known := strings.Split(t.Notes()[hostsNote], ",")
+	if slices.Contains(known, host) {
+		return
+	}
+	t.Note(hostsNote, strings.Trim(strings.Join(append(known, host), ","), ","))
+}
+
+// TakeHosts is the host names the task navigated since the last call, in first-visit order, and
+// forgets them.
+func (k *Kit) TakeHosts(t *helpers.Task) []string {
+	joined := t.Notes()[hostsNote]
+	if joined == "" {
+		return nil
+	}
+	t.Note(hostsNote, "")
+	return strings.Split(joined, ",")
 }
 
 // Progress is the key of what a successful call of tool brought that is new. A navigate or an
@@ -499,18 +533,6 @@ func (k *Kit) Progress(t *helpers.Task, tool, result string) string {
 	}
 	sum := sha256.Sum256([]byte(result))
 	return tool + ":" + hex.EncodeToString(sum[:])
-}
-
-// OutlineReceipt is the address and title of the page a navigate or look result outlines.
-func (k *Kit) OutlineReceipt(tool, result string) (string, bool) {
-	if tool != "navigate" && tool != "look" {
-		return "", false
-	}
-	lines := strings.SplitN(result, "\n", 3)
-	if len(lines) < 2 || !strings.HasPrefix(lines[0], "url: ") || !strings.HasPrefix(lines[1], "title: ") {
-		return "", false
-	}
-	return strings.TrimPrefix(lines[0], "url: ") + " " + strings.TrimPrefix(lines[1], "title: "), true
 }
 
 // shorten cuts s to max characters with an ellipsis.

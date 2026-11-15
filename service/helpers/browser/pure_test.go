@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -455,16 +456,9 @@ func TestNoteSiteRejectsAnUnknownFieldAndSavesAKnownOne(t *testing.T) {
 	}
 }
 
-// TestOutlineReceiptsAndProgressKeys reads the address and title of an outline, and treats a
-// repeated look as no news while an extract with no rows brings none.
-func TestOutlineReceiptsAndProgressKeys(t *testing.T) {
+// TestProgressKeys treats a repeated look as no news while an extract with no rows brings none.
+func TestProgressKeys(t *testing.T) {
 	k := &Kit{}
-	if r, ok := k.OutlineReceipt("look", "url: https://a.example/x\ntitle: Grades\n- link"); !ok || r != "https://a.example/x Grades" {
-		t.Fatalf("receipt %q %v", r, ok)
-	}
-	if _, ok := k.OutlineReceipt("extract", "url: https://a.example/x\ntitle: Grades\n"); ok {
-		t.Fatal("an extract is not an outline")
-	}
 	task := newTask("1", "a", "p")
 	if a, b := k.Progress(task, "look", "outline one"), k.Progress(task, "look", "outline one"); a == "" || a != b {
 		t.Fatalf("the same outline must give the same key: %q %q", a, b)
@@ -479,5 +473,21 @@ func TestOutlineReceiptsAndProgressKeys(t *testing.T) {
 	k.sessions["1"].rows = 2
 	if key := k.Progress(task, "extract", "a\nb"); key == "" {
 		t.Fatal("an extract with rows did not progress")
+	}
+}
+
+// TestHostsAreCollectedOncePerReportInFirstVisitOrder records each host once, ignores an address
+// with none, and hands the list over once so the next report starts empty.
+func TestHostsAreCollectedOncePerReportInFirstVisitOrder(t *testing.T) {
+	k := &Kit{}
+	task := newTask("1", "a", "p")
+	for _, address := range []string{"https://d2l.msu.edu/d2l/home", "https://login.MSU.edu/sso", "https://d2l.msu.edu/d2l/le/1", "about:blank", ""} {
+		noteHost(task, address)
+	}
+	if got := k.TakeHosts(task); !slices.Equal(got, []string{"d2l.msu.edu", "login.msu.edu"}) {
+		t.Fatalf("hosts %v", got)
+	}
+	if got := k.TakeHosts(task); len(got) != 0 {
+		t.Fatalf("hosts came back twice: %v", got)
 	}
 }

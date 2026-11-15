@@ -44,9 +44,6 @@ const (
 	// noProgressAfter is how many turns in a row without new information end in the
 	// [no progress] fact: the charter calls the same failure twice a block, and this is one more.
 	noProgressAfter = 3
-	// fullOutlines is how many of a steer's newest page outlines reach the model whole; earlier
-	// ones read as a one-line receipt.
-	fullOutlines = 2
 	// notRun is the result of a tool call the helper asked for after Ankur took over.
 	notRun = "[not run] Ankur took over before this ran. Look again before you act."
 	// purposeChars is how much of a task's purpose its view shows.
@@ -176,16 +173,19 @@ type Steer struct {
 // path of the file holding what the helper put in its finish's detail, empty when it gave
 // none. Seq orders reports across all tasks since Nas started.
 type Report struct {
-	Seq     int64     `json:"seq"`
-	Task    string    `json:"task"`
-	Kind    string    `json:"kind"`
-	ID      string    `json:"id"`
-	AgentID string    `json:"agent_id"`
-	State   string    `json:"state"`
-	Text    string    `json:"text"`
-	Files   []string  `json:"files"`
-	Detail  string    `json:"detail"`
-	At      time.Time `json:"at"`
+	Seq     int64    `json:"seq"`
+	Task    string   `json:"task"`
+	Kind    string   `json:"kind"`
+	ID      string   `json:"id"`
+	AgentID string   `json:"agent_id"`
+	State   string   `json:"state"`
+	Text    string   `json:"text"`
+	Files   []string `json:"files"`
+	Detail  string   `json:"detail"`
+	// Hosts is the host names the task navigated since its previous report, in first-visit
+	// order; empty for a kit that navigates nothing.
+	Hosts []string  `json:"hosts"`
+	At    time.Time `json:"at"`
 }
 
 // View is a task as GET /tasks shows it.
@@ -237,11 +237,11 @@ type progressKit interface {
 	Progress(t *Task, tool, result string) string
 }
 
-// outlineKit is implemented by a kit whose results include whole-page outlines.
-type outlineKit interface {
-	// OutlineReceipt is the one line (address and title) standing for result when it is the
-	// outline of a page, and false when it is not.
-	OutlineReceipt(tool, result string) (string, bool)
+// hostKit is implemented by a kit that navigates to hosts.
+type hostKit interface {
+	// TakeHosts is the host names t navigated since the last call, in first-visit order, and
+	// forgets them.
+	TakeHosts(t *Task) []string
 }
 
 // Error is a request failure with its HTTP status and stable code.
@@ -1147,72 +1147,7 @@ func (r *Runner) messages(t *Task) []Message {
 		}
 		out[i] = Message{Role: m.Role, Content: content}
 	}
-	return receiptOutlines(r.kits[t.Kind], compactSteers(out))
-}
-
-// receiptOutlines keeps the newest fullOutlines page outlines in history whole and replaces each
-// earlier one with its kit's one-line receipt and the action that followed it.
-func receiptOutlines(kit Kit, history []Message) []Message {
-	outlines, isOutlineKit := kit.(outlineKit)
-	if !isOutlineKit {
-		return history
-	}
-	names := map[string]string{}
-	for _, m := range history {
-		for _, b := range m.Content {
-			if b["type"] == "tool_use" {
-				id, _ := b["id"].(string)
-				names[id], _ = b["name"].(string)
-			}
-		}
-	}
-	type spot struct {
-		msg, block int
-		receipt    string
-	}
-	var found []spot
-	for i, m := range history {
-		for j, b := range m.Content {
-			if b["type"] != "tool_result" {
-				continue
-			}
-			id, _ := b["tool_use_id"].(string)
-			text, _ := b["content"].(string)
-			if receipt, isOutline := outlines.OutlineReceipt(names[id], text); isOutline {
-				found = append(found, spot{i, j, receipt})
-			}
-		}
-	}
-	if len(found) <= fullOutlines {
-		return history
-	}
-	out := append([]Message{}, history...)
-	for _, o := range found[:len(found)-fullOutlines] {
-		content := append([]Block{}, out[o.msg].Content...)
-		b := Block{}
-		for k, v := range content[o.block] {
-			b[k] = v
-		}
-		b["content"] = "[outline cleared] " + o.receipt + followedBy(history, o.msg)
-		content[o.block] = b
-		out[o.msg] = Message{Role: out[o.msg].Role, Content: content}
-	}
-	return out
-}
-
-// followedBy is "; then <tool> <input>" for the first call the helper made after the user message
-// at index i, or "" when it made none.
-func followedBy(history []Message, i int) string {
-	if i+1 >= len(history) {
-		return ""
-	}
-	for _, b := range history[i+1].Content {
-		if b["type"] == "tool_use" {
-			raw, _ := json.Marshal(b["input"])
-			return fmt.Sprintf("; then %v %s", b["name"], clip(string(raw), 100))
-		}
-	}
-	return ""
+	return compactSteers(out)
 }
 
 // startsSteer reports whether m opens a steer: it carries a steer's text and is the first
@@ -1460,7 +1395,10 @@ func (r *Runner) newReport(t *Task, state, text string, files []string, detail s
 	r.seq++
 	report := Report{
 		Seq: r.seq, Task: "task/" + t.Kind + "/" + t.ID, Kind: t.Kind, ID: t.ID, AgentID: t.SteeredBy,
-		State: state, Text: strings.TrimSpace(text), Files: files, Detail: detail, At: time.Now().UTC(),
+		State: state, Text: strings.TrimSpace(text), Files: files, Detail: detail, Hosts: []string{}, At: time.Now().UTC(),
+	}
+	if hk, ok := r.kits[t.Kind].(hostKit); ok {
+		report.Hosts = append(report.Hosts, hk.TakeHosts(t)...)
 	}
 	if report.Files == nil {
 		report.Files = []string{}

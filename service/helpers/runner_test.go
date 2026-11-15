@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -372,6 +373,33 @@ func TestOldResultsAreClearedPastTheBudget(t *testing.T) {
 	}
 	if text, _ := task.History[0].Content[0]["content"].(string); strings.HasPrefix(text, "[cleared]") {
 		t.Fatal("clearing rewrote the stored history")
+	}
+}
+
+// TestHistoryIsAppendOnlyUnderTheBudget sends every page outline whole and keeps the earlier
+// messages byte-identical as new ones arrive, so the model's cached prefix holds.
+func TestHistoryIsAppendOnlyUnderTheBudget(t *testing.T) {
+	task := &Task{ResultSizes: map[string]int{}, Cleared: map[string]bool{}}
+	r := &Runner{}
+	var previous string
+	for i := 1; i <= 5; i++ {
+		id := fmt.Sprintf("u%d", i)
+		task.ResultOrder = append(task.ResultOrder, id)
+		task.ResultSizes[id] = 100
+		task.History = append(task.History,
+			Message{Role: "assistant", Content: []Block{use(id, "look", map[string]any{})}},
+			Message{Role: "user", Content: []Block{{"type": "tool_result", "tool_use_id": id, "content": fmt.Sprintf("url: https://x.example/%d\nbody %d", i, i), "is_error": false}}})
+		got := fmt.Sprint(r.messages(task))
+		if !strings.HasPrefix(got[:len(got)-1], previous[:max(len(previous)-1, 0)]) {
+			t.Fatalf("turn %d rewrote earlier history: %s", i, got)
+		}
+		if strings.Contains(got, "[outline cleared]") || strings.Contains(got, "[cleared]") {
+			t.Fatalf("turn %d cleared a result under the budget: %s", i, got)
+		}
+		previous = got
+	}
+	if !strings.Contains(previous, "body 1") {
+		t.Fatal("the oldest outline was cut")
 	}
 }
 
@@ -1078,6 +1106,41 @@ func TestFinishWithoutDetailHasNoDetailFile(t *testing.T) {
 	}
 }
 
+// hostFakeKit reports the hosts of a task it was taken from once.
+type hostFakeKit struct {
+	fakeKit
+	hosts []string
+}
+
+func (k *hostFakeKit) TakeHosts(t *Task) []string {
+	hosts := k.hosts
+	k.hosts = nil
+	return hosts
+}
+
+// TestReportCarriesTheHostsTheKitNavigated gives the report its kit's hosts, and an empty list
+// when the kit navigates nothing.
+func TestReportCarriesTheHostsTheKitNavigated(t *testing.T) {
+	dwar := &fakeDwar{script: [][]Block{{use("f", "finish", map[string]any{"answer": "ok"})}}}
+	r, reports, _ := newTestRunner(t, &hostFakeKit{hosts: []string{"d2l.msu.edu", "login.msu.edu"}}, dwar)
+	if _, err := r.Start("terminal", "agent-a", "read", ""); err != nil {
+		t.Fatal(err)
+	}
+	if rep := waitReport(t, reports); !slices.Equal(rep.Hosts, []string{"d2l.msu.edu", "login.msu.edu"}) {
+		t.Fatalf("hosts %v", rep.Hosts)
+	}
+	dwar = &fakeDwar{script: [][]Block{{use("f", "finish", map[string]any{"answer": "ok"})}}}
+	r, reports, _ = newTestRunner(t, &fakeKit{}, dwar)
+	if _, err := r.Start("terminal", "agent-a", "list", ""); err != nil {
+		t.Fatal(err)
+	}
+	rep := waitReport(t, reports)
+	raw, err := json.Marshal(rep)
+	if err != nil || !strings.Contains(string(raw), `"hosts":[]`) {
+		t.Fatalf("report %s %v", raw, err)
+	}
+}
+
 // TestNotReadRendersOneLinePerSource lists each source the helper did not read after the answer.
 func TestNotReadRendersOneLinePerSource(t *testing.T) {
 	dwar := &fakeDwar{script: [][]Block{{use("f", "finish", map[string]any{
@@ -1189,46 +1252,5 @@ func TestRepeatedResultsAreNoProgress(t *testing.T) {
 	// a(new) a a, then b is new and restarts the count, then a a: never three in a row.
 	if strings.Contains(fmt.Sprint(dwar.requests[len(dwar.requests)-1].Messages), "[no progress]") {
 		t.Fatal("a new result did not restart the stall count")
-	}
-}
-
-// outlineFakeKit marks look results as page outlines.
-type outlineFakeKit struct{ fakeKit }
-
-func (k *outlineFakeKit) OutlineReceipt(tool, result string) (string, bool) {
-	if tool != "look" {
-		return "", false
-	}
-	return strings.TrimPrefix(strings.SplitN(result, "\n", 2)[0], "url: "), true
-}
-
-// TestEarlierOutlinesBecomeReceiptsAndTheNewestTwoStayWhole keeps the last two page outlines
-// of a steer and reduces each earlier one to its address and the action that followed it.
-func TestEarlierOutlinesBecomeReceiptsAndTheNewestTwoStayWhole(t *testing.T) {
-	var h []Message
-	h = append(h, Message{Role: "user", Content: []Block{{"type": "text", "text": "[Steer from a]\nread"}}})
-	for i := 1; i <= 4; i++ {
-		id := fmt.Sprintf("u%d", i)
-		h = append(h, Message{Role: "assistant", Content: []Block{use(id, "look", map[string]any{"scope": "s" + id})}})
-		h = append(h, Message{Role: "user", Content: []Block{{"type": "tool_result", "tool_use_id": id, "content": fmt.Sprintf("url: https://x.example/%d\nbody %d", i, i)}}})
-	}
-	got := receiptOutlines(&outlineFakeKit{}, h)
-	text := fmt.Sprint(got)
-	for _, gone := range []string{"body 1", "body 2"} {
-		if strings.Contains(text, gone) {
-			t.Fatalf("%q still whole: %s", gone, text)
-		}
-	}
-	if !strings.Contains(text, "body 3") || !strings.Contains(text, "body 4") {
-		t.Fatalf("the newest two outlines were cut: %s", text)
-	}
-	if !strings.Contains(text, "[outline cleared] https://x.example/1; then look") {
-		t.Fatalf("receipt missing its address or the action after it: %s", text)
-	}
-	if strings.Contains(fmt.Sprint(h), "[outline cleared]") {
-		t.Fatal("the stored history was changed")
-	}
-	if same := receiptOutlines(&fakeKit{}, h); fmt.Sprint(same) != fmt.Sprint(h) {
-		t.Fatal("a kit without outlines had its history changed")
 	}
 }

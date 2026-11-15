@@ -129,3 +129,32 @@ func TestSignInUsesThePasskeyFirstAndTheOktaKeyRow(t *testing.T) {
 		t.Fatalf("unknown site: %v", err)
 	}
 }
+
+// TestSignInFollowsTheSingleSignOnLinkAndPressesNext starts on a login page whose only way on is
+// its single sign-on link, follows it to an Okta list, chooses the Security Key or Biometric row
+// and presses Next, in one call.
+func TestSignInFollowsTheSingleSignOnLinkAndPressesNext(t *testing.T) {
+	b, _ := newBrowser(t)
+	ctx := testCtx(t)
+	pk := newPasskey(t)
+	srv := serve(t, map[string]string{
+		"/": `<h2>Login</h2><a href="/okta">Sign in with MSU NetID</a><a href="/help">Help</a>`,
+		"/okta": `<h2>Verify it's you</h2>
+<div class="row"><div>Security Key or Biometric Authenticator</div><a href="#" role="button" onclick="window.picked='key'">Select</a></div>
+<button onclick="window.nexted = true">Next</button>`,
+	})
+	k := &Kit{chaavi: fakeChaavi(t, &pk)}
+	tab := openPage(t, ctx, b, localhostURL(srv)+"/")
+	out, err := k.signIn(ctx, tab, input{Site: "example.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []string{"followed the single sign-on link", "chose Security Key or Biometric Authenticator", "pressed Next"} {
+		if !strings.Contains(out, step) {
+			t.Fatalf("missing %q in:\n%s", step, out)
+		}
+	}
+	if !strings.HasSuffix(tab.URL(), "/okta") || jsIn(t, ctx, tab, "", `window.picked`) != "key" || jsIn(t, ctx, tab, "", `String(window.nexted)`) != "true" {
+		t.Fatalf("the route did not reach the Okta list: %s", tab.URL())
+	}
+}

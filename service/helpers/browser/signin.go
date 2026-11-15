@@ -152,8 +152,10 @@ func (k *Kit) signIn(ctx context.Context, tab *Tab, in input) (string, error) {
 	return k.signInLogin(ctx, tab, item)
 }
 
-// signInPasskey loads the item's passkey into the tab, reloads it, and follows an Okta list
-// to its Security Key or Biometric Authenticator.
+// signInPasskey loads the item's passkey into the tab, reloads it, and carries the sign-in
+// through MSU's Okta/SAML route: the login page's single sign-on entry link, Okta's Security
+// Key or Biometric Authenticator row, and its Next button. Each step runs only when the page
+// shows it; the result is the page where the route stopped, signed in or blocked.
 func (k *Kit) signInPasskey(ctx context.Context, tab *Tab, item chaaviItem) (string, error) {
 	key, err := k.chaavi.passkey(item.ID)
 	if err != nil {
@@ -164,25 +166,54 @@ func (k *Kit) signInPasskey(ctx context.Context, tab *Tab, item chaaviItem) (str
 	}
 	time.Sleep(signInSettle)
 	out := fmt.Sprintf("passkey for %s loaded and the page reloaded", key.RPID)
-	if ref, err := tab.oktaKey(ctx); err != nil {
+	keyRow, err := tab.refByScript(ctx, oktaKeyScript)
+	if err != nil {
 		return "", err
-	} else if ref != "" {
-		if err := tab.Click(ctx, ref, false); err != nil {
+	}
+	if keyRow == "" {
+		entry, err := tab.refByScript(ctx, ssoLinkScript)
+		if err != nil {
+			return "", err
+		}
+		if entry != "" {
+			if err := tab.Click(ctx, entry, false); err != nil {
+				return "", fmt.Errorf("following the single sign-on link: %w", err)
+			}
+			time.Sleep(signInSettle)
+			out += "; followed the single sign-on link"
+			if keyRow, err = tab.refByScript(ctx, oktaKeyScript); err != nil {
+				return "", err
+			}
+		}
+	}
+	if keyRow != "" {
+		if err := tab.Click(ctx, keyRow, false); err != nil {
 			return "", fmt.Errorf("selecting Security Key or Biometric Authenticator: %w", err)
 		}
 		time.Sleep(signInSettle)
 		out += "; chose Security Key or Biometric Authenticator"
+		next, err := tab.refByScript(ctx, nextButtonScript)
+		if err != nil {
+			return "", err
+		}
+		if next != "" {
+			if err := tab.Click(ctx, next, false); err != nil {
+				return "", fmt.Errorf("pressing Next: %w", err)
+			}
+			time.Sleep(signInSettle)
+			out += "; pressed Next"
+		}
 	}
 	page, err := tab.Look(ctx, "")
 	if err != nil {
 		return "", err
 	}
-	return out + "\nRead the page: it is signed in, or shows a passkey or security-key option to click.\n" + clipText(page, 3_000, "look for the rest"), nil
+	return out + "\nRead the page: it is signed in, or shows what blocks it, such as a passkey or security-key option to click.\n" + clipText(page, 3_000, "look for the rest"), nil
 }
 
-// oktaKey is the ref of the Select control of an Okta list's Security Key or Biometric
-// Authenticator row, or "".
-func (t *Tab) oktaKey(ctx context.Context) (string, error) {
+// refByScript is the ref script (one of the ref-finding scripts in scripts.go, evaluated as
+// (script)(start)) names in the first frame that has one, or "".
+func (t *Tab) refByScript(ctx context.Context, script string) (string, error) {
 	frames, err := t.framesInOrder(ctx)
 	if err != nil {
 		return "", err
@@ -195,7 +226,7 @@ func (t *Tab) oktaKey(ctx context.Context) (string, error) {
 			Ref  string `json:"ref"`
 			Next int    `json:"next"`
 		}
-		if err := t.eval(ctx, f, fmt.Sprintf("(%s)(%d)", oktaKeyScript, start), &got); err != nil {
+		if err := t.eval(ctx, f, fmt.Sprintf("(%s)(%d)", script, start), &got); err != nil {
 			return "", err
 		}
 		t.mu.Lock()

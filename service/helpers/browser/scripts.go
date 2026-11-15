@@ -490,3 +490,26 @@ const oktaKeyScript = `(start) => {
   }
   return { ref: "", next: start };
 }`
+
+// ssoLinkScript is evaluated in each frame as (ssoLinkScript)(start): the ref of the link or
+// button on a site's login page that enters its single sign-on (MSU NetID, SSO, SAML), or "".
+const ssoLinkScript = `(start) => {
+  ` + jsLib + `
+  const entry = /(netid|single sign[- ]?on|\bsso\b|saml|sign in with (msu|michigan state))/i;
+  const target = deepEls(document).filter((e) => e.matches("a,button,[role=button]") && e.getClientRects().length > 0 && (entry.test((e.innerText || "").trim()) && (e.innerText || "").trim().length < 60 || /saml|\/sso\b/i.test(e.getAttribute("href") || ""))).shift();
+  if (!target) return { ref: "", next: start };
+  let ref = target.getAttribute("data-dadi-ref");
+  if (!ref) { ref = "e" + start; target.setAttribute("data-dadi-ref", ref); return { ref, next: start + 1 }; }
+  return { ref, next: start };
+}`
+
+// nextButtonScript is evaluated in each frame as (nextButtonScript)(start): the ref of a visible
+// Next or Verify button, or "".
+const nextButtonScript = `(start) => {
+  ` + jsLib + `
+  const target = deepEls(document).filter((e) => e.matches("button,input[type=submit],[role=button]") && e.getClientRects().length > 0 && /^(next|verify)$/i.test((e.innerText || e.value || "").trim())).shift();
+  if (!target) return { ref: "", next: start };
+  let ref = target.getAttribute("data-dadi-ref");
+  if (!ref) { ref = "e" + start; target.setAttribute("data-dadi-ref", ref); return { ref, next: start + 1 }; }
+  return { ref, next: start };
+}`
