@@ -302,6 +302,9 @@ func NewRunner(dir, dwarURL string, work Workspace, kits []Kit, publish func(Rep
 		if t.Memo == nil {
 			t.Memo = map[string]string{}
 		}
+		if t.LastReport != nil && t.LastReport.Hosts == nil {
+			t.LastReport.Hosts = []string{}
+		}
 		r.tasks[t.Kind+"/"+t.ID] = &t
 	}
 	return r, nil

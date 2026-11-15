@@ -1254,3 +1254,41 @@ func TestRepeatedResultsAreNoProgress(t *testing.T) {
 		t.Fatal("a new result did not restart the stall count")
 	}
 }
+
+// TestReportSavedBeforeHostsExistedReloadsWithAnEmptyHostList reloads a task file whose last report has no
+// hosts field and checks the report is served with `"hosts":[]`, never null.
+func TestReportSavedBeforeHostsExistedReloadsWithAnEmptyHostList(t *testing.T) {
+	kit := &fakeKit{}
+	dwar := &fakeDwar{script: [][]Block{{use("u1", "finish", map[string]any{"answer": "x"})}}}
+	r, reports, dir := newTestRunner(t, kit, dwar)
+	view, _ := r.Start("terminal", "agent-a", "job", "")
+	waitReport(t, reports)
+	file := filepath.Join(dir, "terminal-"+view.ID+".json")
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved map[string]any
+	if err := json.Unmarshal(raw, &saved); err != nil {
+		t.Fatal(err)
+	}
+	delete(saved["last_report"].(map[string]any), "hosts")
+	raw, err = json.Marshal(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	again, err := NewRunner(dir, "http://unused", testWorkspace(t), []Kit{kit}, func(Report) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	served, err := json.Marshal(again.List()[0].LastReport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(served), `"hosts":[]`) {
+		t.Fatalf("report served as %s", served)
+	}
+}
