@@ -109,9 +109,10 @@ type stateRow struct {
 // reportRow is a report made for the task.
 type reportRow struct {
 	head
-	State string   `json:"state"`
-	Text  string   `json:"text"`
-	Files []string `json:"files"`
+	State  string   `json:"state"`
+	Text   string   `json:"text"`
+	Files  []string `json:"files"`
+	Detail string   `json:"detail"`
 }
 
 // newTurnRow is the log row of one model answer that took the given time.

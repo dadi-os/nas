@@ -54,7 +54,7 @@ func newTestKit(t *testing.T) (*Kit, *chromiumHost, string) {
 	_ = os.WriteFile(filepath.Join(cg, "memory.current"), []byte("1\n"), 0o644)
 	host := &chromiumHost{t: t}
 	dir := t.TempDir()
-	k, err := New(host, "http://chaavi.invalid", "http://dwar.invalid", t.TempDir(), dir, cg)
+	k, err := New(host, "http://chaavi.invalid", "http://dwar.invalid", t.TempDir(), dir, cg, testSites(t))
 	if err != nil {
 		t.Fatal(err)
 	}

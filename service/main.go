@@ -21,6 +21,7 @@ import (
 
 	"github.com/dadi-os/nas/service/helpers"
 	"github.com/dadi-os/nas/service/helpers/browser"
+	"github.com/dadi-os/nas/service/helpers/sites"
 	"github.com/dadi-os/nas/service/helpers/terminal"
 )
 
@@ -64,16 +65,6 @@ func main() {
 		os.Exit(1)
 	}
 	killGrace, err := requireSeconds("TERMINAL_KILL_GRACE_SECONDS")
-	if err != nil {
-		slog.Error(err.Error(), "code", CodeConfigMissing)
-		os.Exit(1)
-	}
-	stepsWarn, err := requireInt("HELPER_STEPS_WARN")
-	if err != nil {
-		slog.Error(err.Error(), "code", CodeConfigMissing)
-		os.Exit(1)
-	}
-	stepsMax, err := requireInt("HELPER_STEPS_MAX")
 	if err != nil {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
@@ -137,12 +128,17 @@ func main() {
 		slog.Error(err.Error(), "code", CodeInternal)
 		os.Exit(1)
 	}
-	browserKit, err := browser.New(browsers, chaaviURL, dwarURL, host.homeDir, host.browsersDir, browserCgroup)
+	siteProfiles, err := sites.New(filepath.Join(state.dir, "sites"), time.Now)
+	if err != nil {
+		slog.Error(err.Error(), "code", CodeInternal)
+		os.Exit(1)
+	}
+	browserKit, err := browser.New(browsers, chaaviURL, dwarURL, host.homeDir, host.browsersDir, browserCgroup, siteProfiles)
 	if err != nil {
 		slog.Error(err.Error(), "code", CodeConfigMissing)
 		os.Exit(1)
 	}
-	runner, err := helpers.NewRunner(filepath.Join(state.dir, "helpers"), dwarURL, helpers.StepBudget{Warn: stepsWarn, Max: stepsMax}, []helpers.Kit{terminalKit, browserKit}, changes.publishReport)
+	runner, err := helpers.NewRunner(filepath.Join(state.dir, "helpers"), dwarURL, helpers.Workspace{Home: host.homeDir, AsDadi: host.asDadi}, []helpers.Kit{terminalKit, browserKit}, changes.publishReport)
 	if err != nil {
 		slog.Error(err.Error(), "code", CodeInternal)
 		os.Exit(1)

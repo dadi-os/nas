@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dadi-os/nas/service/helpers"
+	"github.com/dadi-os/nas/service/helpers/sites"
 )
 
 func TestChooseFolder(t *testing.T) {
@@ -126,13 +128,13 @@ func TestMemoryCheck(t *testing.T) {
 }
 
 func TestKitFailsAtStartupWithoutACgroup(t *testing.T) {
-	if _, err := New(nil, "http://chaavi", "http://dwar", t.TempDir(), t.TempDir(), filepath.Join(t.TempDir(), "absent")); err == nil || !strings.Contains(err.Error(), "BROWSER_CGROUP") {
+	if _, err := New(nil, "http://chaavi", "http://dwar", t.TempDir(), t.TempDir(), filepath.Join(t.TempDir(), "absent"), testSites(t)); err == nil || !strings.Contains(err.Error(), "BROWSER_CGROUP") {
 		t.Fatalf("New with a missing cgroup: %v", err)
 	}
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "memory.max"), []byte("max\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "memory.current"), []byte("1\n"), 0o644)
-	k, err := New(nil, "http://chaavi", "http://dwar", t.TempDir(), t.TempDir(), dir)
+	k, err := New(nil, "http://chaavi", "http://dwar", t.TempDir(), t.TempDir(), dir, testSites(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +151,7 @@ func TestSleepingTaskStateNamesAnUnreadableTabsNote(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "memory.max"), []byte("max\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "memory.current"), []byte("1\n"), 0o644)
-	k, err := New(nil, "http://chaavi", "http://dwar", t.TempDir(), t.TempDir(), dir)
+	k, err := New(nil, "http://chaavi", "http://dwar", t.TempDir(), t.TempDir(), dir, testSites(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +267,7 @@ func TestToolsAreTheSpecifiedOnes(t *testing.T) {
 	for _, tool := range k.Tools() {
 		names = append(names, tool.Name)
 	}
-	want := []string{"look", "act", "find", "extract", "screenshot", "tabs", "navigate", "sign_in", "download", "upload"}
+	want := []string{"look", "act", "find", "extract", "screenshot", "tabs", "navigate", "sign_in", "download", "note_site", "upload"}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("tools %v, want %v", names, want)
 	}
@@ -367,5 +369,115 @@ func TestRetryStaleRunsReadsAgainButNeverAnAct(t *testing.T) {
 	_, err := retryStale("find", func() (string, error) { calls++; return "", errors.New("Cannot find context with specified id") })
 	if calls != 2 || err == nil {
 		t.Fatalf("a second stale error: %d calls, %v", calls, err)
+	}
+}
+
+// testSites is a site profile store over a temp dir.
+func testSites(t *testing.T) *sites.Store {
+	t.Helper()
+	store, err := sites.New(t.TempDir(), func() time.Time { return time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+// TestFailuresAreFactsHandedBackNotOrders appends, from the third failed call in a row on a
+// site, how many failed and the latest errors, with no instruction.
+func TestFailuresAreFactsHandedBackNotOrders(t *testing.T) {
+	k, s := &Kit{}, &session{}
+	in := input{URL: "https://www.gradescope.com/courses/1"}
+	ctx := context.Background()
+	if note := k.noteFailure(ctx, s, in, errors.New("timeout")); note != "" {
+		t.Fatalf("first failure noted: %q", note)
+	}
+	if note := k.noteFailure(ctx, s, in, errors.New("net::ERR_ABORTED")); note != "" {
+		t.Fatalf("second failure noted: %q", note)
+	}
+	note := k.noteFailure(ctx, s, in, errors.New("page said\n  not found"))
+	want := "\n[failures] 3 calls in a row failed on gradescope.com: timeout; net::ERR_ABORTED; page said not found"
+	if note != want {
+		t.Fatalf("note %q, want %q", note, want)
+	}
+	for _, order := range []string{"stop", "finish", "must", "do not"} {
+		if strings.Contains(strings.ToLower(note), order) {
+			t.Fatalf("the note gives an order (%q): %s", order, note)
+		}
+	}
+	k.noteSuccess(ctx, s, in)
+	if note := k.noteFailure(ctx, s, in, errors.New("again")); note != "" {
+		t.Fatalf("a success did not clear the run: %q", note)
+	}
+}
+
+// TestSiteProfileIsShownOnceForEachHostInATask puts the profile after the first navigate to a
+// host, and not on the second or for a host with none.
+func TestSiteProfileIsShownOnceForEachHostInATask(t *testing.T) {
+	store := testSites(t)
+	if err := store.Note("d2l.msu.edu", "time_zone_shown", json.RawMessage(`"Eastern"`)); err != nil {
+		t.Fatal(err)
+	}
+	k := &Kit{profiles: store}
+	task := newTask("1", "a", "p")
+	first := k.profileNote(task, "https://d2l.msu.edu/d2l/home")
+	if !strings.Contains(first, "[site profile d2l.msu.edu]") || !strings.Contains(first, "Eastern") {
+		t.Fatalf("first navigate: %q", first)
+	}
+	if again := k.profileNote(task, "https://d2l.msu.edu/d2l/le/1"); again != "" {
+		t.Fatalf("second navigate: %q", again)
+	}
+	if other := k.profileNote(newTask("2", "a", "p"), "https://d2l.msu.edu/"); other == "" {
+		t.Fatal("another task was not shown the profile")
+	}
+	if none := k.profileNote(task, "https://example.org/"); none != "" {
+		t.Fatalf("a host with no profile: %q", none)
+	}
+}
+
+// TestNoteSiteRejectsAnUnknownFieldAndSavesAKnownOne is the schema's integrity: a field outside
+// the profile is an error, and a good one is saved.
+func TestNoteSiteRejectsAnUnknownFieldAndSavesAKnownOne(t *testing.T) {
+	store := testSites(t)
+	k := &Kit{profiles: store}
+	task := newTask("1", "a", "p")
+	_, err := k.Call(task, "note_site", json.RawMessage(`{"host":"d2l.msu.edu","field":"favourite_colour","value":"blue"}`))
+	if err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("unknown field: %v", err)
+	}
+	if _, found, _ := store.Get("d2l.msu.edu"); found {
+		t.Fatal("a rejected note created a profile")
+	}
+	if _, err := k.Call(task, "note_site", json.RawMessage(`{"host":"d2l.msu.edu","field":"sign_in","value":{"method":"passkey","item":"MSU"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if p, found, _ := store.Get("d2l.msu.edu"); !found || p.SignIn == nil || p.SignIn.Item != "MSU" {
+		t.Fatalf("profile %+v", p)
+	}
+}
+
+// TestOutlineReceiptsAndProgressKeys reads the address and title of an outline, and treats a
+// repeated look as no news while an extract with no rows brings none.
+func TestOutlineReceiptsAndProgressKeys(t *testing.T) {
+	k := &Kit{}
+	if r, ok := k.OutlineReceipt("look", "url: https://a.example/x\ntitle: Grades\n- link"); !ok || r != "https://a.example/x Grades" {
+		t.Fatalf("receipt %q %v", r, ok)
+	}
+	if _, ok := k.OutlineReceipt("extract", "url: https://a.example/x\ntitle: Grades\n"); ok {
+		t.Fatal("an extract is not an outline")
+	}
+	task := newTask("1", "a", "p")
+	if a, b := k.Progress(task, "look", "outline one"), k.Progress(task, "look", "outline one"); a == "" || a != b {
+		t.Fatalf("the same outline must give the same key: %q %q", a, b)
+	}
+	if k.Progress(task, "look", "outline one") == k.Progress(task, "look", "outline two") {
+		t.Fatal("different outlines gave one key")
+	}
+	k.sessions = map[string]*session{"1": {rows: 0}}
+	if key := k.Progress(task, "extract", "col\n"); key != "" {
+		t.Fatalf("an extract with no rows progressed: %q", key)
+	}
+	k.sessions["1"].rows = 2
+	if key := k.Progress(task, "extract", "a\nb"); key == "" {
+		t.Fatal("an extract with rows did not progress")
 	}
 }

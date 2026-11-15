@@ -83,7 +83,7 @@ func TestCharterCarriesTheManagersRules(t *testing.T) {
 	}
 	for _, want := range []string{
 		"You decide what to install", "known vulnerabilities", "Approve most of them", "a release under seven days old",
-		"Ankur Desai <ardusa05@gmail.com>", "git config --local",
+		"Commit as Ankur Desai with the identity", "desaia11@msu.edu", "git config --local",
 		"match on the sender, never on subject words", "finish` with the code alone",
 	} {
 		if !strings.Contains(kit.Charter(), want) {

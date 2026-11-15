@@ -6,8 +6,10 @@ package browser
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	_ "embed"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,6 +25,7 @@ import (
 	"time"
 
 	"github.com/dadi-os/nas/service/helpers"
+	"github.com/dadi-os/nas/service/helpers/sites"
 )
 
 //go:embed charter.md
@@ -37,9 +40,11 @@ const (
 	// callTimeout bounds one tool call; downloadCallTimeout bounds the download tool, which waits for a file.
 	callTimeout         = 90 * time.Second
 	downloadCallTimeout = 10 * time.Minute
+	// failuresAfter is how many failed calls in a row on one site make a failures fact; the fact
+	// lists the latest failuresAfter errors, each cut to failureChars.
+	failuresAfter = 3
+	failureChars  = 160
 	// staleContext is the protocol error of a page command sent to an execution context a navigation just replaced.
-	// blockedAfter is how many failed calls in a row on one site end the helper's work on it.
-	blockedAfter = 3
 	staleContext = "Cannot find context with specified id"
 	// extractMaxChars is the most characters of extracted data a result carries; the helper cannot read files.
 	extractMaxChars = 8_000
@@ -47,6 +52,11 @@ const (
 	downloadWait = 120 * time.Second
 	// tabsNote is the memo key holding the URLs of the tabs a sleeping task reopens.
 	tabsNote = "tabs"
+	// profiledNote is the prefix of the memo keys marking the hosts whose site profile the task
+	// has already been shown.
+	profiledNote = "profiled:"
+	// toolNoteSite records a fact about a site in its profile.
+	toolNoteSite = "note_site"
 )
 
 // Launch is a Chromium that a Host started: its slot number and its DevTools websocket URL.
@@ -75,6 +85,7 @@ type Kit struct {
 	home        string
 	browsersDir string
 	cgroup      string
+	profiles    *sites.Store
 	mu          sync.Mutex
 	sessions    map[string]*session
 	busy        map[string]bool
@@ -87,21 +98,23 @@ type session struct {
 	b      *Browser
 	agent  string
 	folder string
-	// failures counts the calls in a row that failed on each site.
-	failures map[string]int
+	// failures lists the errors of the calls in a row that failed on each site.
+	failures map[string][]string
+	// rows is how many rows the last extract returned.
+	rows int
 }
 
 // New builds the browser kit. browsersDir holds the per-agent Chromium folders
 // (<browsersDir>/<agent>/1..n), cgroup is the cgroup whose memory limits how many browsers
-// run, and home is the dadi home (downloads land in <home>/Downloads). It fails when the
-// cgroup's memory cannot be read.
-func New(host Host, chaaviURL, dwarURL, home, browsersDir, cgroup string) (*Kit, error) {
+// run, and home is the dadi home (downloads land in <home>/Downloads). profiles holds what is
+// known of each site. It fails when the cgroup's memory cannot be read.
+func New(host Host, chaaviURL, dwarURL, home, browsersDir, cgroup string, profiles *sites.Store) (*Kit, error) {
 	if _, err := readCgroup(cgroup); err != nil {
 		return nil, fmt.Errorf("BROWSER_CGROUP %s: %w", cgroup, err)
 	}
 	return &Kit{
 		host: host, chaavi: &chaaviClient{base: chaaviURL, http: &http.Client{Timeout: chaaviTimeout}}, dwar: dwarURL,
-		http: &http.Client{Timeout: 2 * time.Minute}, home: home, browsersDir: browsersDir, cgroup: cgroup,
+		http: &http.Client{Timeout: 2 * time.Minute}, home: home, browsersDir: browsersDir, cgroup: cgroup, profiles: profiles,
 		sessions: map[string]*session{}, busy: map[string]bool{},
 	}, nil
 }
@@ -383,30 +396,38 @@ func (k *Kit) Tools() []helpers.ToolSpec {
 			"use": map[string]any{"type": "string", "enum": []string{"passkey", "login"}, "description": "Force the passkey or the username and password"},
 		})},
 		{Name: "download", Description: "Get a file: give url to load it, or ref to click the control that starts it. With neither, list the downloads so far. Files land in ~/Downloads under their own names and come back as paths.", InputSchema: obj(nil, map[string]any{"url": str("Address of the file"), "ref": str("Ref of the control that downloads it")})},
+		{Name: toolNoteSite, Description: "Record a fact you learned for certain about a site in its profile, which every later helper is shown the first time it loads that host. field is sign_in (value {method: passkey, login or decs, item: the Chaavi item's title, none for decs}), time_zone_shown (value: the zone the site shows, as a string), due_date_pages (value {name, url}) or blocks (value: the symptom that stops work there, as a string). One field per call.", InputSchema: obj([]string{"host", "field", "value"}, map[string]any{
+			"host":  str("The host name, such as d2l.msu.edu"),
+			"field": map[string]any{"type": "string", "enum": []string{sites.FieldSignIn, sites.FieldTimeZone, sites.FieldDueDatePages, sites.FieldBlocks}},
+			"value": map[string]any{"description": "The value for the field: an object for sign_in and due_date_pages, a string for the others"},
+		})},
 		{Name: "upload", Description: "Attach files to a file input by absolute path. ref may be the file input itself (also in a frame or shadow root) or the control that opens the upload; the files go to the file chooser it opens or the input it adds.", InputSchema: obj([]string{"ref", "paths"}, map[string]any{"ref": str("Ref of the input or of the control that opens the upload"), "paths": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}})},
 	}
 }
 
 type input struct {
-	Tab      string   `json:"tab"`
-	Scope    string   `json:"scope"`
-	Question string   `json:"question"`
-	Actions  []Action `json:"actions"`
-	Query    string   `json:"query"`
-	What     string   `json:"what"`
-	Format   string   `json:"format"`
-	Pages    int      `json:"pages"`
-	Next     string   `json:"next"`
-	Open     string   `json:"open"`
-	Switch   string   `json:"switch"`
-	Close    string   `json:"close"`
-	URL      string   `json:"url"`
-	Wait     string   `json:"wait"`
-	Ref      string   `json:"ref"`
-	Paths    []string `json:"paths"`
-	Site     string   `json:"site"`
-	Item     string   `json:"item"`
-	Use      string   `json:"use"`
+	Tab      string          `json:"tab"`
+	Scope    string          `json:"scope"`
+	Question string          `json:"question"`
+	Actions  []Action        `json:"actions"`
+	Query    string          `json:"query"`
+	What     string          `json:"what"`
+	Format   string          `json:"format"`
+	Pages    int             `json:"pages"`
+	Next     string          `json:"next"`
+	Open     string          `json:"open"`
+	Switch   string          `json:"switch"`
+	Close    string          `json:"close"`
+	URL      string          `json:"url"`
+	Wait     string          `json:"wait"`
+	Ref      string          `json:"ref"`
+	Paths    []string        `json:"paths"`
+	Site     string          `json:"site"`
+	Item     string          `json:"item"`
+	Use      string          `json:"use"`
+	Host     string          `json:"host"`
+	Field    string          `json:"field"`
+	Value    json.RawMessage `json:"value"`
 }
 
 // Call runs one tool on t's browser. A failure is returned as the tool's error and is never
@@ -415,6 +436,12 @@ func (k *Kit) Call(t *helpers.Task, name string, raw json.RawMessage) (string, e
 	var in input
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if name == toolNoteSite {
+		if err := k.profiles.Note(in.Host, in.Field, in.Value); err != nil {
+			return "", err
+		}
+		return "noted " + in.Field + " for " + in.Host, nil
 	}
 	s, err := k.session(t)
 	if err != nil {
@@ -433,11 +460,65 @@ func (k *Kit) Call(t *helpers.Task, name string, raw json.RawMessage) (string, e
 		slog.Error("browser tabs not saved", "code", "internal_error", "task", "browser/"+t.ID, "err", saveErr)
 	}
 	if err != nil {
-		err = fmt.Errorf("%w%s", err, k.noteFailure(ctx, s, in))
+		err = fmt.Errorf("%w%s", err, k.noteFailure(ctx, s, in, err))
 	} else {
 		k.noteSuccess(ctx, s, in)
+		if name == "navigate" {
+			out += k.profileNote(t, in.URL)
+		}
 	}
 	return out, err
+}
+
+// Progress is the key of what a successful call of tool brought that is new. A navigate or an
+// act brings the address now in front, an extract its rows, and any other call its result; a
+// key that came up earlier in the steer is no progress.
+func (k *Kit) Progress(t *helpers.Task, tool, result string) string {
+	switch tool {
+	case "navigate", "act":
+		if front := k.FrontURL(t); front != "" {
+			return "url:" + front
+		}
+		return ""
+	case "extract":
+		k.mu.Lock()
+		s := k.sessions[t.ID]
+		k.mu.Unlock()
+		if s == nil {
+			return ""
+		}
+		s.mu.Lock()
+		rows := s.rows
+		s.mu.Unlock()
+		if rows == 0 {
+			return ""
+		}
+	}
+	if strings.TrimSpace(result) == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(result))
+	return tool + ":" + hex.EncodeToString(sum[:])
+}
+
+// OutlineReceipt is the address and title of the page a navigate or look result outlines.
+func (k *Kit) OutlineReceipt(tool, result string) (string, bool) {
+	if tool != "navigate" && tool != "look" {
+		return "", false
+	}
+	lines := strings.SplitN(result, "\n", 3)
+	if len(lines) < 2 || !strings.HasPrefix(lines[0], "url: ") || !strings.HasPrefix(lines[1], "title: ") {
+		return "", false
+	}
+	return strings.TrimPrefix(lines[0], "url: ") + " " + strings.TrimPrefix(lines[1], "title: "), true
+}
+
+// shorten cuts s to max characters with an ellipsis.
+func shorten(s string, max int) string {
+	if r := []rune(s); len(r) > max {
+		return string(r[:max]) + "…"
+	}
+	return s
 }
 
 // callSite is the site a call worked on: its URL's, else the front tab's.
@@ -457,21 +538,47 @@ func callSite(ctx context.Context, s *session, in input) string {
 	return ""
 }
 
-// noteFailure counts a failed call against its site and, at blockedAfter failures in a row,
-// returns the instruction to stop working on that site.
-func (k *Kit) noteFailure(ctx context.Context, s *session, in input) string {
+// noteFailure counts a failed call against its site and, from failuresAfter failures in a row,
+// returns the fact: how many calls failed on the site and the latest errors.
+func (k *Kit) noteFailure(ctx context.Context, s *session, in input, failure error) string {
 	site := callSite(ctx, s, in)
 	if site == "" {
 		return ""
 	}
 	if s.failures == nil {
-		s.failures = map[string]int{}
+		s.failures = map[string][]string{}
 	}
-	s.failures[site]++
-	if s.failures[site] < blockedAfter {
+	s.failures[site] = append(s.failures[site], shorten(strings.Join(strings.Fields(failure.Error()), " "), failureChars))
+	errs := s.failures[site]
+	if len(errs) < failuresAfter {
 		return ""
 	}
-	return fmt.Sprintf("\n[blocked] %d failed calls in a row on %s: stop on this site, call finish with what you have read and what you did not.", s.failures[site], site)
+	return fmt.Sprintf("\n[failures] %d calls in a row failed on %s: %s", len(errs), site, strings.Join(errs[len(errs)-failuresAfter:], "; "))
+}
+
+// profileNote is the profile of the host of address, once for each host in a task, and "" when
+// it was shown or the host has none.
+func (k *Kit) profileNote(t *helpers.Task, address string) string {
+	u, err := url.Parse(address)
+	if err != nil || u.Hostname() == "" {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	if t.Notes()[profiledNote+host] != "" {
+		return ""
+	}
+	p, found, err := k.profiles.Get(host)
+	if err != nil {
+		return "\n[site profile " + host + " not read] " + err.Error()
+	}
+	if !found {
+		return ""
+	}
+	t.Note(profiledNote+host, "1")
+	if text := sites.Describe(host, p); text != "" {
+		return "\n" + text
+	}
+	return ""
 }
 
 // noteSuccess clears a site's run of failures.
@@ -554,7 +661,7 @@ func (k *Kit) dispatchOnce(ctx context.Context, t *helpers.Task, s *session, nam
 	case "find":
 		return tab.Find(ctx, in.Query)
 	case "extract":
-		return k.extract(ctx, tab, in)
+		return k.extract(ctx, s, tab, in)
 	case "screenshot":
 		return k.screenshot(ctx, t, tab, in)
 	case "navigate":
@@ -722,11 +829,12 @@ func (k *Kit) writeFile(path string, data []byte) error {
 }
 
 // extract reads rows and returns them inline, cut at extractMaxChars.
-func (k *Kit) extract(ctx context.Context, tab *Tab, in input) (string, error) {
+func (k *Kit) extract(ctx context.Context, s *session, tab *Tab, in input) (string, error) {
 	got, err := tab.Extract(ctx, ExtractOptions{What: in.What, Format: in.Format, Pages: in.Pages, Next: in.Next})
 	if err != nil {
 		return "", err
 	}
+	s.rows = got.Rows
 	return clipText(got.Data, extractMaxChars, "narrow what to read the rest"), nil
 }
 

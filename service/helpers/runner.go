@@ -6,12 +6,14 @@ package helpers
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -39,6 +41,12 @@ const (
 	// sweep resumes its loop as if he had handed it back with no note, so an abandoned
 	// takeover never leaves an agent waiting on a helper that will not move.
 	pauseAbandonAfter = 30 * time.Minute
+	// noProgressAfter is how many turns in a row without new information end in the
+	// [no progress] fact: the charter calls the same failure twice a block, and this is one more.
+	noProgressAfter = 3
+	// fullOutlines is how many of a steer's newest page outlines reach the model whole; earlier
+	// ones read as a one-line receipt.
+	fullOutlines = 2
 	// notRun is the result of a tool call the helper asked for after Ankur took over.
 	notRun = "[not run] Ankur took over before this ran. Look again before you act."
 	// purposeChars is how much of a task's purpose its view shows.
@@ -48,11 +56,6 @@ const (
 	logLimitMax     = 1000
 	toolFinish      = "finish"
 	toolAsk         = "ask"
-	stepWarning     = "[budget] %d turns left on this steer: finish with what you have read; list what you did not read and why."
-	stepsOut        = "[budget] No turns left on this steer: call finish now with what you have read; list what you did not read and why."
-	reportMaxChars  = 900
-	reportRefuseAt  = 1_200
-	reportTooLong   = "[too long] This report is %d characters. Cut it to %d: lead with what the steer asked; drop what it did not, and what you did to get it. Then call finish again."
 	textTurn        = "[continue] Text you write reaches no one. Take the next step with a tool, call ask for something only the agent or Ankur can give, or call finish with the result."
 )
 
@@ -167,9 +170,11 @@ type Steer struct {
 	Message string `json:"message"`
 }
 
-// Report is what a helper hands back: a result (done), a question (needs_input), the error
-// that stopped it (failed), or Ankur's word that he stopped it (stopped). Seq orders reports
-// across all tasks since Nas started.
+// Report is what a helper hands back: an answer (done), a question (needs_input), the error
+// that stopped it (failed), or Ankur's word that he stopped it (stopped). Text is the answer
+// followed by one "Not read:" line per source the helper did not read. Detail is the absolute
+// path of the file holding what the helper put in its finish's detail, empty when it gave
+// none. Seq orders reports across all tasks since Nas started.
 type Report struct {
 	Seq     int64     `json:"seq"`
 	Task    string    `json:"task"`
@@ -179,6 +184,7 @@ type Report struct {
 	State   string    `json:"state"`
 	Text    string    `json:"text"`
 	Files   []string  `json:"files"`
+	Detail  string    `json:"detail"`
 	At      time.Time `json:"at"`
 }
 
@@ -208,17 +214,34 @@ type Runner struct {
 	dwar    *dwarClient
 	kits    map[string]Kit
 	publish func(Report)
-	budget  StepBudget
+	work    Workspace
 	mu      sync.Mutex
 	tasks   map[string]*Task
 	seq     int64
 	journal *journal
 }
 
-// StepBudget limits the model turns a helper takes on one steer: at Warn turns it is told how
-// many are left, and from Max turns it may only call finish.
-type StepBudget struct {
-	Warn, Max int
+// Workspace is the dadi home a finish's detail is written under, and how to write there as the
+// user the helpers' shells run as.
+type Workspace struct {
+	Home   string
+	AsDadi func(fn func() error) error
+}
+
+// progressKit is implemented by a kit that knows which of its successful tool results bring
+// something new. A kit without it counts a result as new when its text is non-empty and has not
+// come back earlier in the steer.
+type progressKit interface {
+	// Progress is a key naming the news in the result of tool, or "" when it brings none. A
+	// result progresses when its key has not come up earlier in the steer.
+	Progress(t *Task, tool, result string) string
+}
+
+// outlineKit is implemented by a kit whose results include whole-page outlines.
+type outlineKit interface {
+	// OutlineReceipt is the one line (address and title) standing for result when it is the
+	// outline of a page, and false when it is not.
+	OutlineReceipt(tool, result string) (string, bool)
 }
 
 // Error is a request failure with its HTTP status and stable code.
@@ -234,12 +257,9 @@ func (e Error) Error() string {
 }
 
 // NewRunner loads the tasks saved under dir as asleep and drops those past forgetAfter. A
-// loaded task keeps the Resource it last had, which its kit's Wake clears up first. budget
-// limits each steer's turns. publish receives every report as it is made.
-func NewRunner(dir, dwarURL string, budget StepBudget, kits []Kit, publish func(Report)) (*Runner, error) {
-	if budget.Warn < 1 || budget.Max <= budget.Warn {
-		return nil, fmt.Errorf("step budget needs 0 < warn < max, got warn %d and max %d", budget.Warn, budget.Max)
-	}
+// loaded task keeps the Resource it last had, which its kit's Wake clears up first. work is
+// where a finish's detail is written. publish receives every report as it is made.
+func NewRunner(dir, dwarURL string, work Workspace, kits []Kit, publish func(Report)) (*Runner, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("helpers dir: %w", err)
 	}
@@ -247,7 +267,7 @@ func NewRunner(dir, dwarURL string, budget StepBudget, kits []Kit, publish func(
 	if err != nil {
 		return nil, err
 	}
-	r := &Runner{dir: dir, journal: jr, dwar: newDwarClient(dwarURL), budget: budget, kits: map[string]Kit{}, publish: publish, tasks: map[string]*Task{}}
+	r := &Runner{dir: dir, journal: jr, dwar: newDwarClient(dwarURL), work: work, kits: map[string]Kit{}, publish: publish, tasks: map[string]*Task{}}
 	for _, kit := range kits {
 		r.kits[kit.Kind()] = kit
 	}
@@ -493,7 +513,8 @@ func (r *Runner) Start(kind, agent, message, cwd string) (View, error) {
 
 // Steer gives task kind/id a message from agent: joined to its stream between steps while it
 // works, held until Ankur hands it back while he has it paused, or starting its next stretch
-// of work, after waking it when it sleeps.
+// of work, after waking it when it sleeps or was stopped: a stopped task revives with its
+// history.
 func (r *Runner) Steer(kind, id, agent, message string) (View, error) {
 	kit, err := r.kit(kind)
 	if err != nil {
@@ -507,11 +528,12 @@ func (r *Runner) Steer(kind, id, agent, message string) (View, error) {
 	}
 	r.mu.Lock()
 	stopped, asleep := t.Status == StatusStopped, t.Status == StatusAsleep
+	done := t.loopDone
 	r.mu.Unlock()
-	if stopped {
-		return View{}, stoppedError(t)
+	if stopped && done != nil {
+		<-done
 	}
-	if asleep {
+	if stopped || asleep {
 		if err := r.wake(kit, t); err != nil {
 			return View{}, err
 		}
@@ -522,10 +544,6 @@ func (r *Runner) Steer(kind, id, agent, message string) (View, error) {
 // steer queues message for a working or paused helper, or appends it and starts the loop.
 func (r *Runner) steer(kit Kit, t *Task, agent, message string) (View, error) {
 	r.mu.Lock()
-	if t.Status == StatusStopped {
-		r.mu.Unlock()
-		return View{}, stoppedError(t)
-	}
 	t.SteeredBy = agent
 	t.LastActivity = time.Now().UTC()
 	r.record(t, entrySteer, &steerRow{From: agent, Message: clipRunes(message, logLongMax), Held: t.Status == StatusPaused, Start: len(t.History) == 0})
@@ -570,11 +588,6 @@ func (r *Runner) interrupted(t *Task) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return t.Status != StatusWorking
-}
-
-// stoppedError is the Error for a steer sent to a task Halt ended.
-func stoppedError(t *Task) Error {
-	return Error{http.StatusConflict, "task_stopped", fmt.Sprintf("task/%s/%s was stopped and cannot be steered; start a new task", t.Kind, t.ID)}
 }
 
 // conflict is the Error for a pause, resume or stop the task's status does not allow.
@@ -807,7 +820,7 @@ func (r *Runner) Stop(kind, id string) (View, error) {
 	if held > 0 {
 		text += fmt.Sprintf(" %d steer(s) sent while he drove were not read.", held)
 	}
-	report := r.newReport(t, "stopped", text, nil)
+	report := r.newReport(t, "stopped", text, nil, "")
 	t.LastActivity = report.At
 	r.mu.Unlock()
 	if err := r.save(t); err != nil {
@@ -817,11 +830,12 @@ func (r *Runner) Stop(kind, id string) (View, error) {
 	return r.view(kit, t), nil
 }
 
-// Halt is the hard stop: whatever the task is doing, it ends for good in status stopped. Its
-// loop takes no further step (a tool call already running is cut short by the kill and its
-// result dropped), its resource and every process under it are killed, held steers are
-// dropped, and every later steer is refused task_stopped. An asleep task has no resource to kill. The agent whose steer was in flight
-// is told in a stopped report. Halting a stopped task only repeats the kill.
+// Halt is the hard stop: whatever the task is doing, it ends in status stopped. Its loop takes
+// no further step (a tool call already running is cut short by the kill and its result
+// dropped), its resource and every process under it are killed, and held steers are dropped.
+// Its history is kept: a later steer revives it. An asleep task has no resource to kill. The
+// agent whose steer was in flight is told in a stopped report. Halting a stopped task only
+// repeats the kill.
 func (r *Runner) Halt(kind, id string) (View, error) {
 	kit, t, err := r.find(kind, id)
 	if err != nil {
@@ -859,7 +873,7 @@ func (r *Runner) Halt(kind, id string) (View, error) {
 		text += "\n[State of the work when it stopped]\n" + state
 	}
 	r.mu.Lock()
-	report := r.newReport(t, "stopped", text, nil)
+	report := r.newReport(t, "stopped", text, nil, "")
 	r.mu.Unlock()
 	if err := r.save(t); err != nil {
 		slog.Error("helper save failed", "code", "internal_error", "task", report.Task, "err", err)
@@ -1070,11 +1084,16 @@ func (r *Runner) save(t *Task) error {
 var (
 	finishSpec = ToolSpec{
 		Name:        toolFinish,
-		Description: "Report the result of the work you were steered to do: a few plain lines with exact figures, names, dates and paths, or what stopped you, what you tried and what would get past it. The agent reads only this. files are absolute paths of files to hand back. Your resource stays as it is for the next steer.",
+		Description: "Report the result of the work you were steered to do. answer is read inline: exact figures, names, dates and paths, or what stopped you, what you tried and what would get past it. not_read lists each source you did not read and the symptom that stopped you. detail is anything long (full lists, page text, command output) and reaches the agent as a file. files are absolute paths of files to hand back. Your resource stays as it is for the next steer.",
 		InputSchema: map[string]any{
-			"type": "object", "additionalProperties": false, "required": []string{"result"},
+			"type": "object", "additionalProperties": false, "required": []string{"answer"},
 			"properties": map[string]any{
-				"result": map[string]any{"type": "string", "description": "The result, as the agent should read it"},
+				"answer": map[string]any{"type": "string", "description": "The answer, as the agent should read it"},
+				"not_read": map[string]any{"type": "array", "description": "Sources you did not read", "items": map[string]any{
+					"type": "object", "additionalProperties": false, "required": []string{"source", "symptom"},
+					"properties": map[string]any{"source": map[string]any{"type": "string", "description": "The page, site or file"}, "symptom": map[string]any{"type": "string", "description": "What happened when you tried"}},
+				}},
+				"detail": map[string]any{"type": "string", "description": "Long material of any length, handed back as a file"},
 				"files":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Absolute paths of files to hand back"},
 			},
 		},
@@ -1128,7 +1147,72 @@ func (r *Runner) messages(t *Task) []Message {
 		}
 		out[i] = Message{Role: m.Role, Content: content}
 	}
-	return compactSteers(out)
+	return receiptOutlines(r.kits[t.Kind], compactSteers(out))
+}
+
+// receiptOutlines keeps the newest fullOutlines page outlines in history whole and replaces each
+// earlier one with its kit's one-line receipt and the action that followed it.
+func receiptOutlines(kit Kit, history []Message) []Message {
+	outlines, isOutlineKit := kit.(outlineKit)
+	if !isOutlineKit {
+		return history
+	}
+	names := map[string]string{}
+	for _, m := range history {
+		for _, b := range m.Content {
+			if b["type"] == "tool_use" {
+				id, _ := b["id"].(string)
+				names[id], _ = b["name"].(string)
+			}
+		}
+	}
+	type spot struct {
+		msg, block int
+		receipt    string
+	}
+	var found []spot
+	for i, m := range history {
+		for j, b := range m.Content {
+			if b["type"] != "tool_result" {
+				continue
+			}
+			id, _ := b["tool_use_id"].(string)
+			text, _ := b["content"].(string)
+			if receipt, isOutline := outlines.OutlineReceipt(names[id], text); isOutline {
+				found = append(found, spot{i, j, receipt})
+			}
+		}
+	}
+	if len(found) <= fullOutlines {
+		return history
+	}
+	out := append([]Message{}, history...)
+	for _, o := range found[:len(found)-fullOutlines] {
+		content := append([]Block{}, out[o.msg].Content...)
+		b := Block{}
+		for k, v := range content[o.block] {
+			b[k] = v
+		}
+		b["content"] = "[outline cleared] " + o.receipt + followedBy(history, o.msg)
+		content[o.block] = b
+		out[o.msg] = Message{Role: out[o.msg].Role, Content: content}
+	}
+	return out
+}
+
+// followedBy is "; then <tool> <input>" for the first call the helper made after the user message
+// at index i, or "" when it made none.
+func followedBy(history []Message, i int) string {
+	if i+1 >= len(history) {
+		return ""
+	}
+	for _, b := range history[i+1].Content {
+		if b["type"] == "tool_use" {
+			raw, _ := json.Marshal(b["input"])
+			return fmt.Sprintf("; then %v %s", b["name"], clip(string(raw), 100))
+		}
+	}
+	return ""
 }
 
 // startsSteer reports whether m opens a steer: it carries a steer's text and is the first
@@ -1214,8 +1298,8 @@ func finishReport(seg []Message) (string, bool) {
 		for _, b := range seg[i].Content {
 			if b["type"] == "tool_use" && b["name"] == toolFinish {
 				input, _ := b["input"].(map[string]any)
-				result, ok := input["result"].(string)
-				return result, ok
+				text, _, _ := finishInput(input)
+				return text, true
 			}
 		}
 		return "", false
@@ -1234,20 +1318,17 @@ func (r *Runner) run(kit Kit, t *Task) {
 	r.mu.Unlock()
 	defer close(done)
 	textTurns := 0
-	steps := 0
-	refused := false
+	seen := map[string]bool{}
+	stalled := 0
 	for {
 		r.mu.Lock()
 		req := chatRequest{System: kit.Charter(), Messages: r.messages(t), Tools: append(kit.Tools(), askSpec, finishSpec), ToolChoice: "auto"}
-		if steps >= r.budget.Max {
-			req.Tools, req.ToolChoice = []ToolSpec{finishSpec}, "any"
-		}
 		caller := "nas/helper/" + t.Kind + "/" + t.SteeredBy
 		r.mu.Unlock()
 		began := time.Now()
 		resp, err := r.dwar.complete(caller, req)
 		if err != nil {
-			r.finish(t, "failed", err.Error(), nil)
+			r.finish(t, "failed", err.Error(), nil, "")
 			return
 		}
 		r.mu.Lock()
@@ -1260,6 +1341,8 @@ func (r *Runner) run(kit Kit, t *Task) {
 		r.mu.Unlock()
 		var results []Block
 		var end Block
+		detail := ""
+		progressed := false
 		uses := 0
 		for _, b := range resp.Content {
 			if b["type"] != "tool_use" {
@@ -1272,13 +1355,15 @@ func (r *Runner) run(kit Kit, t *Task) {
 				results = append(results, Block{"type": "tool_result", "tool_use_id": id, "content": notRun, "is_error": true})
 				continue
 			}
-			if name == toolFinish && !refused {
+			if name == toolFinish && end == nil {
 				input, _ := b["input"].(map[string]any)
-				if result, _ := input["result"].(string); len([]rune(result)) > reportRefuseAt {
-					refused = true
-					results = append(results, Block{"type": "tool_result", "tool_use_id": id, "content": fmt.Sprintf(reportTooLong, len([]rune(result)), reportMaxChars), "is_error": true})
+				_, _, body := finishInput(input)
+				path, err := r.writeDetail(t, body)
+				if err != nil {
+					results = append(results, Block{"type": "tool_result", "tool_use_id": id, "content": "detail was not saved: " + err.Error(), "is_error": true})
 					continue
 				}
+				detail = path
 			}
 			if name == toolFinish || name == toolAsk {
 				if end == nil {
@@ -1298,6 +1383,10 @@ func (r *Runner) run(kit Kit, t *Task) {
 				out = callErr.Error()
 			}
 			results = append(results, Block{"type": "tool_result", "tool_use_id": id, "content": out, "is_error": isErr})
+			if key := progressKey(kit, t, name, out, isErr); key != "" && !seen[key] {
+				seen[key] = true
+				progressed = true
+			}
 			r.mu.Lock()
 			r.record(t, entryResult, &resultRow{ToolUseID: id, Name: name, IsError: isErr, Chars: len([]rune(out)), Head: clipRunes(out, logTextMax), Ms: time.Since(calledAt).Milliseconds()})
 			t.ResultSizes[id] = len(out)
@@ -1306,23 +1395,25 @@ func (r *Runner) run(kit Kit, t *Task) {
 		}
 		if uses == 0 {
 			if resp.StopReason == "error" {
-				r.finish(t, "failed", "the helper's model stopped with an error and no tool call", nil)
+				r.finish(t, "failed", "the helper's model stopped with an error and no tool call", nil, "")
 				return
 			}
 			textTurns++
 			if textTurns >= textTurnsMax {
-				r.finish(t, "failed", fmt.Sprintf("the helper's model wrote %d turns in a row without calling a tool", textTurnsMax), nil)
+				r.finish(t, "failed", fmt.Sprintf("the helper's model wrote %d turns in a row without calling a tool", textTurnsMax), nil, "")
 				return
 			}
 			results = append(results, Block{"type": "text", "text": textTurn})
 		} else {
 			textTurns = 0
 		}
-		steps++
-		if steps == r.budget.Warn {
-			results = append(results, Block{"type": "text", "text": fmt.Sprintf(stepWarning, r.budget.Max-steps)})
-		} else if steps == r.budget.Max {
-			results = append(results, Block{"type": "text", "text": stepsOut})
+		if progressed {
+			stalled = 0
+		} else {
+			stalled++
+		}
+		if stalled == noProgressAfter && end == nil {
+			results = append(results, Block{"type": "text", "text": noProgress(kit, t)})
 		}
 		r.mu.Lock()
 		if t.Status != StatusWorking {
@@ -1338,7 +1429,7 @@ func (r *Runner) run(kit Kit, t *Task) {
 		pending := t.Pending
 		t.Pending = nil
 		if len(pending) > 0 {
-			steps = 0
+			seen, stalled = map[string]bool{}, 0
 		}
 		for _, s := range pending {
 			results = append(results, Block{"type": "text", "text": fmt.Sprintf("[Steer from %s]\n%s", s.From, s.Message)})
@@ -1354,48 +1445,40 @@ func (r *Runner) run(kit Kit, t *Task) {
 			input, _ := end["input"].(map[string]any)
 			if end["name"] == toolAsk {
 				question, _ := input["question"].(string)
-				r.finish(t, "needs_input", question, nil)
+				r.finish(t, "needs_input", question, nil, "")
 				return
 			}
-			result, _ := input["result"].(string)
-			var files []string
-			if list, ok := input["files"].([]any); ok {
-				for _, f := range list {
-					if path, ok := f.(string); ok {
-						files = append(files, path)
-					}
-				}
-			}
-			r.finish(t, "done", result, files)
+			text, files, _ := finishInput(input)
+			r.finish(t, "done", text, files, detail)
 			return
 		}
 	}
 }
 
 // newReport makes t's next report and records it as its last. Callers hold r.mu.
-func (r *Runner) newReport(t *Task, state, text string, files []string) Report {
+func (r *Runner) newReport(t *Task, state, text string, files []string, detail string) Report {
 	r.seq++
 	report := Report{
 		Seq: r.seq, Task: "task/" + t.Kind + "/" + t.ID, Kind: t.Kind, ID: t.ID, AgentID: t.SteeredBy,
-		State: state, Text: strings.TrimSpace(text), Files: files, At: time.Now().UTC(),
+		State: state, Text: strings.TrimSpace(text), Files: files, Detail: detail, At: time.Now().UTC(),
 	}
 	if report.Files == nil {
 		report.Files = []string{}
 	}
 	t.LastReport = &report
-	r.record(t, entryReport, &reportRow{State: state, Text: clipRunes(report.Text, logLongMax), Files: report.Files})
+	r.record(t, entryReport, &reportRow{State: state, Text: clipRunes(report.Text, logLongMax), Files: report.Files, Detail: report.Detail})
 	return report
 }
 
 // finish ends a stretch of work: t goes idle (asking for a question), and its report is
 // saved and published. Steers that arrived as the stretch ended start the next one.
-func (r *Runner) finish(t *Task, state, text string, files []string) {
+func (r *Runner) finish(t *Task, state, text string, files []string, detail string) {
 	r.mu.Lock()
 	if t.Status == StatusStopped {
 		r.mu.Unlock()
 		return
 	}
-	report := r.newReport(t, state, text, files)
+	report := r.newReport(t, state, text, files, detail)
 	t.Status = StatusIdle
 	if state == "needs_input" {
 		t.Status = StatusAsking
@@ -1427,4 +1510,75 @@ func (r *Runner) finish(t *Task, state, text string, files []string) {
 		slog.Error("helper failed", "code", "helper_failed", "task", report.Task, "msg_detail", text)
 	}
 	r.publish(report)
+}
+
+// finishInput reads a finish call: the report text (the answer, then one "Not read:" line per
+// source), the files to hand back and the detail.
+func finishInput(input map[string]any) (text string, files []string, detail string) {
+	answer, _ := input["answer"].(string)
+	lines := []string{strings.TrimSpace(answer)}
+	if list, ok := input["not_read"].([]any); ok {
+		for _, item := range list {
+			entry, _ := item.(map[string]any)
+			source, _ := entry["source"].(string)
+			symptom, _ := entry["symptom"].(string)
+			lines = append(lines, fmt.Sprintf("Not read: %s: %s", source, symptom))
+		}
+	}
+	if list, ok := input["files"].([]any); ok {
+		for _, f := range list {
+			if path, ok := f.(string); ok {
+				files = append(files, path)
+			}
+		}
+	}
+	detail, _ = input["detail"].(string)
+	return strings.Join(lines, "\n"), files, detail
+}
+
+// writeDetail saves a finish's detail under t's folder in the dadi home and returns its path;
+// with no detail it returns "".
+func (r *Runner) writeDetail(t *Task, detail string) (string, error) {
+	if strings.TrimSpace(detail) == "" {
+		return "", nil
+	}
+	path := filepath.Join(r.work.Home, WorkDir, t.ID, fmt.Sprintf("detail-%d.txt", time.Now().UnixNano()))
+	err := r.work.AsDadi(func() error {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(path, []byte(detail), 0o644)
+	})
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// progressKey is the key of what a tool call brought that is new, or "" when it failed or
+// brought nothing. Without a kit opinion, a non-empty result is its own key.
+func progressKey(kit Kit, t *Task, tool, result string, failed bool) string {
+	if failed {
+		return ""
+	}
+	if pk, ok := kit.(progressKit); ok {
+		return pk.Progress(t, tool, result)
+	}
+	if strings.TrimSpace(result) == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(result))
+	return hex.EncodeToString(sum[:])
+}
+
+// noProgress is the fact that the helper's last turns brought nothing new, naming the host of
+// the page in front when the kit has one.
+func noProgress(kit Kit, t *Task) string {
+	where := ""
+	if f, ok := kit.(frontPager); ok {
+		if u, err := url.Parse(f.FrontURL(t)); err == nil && u.Hostname() != "" {
+			where = " on " + u.Hostname()
+		}
+	}
+	return fmt.Sprintf("[no progress] %d turns brought nothing new%s: finish with what you have read (put the rest in not_read), or ask.", noProgressAfter, where)
 }

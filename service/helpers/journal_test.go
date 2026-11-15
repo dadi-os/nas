@@ -178,7 +178,7 @@ func TestRunLoopLogsSteerTurnResultAndReportAndSurvivesForget(t *testing.T) {
 	kit := &fakeKit{}
 	dwar := &fakeDwar{usage: Usage{InputTokens: 11, OutputTokens: 5, CacheReadInputTokens: 3, CacheCreationInputTokens: 2}, script: [][]Block{
 		{{"type": "thinking", "thinking": "hmm"}, {"type": "text", "text": "running"}, use("u1", "run", map[string]any{"cmd": "ls"})},
-		{use("u2", "finish", map[string]any{"result": "done it"})},
+		{use("u2", "finish", map[string]any{"answer": "done it"})},
 	}}
 	r, reports, _ := newTestRunner(t, kit, dwar)
 	view, err := r.Start("terminal", "agent-a", "list files", "")
@@ -254,7 +254,7 @@ func TestRunLoopLogsSteerTurnResultAndReportAndSurvivesForget(t *testing.T) {
 
 func TestStateRowsRecordPauseResumeStopAndHalt(t *testing.T) {
 	kit := &fakeKit{}
-	dwar := &fakeDwar{script: [][]Block{{use("u1", "finish", map[string]any{"result": "x"})}}}
+	dwar := &fakeDwar{script: [][]Block{{use("u1", "finish", map[string]any{"answer": "x"})}}}
 	r, reports, _ := newTestRunner(t, kit, dwar)
 	view, _ := r.Start("terminal", "agent-a", "job", "")
 	waitReport(t, reports)
@@ -294,14 +294,14 @@ func TestStateRowsRecordPauseResumeStopAndHalt(t *testing.T) {
 
 func TestLogDirIsNotLoadedAsATask(t *testing.T) {
 	kit := &fakeKit{}
-	dwar := &fakeDwar{script: [][]Block{{use("u1", "finish", map[string]any{"result": "x"})}}}
+	dwar := &fakeDwar{script: [][]Block{{use("u1", "finish", map[string]any{"answer": "x"})}}}
 	r, reports, dir := newTestRunner(t, kit, dwar)
 	view, _ := r.Start("terminal", "agent-a", "job", "")
 	waitReport(t, reports)
 	if _, err := os.Stat(filepath.Join(dir, "log", "terminal-"+view.ID+".jsonl")); err != nil {
 		t.Fatal(err)
 	}
-	again, err := NewRunner(dir, "http://unused", testBudget, []Kit{kit}, func(Report) {})
+	again, err := NewRunner(dir, "http://unused", testWorkspace(t), []Kit{kit}, func(Report) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestLogDirIsNotLoadedAsATask(t *testing.T) {
 
 func TestLogAndUsageRoutesCoexistWithTaskRoutesAndRefuseBadInput(t *testing.T) {
 	kit := &fakeKit{}
-	dwar := &fakeDwar{script: [][]Block{{use("u1", "finish", map[string]any{"result": "x"})}}}
+	dwar := &fakeDwar{script: [][]Block{{use("u1", "finish", map[string]any{"answer": "x"})}}}
 	r, reports, _ := newTestRunner(t, kit, dwar)
 	view, _ := r.Start("terminal", "agent-a", "job", "")
 	waitReport(t, reports)
