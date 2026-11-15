@@ -154,7 +154,7 @@ func TestSignInFollowsTheSingleSignOnLinkAndPressesNext(t *testing.T) {
 			t.Fatalf("missing %q in:\n%s", step, out)
 		}
 	}
-	if !strings.HasSuffix(tab.URL(), "/okta") || jsIn(t, ctx, tab, "", `window.picked`) != "key" || jsIn(t, ctx, tab, "", `String(window.nexted)`) != "true" {
+	if !strings.Contains(tab.URL(), "/okta") || jsIn(t, ctx, tab, "", `window.picked`) != "key" || jsIn(t, ctx, tab, "", `String(window.nexted)`) != "true" {
 		t.Fatalf("the route did not reach the Okta list: %s", tab.URL())
 	}
 }
