@@ -242,6 +242,26 @@ func TestTerminalsExecCannotEndSession(t *testing.T) {
 	}
 }
 
+// paneTextLines returns how many non-blank lines terminal id's pane shows.
+func paneTextLines(t *testing.T, mux *http.ServeMux, id string) int {
+	t.Helper()
+	code, body := doJSON(t, mux, http.MethodGet, "/terminals/"+id+"/capture?lines=50", nil)
+	if code != http.StatusOK {
+		t.Fatalf("capture %d %s", code, body)
+	}
+	var resp captureResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, ln := range strings.Split(resp.Output, "\n") {
+		if strings.TrimSpace(ln) != "" {
+			n++
+		}
+	}
+	return n
+}
+
 func TestTerminalsExecTimeoutThenKeys(t *testing.T) {
 	_, mux := testTerminalEnv(t)
 	code, body := doJSON(t, mux, http.MethodPost, "/terminals", map[string]any{})
@@ -269,13 +289,24 @@ func TestTerminalsExecTimeoutThenKeys(t *testing.T) {
 		t.Fatalf("exit_code should be null: %+v", resp.ExitCode)
 	}
 
+	before := paneTextLines(t, mux, created.ID)
 	code, body = doJSON(t, mux, http.MethodPost, "/terminals/"+created.ID+"/keys", map[string]any{
 		"keys": []string{"C-c"},
 	})
 	if code != http.StatusOK {
 		t.Fatalf("keys %d %s", code, body)
 	}
+	// The pty processes C-c asynchronously and drops whatever input is queued behind it, so
+	// the shell must have answered the interrupt, which is a fresh prompt, before anything
+	// else is typed to it.
 	deadline := time.Now().Add(5 * time.Second)
+	for paneTextLines(t, mux, created.ID) <= before {
+		if time.Now().After(deadline) {
+			t.Fatal("the shell never answered C-c with a new prompt")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	deadline = time.Now().Add(5 * time.Second)
 	for {
 		code, body = doJSON(t, mux, http.MethodPost, "/terminals/"+created.ID+"/exec", map[string]any{
 			"command":         "echo recovered",
