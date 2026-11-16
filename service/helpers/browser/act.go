@@ -605,7 +605,7 @@ func (t *Tab) changedLines(ctx context.Context) (string, error) {
 	t.mu.Lock()
 	before := t.last
 	t.mu.Unlock()
-	body, err := t.outline(ctx, "")
+	body, err := t.renderedOutline(ctx)
 	if err != nil {
 		return "", err
 	}

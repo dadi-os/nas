@@ -89,37 +89,6 @@ func TestNoteSavesEachFieldAndDatesABlock(t *testing.T) {
 	}
 }
 
-func TestReplaceDueDatePagesReplacesEachNamedHostsPagesAndChecksBeforeWriting(t *testing.T) {
-	s, _ := newStore(t)
-	host := "d2l.msu.edu"
-	if err := note(t, s, host, "due_date_pages", `{"name":"Old","url":"https://d2l.msu.edu/old"}`); err != nil {
-		t.Fatal(err)
-	}
-	if err := note(t, s, host, "blocks", `"VPN"`); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.ReplaceDueDatePages([]Page{{Name: "Calendar", URL: "https://d2l.msu.edu/cal"}, {Name: "Quizzes", URL: "https://D2L.msu.edu/q"}, {Name: "Schedule", URL: "https://cse335.egr.msu.edu/s"}}); err != nil {
-		t.Fatal(err)
-	}
-	p, _, _ := s.Get(host)
-	if len(p.DueDatePages) != 2 || p.DueDatePages[0].Name != "Calendar" || p.DueDatePages[1].Name != "Quizzes" || len(p.Blocks) != 1 {
-		t.Fatalf("profile %+v", p)
-	}
-	other, found, _ := s.Get("cse335.egr.msu.edu")
-	if !found || len(other.DueDatePages) != 1 {
-		t.Fatalf("second host %+v", other)
-	}
-	if err := s.ReplaceDueDatePages([]Page{{Name: "New", URL: "https://d2l.msu.edu/new"}, {Name: "Bad", URL: "not a url"}}); err == nil {
-		t.Fatal("a bad page was accepted")
-	}
-	if p, _, _ := s.Get(host); len(p.DueDatePages) != 2 {
-		t.Fatalf("a failed replace wrote: %+v", p.DueDatePages)
-	}
-	if err := s.ReplaceDueDatePages(nil); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestGetOfAnUnknownHostFindsNothing(t *testing.T) {
 	s, _ := newStore(t)
 	if _, found, err := s.Get("example.org"); found || err != nil {

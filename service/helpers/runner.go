@@ -29,9 +29,11 @@ const (
 	forgetAfter = 24 * time.Hour
 	// sweepInterval is how often tasks are checked for sleep and forgetting.
 	sweepInterval = 30 * time.Second
-	// keptOutlines is how many of the newest page outlines (look, navigate and act results)
-	// reach the model whole; each older one reads as a short cleared receipt.
-	keptOutlines = 2
+	// resultsMaxChars and keptResultChars bound a helper's history: once its tool results
+	// pass resultsMaxChars, all but the newest keptResultChars of them read as a short
+	// cleared receipt.
+	resultsMaxChars = 120_000
+	keptResultChars = 50_000
 	// textTurnsMax is how many turns in a row may pass without a tool call before the run
 	// stops as failed.
 	textTurnsMax = 3
@@ -114,6 +116,8 @@ type Task struct {
 	Cwd          string            `json:"cwd,omitempty"`
 	Memo         map[string]string `json:"memo,omitempty"`
 	History      []Message         `json:"history"`
+	ResultSizes  map[string]int    `json:"result_sizes"`
+	ResultOrder  []string          `json:"result_order"`
 	Cleared      map[string]bool   `json:"cleared"`
 	Pending      []Steer           `json:"pending,omitempty"`
 	LastReport   *Report           `json:"last_report,omitempty"`
@@ -231,12 +235,6 @@ type progressKit interface {
 	// Progress is a key naming the news in the result of tool, or "" when it brings none. A
 	// result progresses when its key has not come up earlier in the steer.
 	Progress(t *Task, tool, result string) string
-}
-
-// finishKit is implemented by a kit that keeps something from a finish's input beyond the report.
-type finishKit interface {
-	// NoteFinish records what the finish input carries for later helpers, or says why it could not.
-	NoteFinish(input map[string]any) error
 }
 
 // hostKit is implemented by a kit that navigates to hosts.
@@ -501,7 +499,7 @@ func (r *Runner) Start(kind, agent, message, cwd string) (View, error) {
 	now := time.Now().UTC()
 	t := &Task{
 		ID: id, Kind: kind, Owner: agent, SteeredBy: agent, Purpose: strings.TrimSpace(message),
-		Status: StatusAsleep, Cwd: cwd, Memo: map[string]string{}, Cleared: map[string]bool{},
+		Status: StatusAsleep, Cwd: cwd, Memo: map[string]string{}, ResultSizes: map[string]int{}, Cleared: map[string]bool{},
 		CreatedAt: now, LastActivity: now,
 	}
 	r.mu.Lock()
@@ -1089,7 +1087,7 @@ func (r *Runner) save(t *Task) error {
 var (
 	finishSpec = ToolSpec{
 		Name:        toolFinish,
-		Description: "Report the result of the work you were steered to do. answer is read inline: exact figures, names, dates and paths, or what stopped you, what you tried and what would get past it. not_read lists each source you did not read and the symptom that stopped you. detail is anything long (full lists, page text, command output) and reaches the agent as a file. files are absolute paths of files to hand back. A browser helper that read due dates lists the pages that held them in due_date_pages. Your resource stays as it is for the next steer.",
+		Description: "Report the result of the work you were steered to do. answer is read inline: exact figures, names, dates and paths, or what stopped you, what you tried and what would get past it. not_read lists each source you did not read and the symptom that stopped you. detail is anything long (full lists, page text, command output) and reaches the agent as a file. files are absolute paths of files to hand back. Your resource stays as it is for the next steer.",
 		InputSchema: map[string]any{
 			"type": "object", "additionalProperties": false, "required": []string{"answer"},
 			"properties": map[string]any{
@@ -1099,11 +1097,7 @@ var (
 					"properties": map[string]any{"source": map[string]any{"type": "string", "description": "The page, site or file"}, "symptom": map[string]any{"type": "string", "description": "What happened when you tried"}},
 				}},
 				"detail": map[string]any{"type": "string", "description": "Long material of any length, handed back as a file"},
-				"due_date_pages": map[string]any{"type": "array", "description": "Browser only: the pages that listed due dates, saved in their site's profile in place of the pages it had", "items": map[string]any{
-					"type": "object", "additionalProperties": false, "required": []string{"name", "url"},
-					"properties": map[string]any{"name": map[string]any{"type": "string", "description": "What the page is, such as Calendar"}, "url": map[string]any{"type": "string", "description": "Its full address"}},
-				}},
-				"files": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Absolute paths of files to hand back"},
+				"files":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Absolute paths of files to hand back"},
 			},
 		},
 	}
@@ -1117,29 +1111,29 @@ var (
 	}
 )
 
-// outlineTools are the tools whose results are page outlines, which go stale as the page
-// changes; an extract result is the material read and stays whole.
-var outlineTools = map[string]bool{"look": true, "navigate": true, "act": true}
-
-// messages is t's history as the next call sends it: every page outline older than the newest
-// keptOutlines reads as a cleared receipt. Clearing only moves forward, and each clearing moves
-// the cached prefix's boundary. Callers hold r.mu.
+// messages is t's history as the next call sends it: once results pass resultsMaxChars, all
+// but the newest keptResultChars of them read as a cleared receipt. Clearing only moves
+// forward. Callers hold r.mu.
 func (r *Runner) messages(t *Task) []Message {
-	names := map[string]string{}
-	var outlines []string
-	for _, m := range t.History {
-		for _, b := range m.Content {
-			id, _ := b["id"].(string)
-			if b["type"] == "tool_use" {
-				names[id], _ = b["name"].(string)
-			}
-			if resultID, _ := b["tool_use_id"].(string); b["type"] == "tool_result" && outlineTools[names[resultID]] {
-				outlines = append(outlines, resultID)
-			}
+	total := 0
+	for _, id := range t.ResultOrder {
+		if !t.Cleared[id] {
+			total += t.ResultSizes[id]
 		}
 	}
-	for i := 0; i < len(outlines)-keptOutlines; i++ {
-		t.Cleared[outlines[i]] = true
+	if total > resultsMaxChars {
+		kept := 0
+		for i := len(t.ResultOrder) - 1; i >= 0; i-- {
+			id := t.ResultOrder[i]
+			if t.Cleared[id] {
+				continue
+			}
+			if kept+t.ResultSizes[id] > keptResultChars {
+				t.Cleared[id] = true
+			} else {
+				kept += t.ResultSizes[id]
+			}
+		}
 	}
 	out := make([]Message, len(t.History))
 	for i, m := range t.History {
@@ -1314,12 +1308,6 @@ func (r *Runner) run(kit Kit, t *Task) {
 					continue
 				}
 				detail = path
-				if fk, ok := r.kits[t.Kind].(finishKit); ok {
-					if err := fk.NoteFinish(input); err != nil {
-						results = append(results, Block{"type": "tool_result", "tool_use_id": id, "content": "finish was not delivered: " + err.Error(), "is_error": true})
-						continue
-					}
-				}
 			}
 			if name == toolFinish || name == toolAsk {
 				if end == nil {
@@ -1345,6 +1333,8 @@ func (r *Runner) run(kit Kit, t *Task) {
 			}
 			r.mu.Lock()
 			r.record(t, entryResult, &resultRow{ToolUseID: id, Name: name, IsError: isErr, Chars: len([]rune(out)), Head: clipRunes(out, logTextMax), Ms: time.Since(calledAt).Milliseconds()})
+			t.ResultSizes[id] = len(out)
+			t.ResultOrder = append(t.ResultOrder, id)
 			r.mu.Unlock()
 		}
 		if uses == 0 {

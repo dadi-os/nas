@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -97,8 +98,51 @@ func onlyPasskeyItem(items []chaaviItem) []chaaviItem {
 	return items
 }
 
-// chooseLogin is the one Chaavi login of site that in names: the item called in.Item, else the
-// only one with a passkey, whichever way (in.Use) it signs in.
+// itemsForHost narrows items, found by the registrable domain, to those whose address is host or
+// a parent domain of it, keeping the most specific address; Chaavi matches an address by
+// substring, so it cannot do this itself. It returns items when none of them names host.
+func itemsForHost(items []chaaviItem, host string) []chaaviItem {
+	best := ""
+	var matched []chaaviItem
+	for _, it := range items {
+		if it.Login == nil {
+			continue
+		}
+		itemBest := ""
+		for _, u := range it.Login.URIs {
+			address := hostOf(u.URI)
+			if (host == address || strings.HasSuffix(host, "."+address)) && len(address) > len(itemBest) {
+				itemBest = address
+			}
+		}
+		switch {
+		case itemBest == "" || len(itemBest) < len(best):
+		case len(itemBest) > len(best):
+			best, matched = itemBest, []chaaviItem{it}
+		default:
+			matched = append(matched, it)
+		}
+	}
+	if len(matched) == 0 {
+		return items
+	}
+	return matched
+}
+
+// hostOf is the lowercase host of a URL or bare host name.
+func hostOf(raw string) string {
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+}
+
+// chooseLogin is the one Chaavi login of site that in names: the item called in.Item, else, for
+// a passkey sign-in (in.Use is not login), the only one with a passkey.
 func chooseLogin(items []chaaviItem, in input, site string) (chaaviItem, error) {
 	if in.Item != "" {
 		var named []chaaviItem
@@ -109,7 +153,7 @@ func chooseLogin(items []chaaviItem, in input, site string) (chaaviItem, error) 
 		}
 		items = named
 	}
-	if len(items) > 1 {
+	if len(items) > 1 && in.Use != "login" {
 		items = onlyPasskeyItem(items)
 	}
 	switch {
@@ -138,6 +182,11 @@ func (k *Kit) signIn(ctx context.Context, tab *Tab, in input) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	host := hostOf(in.Site)
+	if in.Site == "" {
+		host = hostOf(tab.URL())
+	}
+	items = itemsForHost(items, host)
 	item, err := chooseLogin(items, in, site)
 	if err != nil {
 		return "", err

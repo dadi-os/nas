@@ -20,15 +20,21 @@ type chaaviClient struct {
 	http *http.Client
 }
 
+// chaaviLogin is the login part of a Chaavi item: its username, the addresses it is for and its passkeys.
+type chaaviLogin struct {
+	Username *string `json:"username"`
+	URIs     []struct {
+		URI string `json:"uri"`
+	} `json:"uris"`
+	Passkeys []struct {
+		RPID string `json:"rpId"`
+	} `json:"passkeys"`
+}
+
 type chaaviItem struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Login *struct {
-		Username *string `json:"username"`
-		Passkeys []struct {
-			RPID string `json:"rpId"`
-		} `json:"passkeys"`
-	} `json:"login"`
+	ID    string       `json:"id"`
+	Name  string       `json:"name"`
+	Login *chaaviLogin `json:"login"`
 }
 
 // call sends a JSON request to path and decodes a 2xx answer into out.

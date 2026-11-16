@@ -4,10 +4,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // outlineMaxChars is how much of an outline a look returns; the rest is cut with a note.
 const outlineMaxChars = 6_000
+
+// renderWait bounds the wait for a loaded page to put something in its outline.
+const renderWait = 8 * time.Second
 
 // clipText shortens s to max characters, cutting at a line end and saying what to do next.
 func clipText(s string, max int, hint string) string {
@@ -112,7 +116,17 @@ func indentLines(s string) string {
 // Look is the page as the helper reads it: its URL and title, then the outline (or the
 // outline of scope), cut at outlineMaxChars.
 func (t *Tab) Look(ctx context.Context, scope string) (string, error) {
-	body, err := t.outline(ctx, scope)
+	return t.look(ctx, scope, t.outline)
+}
+
+// LookRendered is Look of the whole page once it has rendered an outline.
+func (t *Tab) LookRendered(ctx context.Context) (string, error) {
+	return t.look(ctx, "", func(ctx context.Context, _ string) (string, error) { return t.renderedOutline(ctx) })
+}
+
+// look is the page as Look reads it, with the outline read by read.
+func (t *Tab) look(ctx context.Context, scope string, read func(context.Context, string) (string, error)) (string, error) {
+	body, err := read(ctx, scope)
 	if err != nil {
 		return "", err
 	}
@@ -126,6 +140,23 @@ func (t *Tab) Look(ctx context.Context, scope string) (string, error) {
 		head += "scope: " + scope + "\n"
 	}
 	return head + clipText(body, outlineMaxChars, "look with a scope (a ref or text) or use find or extract to read the rest"), nil
+}
+
+// renderedOutline is the full-page outline, read again until it has a line or renderWait has
+// passed, so a page whose components render after the load event is read once they have.
+func (t *Tab) renderedOutline(ctx context.Context) (string, error) {
+	deadline := time.Now().Add(renderWait)
+	for {
+		body, err := t.outline(ctx, "")
+		if err != nil || body != "" || time.Now().After(deadline) {
+			return body, err
+		}
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
 }
 
 // remember keeps the lines of a full-page outline, which act compares against to report

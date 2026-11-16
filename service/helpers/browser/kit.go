@@ -493,23 +493,6 @@ func noteHost(t *helpers.Task, address string) {
 	t.Note(hostsNote, strings.Trim(strings.Join(append(known, host), ","), ","))
 }
 
-// NoteFinish saves the finish's due_date_pages in the profile of each page's host, replacing the
-// pages those hosts had. A finish without them changes nothing.
-func (k *Kit) NoteFinish(input map[string]any) error {
-	list, ok := input["due_date_pages"].([]any)
-	if !ok {
-		return nil
-	}
-	pages := make([]sites.Page, 0, len(list))
-	for _, item := range list {
-		entry, _ := item.(map[string]any)
-		name, _ := entry["name"].(string)
-		address, _ := entry["url"].(string)
-		pages = append(pages, sites.Page{Name: name, URL: address})
-	}
-	return k.profiles.ReplaceDueDatePages(pages)
-}
-
 // TakeHosts is the host names the task navigated since the last call, in first-visit order, and
 // forgets them.
 func (k *Kit) TakeHosts(t *helpers.Task) []string {
@@ -834,7 +817,7 @@ func (k *Kit) navigateOnce(ctx context.Context, tab *Tab, in input) (string, err
 		}
 		return "download: " + describeDownload(*d), nil
 	}
-	return tab.Look(ctx, "")
+	return tab.LookRendered(ctx)
 }
 
 // download loads a URL or clicks a control and reports the file it saved; with neither it

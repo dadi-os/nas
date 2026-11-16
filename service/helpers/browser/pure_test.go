@@ -283,7 +283,7 @@ func TestCharterCarriesTheManagersSignInRules(t *testing.T) {
 		"Security Key or Biometric Authenticator", "An Okta push happens only if the passkey click itself fails",
 		"trigger it once and `ask` once", "Never trigger a push to answer a mere question",
 		"matching on the sender and never on subject words",
-		"`navigate` and `act` return the page", "`due_date_pages`",
+		"`navigate` and `act` return the page",
 	} {
 		if !strings.Contains(k.Charter(), want) {
 			t.Errorf("charter lacks %q", want)
@@ -304,14 +304,7 @@ func TestFrontURLIsTheTabInFrontOnly(t *testing.T) {
 // TestSignInChoosesTheOnePasskeyItem picks the login with a passkey among several, and leaves
 // the choice to the caller when none or several have one.
 func TestSignInChoosesTheOnePasskeyItem(t *testing.T) {
-	withKey := chaaviItem{Name: "Email", Login: &struct {
-		Username *string `json:"username"`
-		Passkeys []struct {
-			RPID string `json:"rpId"`
-		} `json:"passkeys"`
-	}{Passkeys: []struct {
-		RPID string `json:"rpId"`
-	}{{RPID: "msu.edu"}}}}
+	withKey := chaaviItem{Name: "Email", Login: passkeyLogin()}
 	without := chaaviItem{Name: "Engineering"}
 	if got := onlyPasskeyItem([]chaaviItem{without, withKey}); len(got) != 1 || got[0].Name != "Email" {
 		t.Fatalf("one passkey: %+v", got)
@@ -324,30 +317,77 @@ func TestSignInChoosesTheOnePasskeyItem(t *testing.T) {
 	}
 }
 
-// TestChooseLoginUsesThePasskeyItemEvenForLoginUse picks the one item with a passkey among
-// several, whichever way the helper asks to sign in, and still asks when none or several do.
-func TestChooseLoginUsesThePasskeyItemEvenForLoginUse(t *testing.T) {
+// passkeyLogin is a login with one passkey for msu.edu.
+func passkeyLogin() *chaaviLogin {
+	l := &chaaviLogin{}
+	l.Passkeys = append(l.Passkeys, struct {
+		RPID string `json:"rpId"`
+	}{RPID: "msu.edu"})
+	return l
+}
+
+// addressedItem is a login item called name whose address is address.
+func addressedItem(name, address string, passkey bool) chaaviItem {
+	l := &chaaviLogin{}
+	if passkey {
+		l = passkeyLogin()
+	}
+	l.URIs = append(l.URIs, struct {
+		URI string `json:"uri"`
+	}{URI: address})
+	return chaaviItem{Name: name, Login: l}
+}
+
+// TestChooseLoginUsesThePasskeyItemOnlyForAPasskeySignIn picks the one item with a passkey among
+// several unless the helper asks for the login, which is then left to item.
+func TestChooseLoginUsesThePasskeyItemOnlyForAPasskeySignIn(t *testing.T) {
 	var withKey, plain chaaviItem
 	withKey.Name, plain.Name = "MSU Okta", "Engineering MSU"
-	withKey.Login = &struct {
-		Username *string `json:"username"`
-		Passkeys []struct {
-			RPID string `json:"rpId"`
-		} `json:"passkeys"`
-	}{Passkeys: []struct {
-		RPID string `json:"rpId"`
-	}{{RPID: "msu.edu"}}}
-	for _, use := range []string{"", "login", "passkey"} {
+	withKey.Login = passkeyLogin()
+	for _, use := range []string{"", "passkey"} {
 		got, err := chooseLogin([]chaaviItem{plain, withKey}, input{Use: use}, "msu.edu")
 		if err != nil || got.Name != "MSU Okta" {
 			t.Fatalf("use %q: %v %v", use, got.Name, err)
 		}
 	}
+	if _, err := chooseLogin([]chaaviItem{plain, withKey}, input{Use: "login"}, "msu.edu"); err == nil || !strings.Contains(err.Error(), "pass item to choose one") {
+		t.Fatalf("use login with two items: %v", err)
+	}
 	if _, err := chooseLogin([]chaaviItem{plain, plain}, input{Use: "login"}, "msu.edu"); err == nil || !strings.Contains(err.Error(), "2 logins") {
 		t.Fatalf("two plain logins: %v", err)
 	}
-	if got, err := chooseLogin([]chaaviItem{plain, withKey}, input{Item: "engineering msu"}, "msu.edu"); err != nil || got.Name != "Engineering MSU" {
+	if got, err := chooseLogin([]chaaviItem{plain, withKey}, input{Item: "engineering msu", Use: "login"}, "msu.edu"); err != nil || got.Name != "Engineering MSU" {
 		t.Fatalf("named: %v %v", got.Name, err)
+	}
+}
+
+// TestSignInChoosesTheLoginForTheHostTheTabIsOn narrows the registrable domain's logins to the
+// most specific address that is the page host or a parent of it, and leaves several to item
+// when no address names the host.
+func TestSignInChoosesTheLoginForTheHostTheTabIsOn(t *testing.T) {
+	items := []chaaviItem{
+		addressedItem("Engineering MSU", "https://egr.msu.edu", false),
+		addressedItem("Email - Michigan State", "https://auth.msu.edu", true),
+	}
+	for host, want := range map[string]string{"cse335.egr.msu.edu": "Engineering MSU", "egr.msu.edu": "Engineering MSU", "auth.msu.edu": "Email - Michigan State"} {
+		got, err := chooseLogin(itemsForHost(items, host), input{Use: "login"}, host)
+		if err != nil || got.Name != want {
+			t.Fatalf("%s: %q %v", host, got.Name, err)
+		}
+		got, err = chooseLogin(itemsForHost(items, host), input{}, host)
+		if err != nil || got.Name != want {
+			t.Fatalf("%s without use: %q %v", host, got.Name, err)
+		}
+	}
+	if _, err := chooseLogin(itemsForHost(items, "msu.edu"), input{Use: "login"}, "msu.edu"); err == nil || !strings.Contains(err.Error(), "pass item to choose one") {
+		t.Fatalf("bare msu.edu: %v", err)
+	}
+	both := append(items, addressedItem("MSU", "https://msu.edu", false))
+	if got := itemsForHost(both, "cse335.egr.msu.edu"); len(got) != 1 || got[0].Name != "Engineering MSU" {
+		t.Fatalf("most specific address: %+v", got)
+	}
+	if got := itemsForHost(both, "d2l.msu.edu"); len(got) != 1 || got[0].Name != "MSU" {
+		t.Fatalf("parent address: %+v", got)
 	}
 }
 
@@ -395,32 +435,6 @@ func TestRetryStaleWaitsForTheNewDocumentBeforeTheRetry(t *testing.T) {
 	})
 	if tries != 1 || err == nil || !strings.Contains(err.Error(), "did not finish loading") {
 		t.Fatalf("a failed wait: %d tries, %v", tries, err)
-	}
-}
-
-// TestNoteFinishSavesDueDatePagesAndIgnoresAFinishWithoutThem saves the pages under their host,
-// replacing what it had, and rejects a page that is not a full address.
-func TestNoteFinishSavesDueDatePagesAndIgnoresAFinishWithoutThem(t *testing.T) {
-	store := testSites(t)
-	k := &Kit{profiles: store}
-	if err := k.NoteFinish(map[string]any{"answer": "ok"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, found, _ := store.Get("d2l.msu.edu"); found {
-		t.Fatal("a finish without pages wrote a profile")
-	}
-	page := func(name, url string) any { return map[string]any{"name": name, "url": url} }
-	if err := k.NoteFinish(map[string]any{"due_date_pages": []any{page("Old", "https://d2l.msu.edu/old")}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := k.NoteFinish(map[string]any{"due_date_pages": []any{page("Calendar", "https://d2l.msu.edu/d2l/le/calendar/9")}}); err != nil {
-		t.Fatal(err)
-	}
-	if p, _, _ := store.Get("d2l.msu.edu"); len(p.DueDatePages) != 1 || p.DueDatePages[0].Name != "Calendar" {
-		t.Fatalf("profile %+v", p)
-	}
-	if err := k.NoteFinish(map[string]any{"due_date_pages": []any{page("Calendar", "calendar")}}); err == nil {
-		t.Fatal("a relative url was saved")
 	}
 }
 

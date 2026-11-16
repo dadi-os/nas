@@ -186,7 +186,8 @@ func render(tab Table, format string, pages int) (Extracted, error) {
 	return out, nil
 }
 
-// extractText reads the main text of the page, following the next control for more pages.
+// extractText reads the text of every frame of the page, in the order framesInOrder gives,
+// following the next control for more pages.
 func (t *Tab) extractText(ctx context.Context, pages int, next string) (Extracted, error) {
 	var parts []string
 	followed := 0
@@ -195,11 +196,17 @@ func (t *Tab) extractText(ctx context.Context, pages int, next string) (Extracte
 		if err != nil {
 			return Extracted{}, err
 		}
-		var text string
-		if err := t.eval(ctx, frames[0], fmt.Sprintf("(%s)()", textScript), &text); err != nil {
-			return Extracted{}, err
+		var texts []string
+		for _, f := range frames {
+			var text string
+			if err := t.eval(ctx, f, fmt.Sprintf("(%s)()", textScript), &text); err != nil {
+				return Extracted{}, err
+			}
+			if strings.TrimSpace(text) != "" {
+				texts = append(texts, text)
+			}
 		}
-		parts = append(parts, text)
+		parts = append(parts, strings.Join(texts, "\n\n"))
 		followed = page
 		if page == pages {
 			break

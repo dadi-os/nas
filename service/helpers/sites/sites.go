@@ -181,45 +181,6 @@ func (s *Store) Note(host, field string, value json.RawMessage) error {
 	return s.write(path, p)
 }
 
-// ReplaceDueDatePages sets the due-date pages of every host the pages' URLs name to exactly
-// those pages, replacing the pages each host had. Every page is checked before any host is
-// written; a page without a name or a full http(s) url is an error.
-func (s *Store) ReplaceDueDatePages(pages []Page) error {
-	byHost := map[string][]Page{}
-	var hosts []string
-	for _, page := range pages {
-		u, err := url.ParseRequestURI(page.URL)
-		if page.Name = strings.TrimSpace(page.Name); page.Name == "" || err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-			return errors.New("due_date_pages need a name and a full http(s) url each")
-		}
-		host := strings.ToLower(u.Hostname())
-		if _, err := s.path(host); err != nil {
-			return err
-		}
-		if byHost[host] == nil {
-			hosts = append(hosts, host)
-		}
-		byHost[host] = append(byHost[host], page)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, host := range hosts {
-		path, err := s.path(host)
-		if err != nil {
-			return err
-		}
-		p, _, err := s.read(path)
-		if err != nil {
-			return err
-		}
-		p.DueDatePages = byHost[host]
-		if err := s.write(path, p); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // decodeStrict unmarshals raw into v, rejecting unknown keys and trailing data.
 func decodeStrict(raw json.RawMessage, v any) error {
 	dec := json.NewDecoder(strings.NewReader(string(raw)))
