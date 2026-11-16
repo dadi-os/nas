@@ -32,7 +32,7 @@ func TestNoteRejectsAnUnknownFieldAndABadValue(t *testing.T) {
 		"bad method":          {"d2l.msu.edu", "sign_in", `{"method":"magic","item":"MSU"}`},
 		"passkey no item":     {"d2l.msu.edu", "sign_in", `{"method":"passkey"}`},
 		"empty zone":          {"d2l.msu.edu", "time_zone_shown", `""`},
-		"page without url":    {"d2l.msu.edu", "due_date_pages", `{"name":"Calendar"}`},
+		"due date pages":      {"d2l.msu.edu", "due_date_pages", `{"name":"Calendar","url":"https://d2l.msu.edu/cal"}`},
 		"block not a string":  {"d2l.msu.edu", "blocks", `{"symptom":"x"}`},
 		"host with a path":    {"d2l.msu.edu/home", "time_zone_shown", `"Eastern"`},
 		"host not a host":     {"localhost", "time_zone_shown", `"Eastern"`},
@@ -52,7 +52,6 @@ func TestNoteSavesEachFieldAndDatesABlock(t *testing.T) {
 	for field, value := range map[string]string{
 		"sign_in":         `{"method":"decs"}`,
 		"time_zone_shown": `"Eastern"`,
-		"due_date_pages":  `{"name":"Schedule","url":"https://cse335.egr.msu.edu/schedule"}`,
 		"blocks":          `"VPN needed off campus"`,
 	} {
 		if err := note(t, s, host, field, value); err != nil {
@@ -62,18 +61,12 @@ func TestNoteSavesEachFieldAndDatesABlock(t *testing.T) {
 	if err := note(t, s, host, "blocks", `"VPN needed off campus"`); err != nil {
 		t.Fatal(err)
 	}
-	if err := note(t, s, host, "due_date_pages", `{"name":"Schedule","url":"https://cse335.egr.msu.edu/new"}`); err != nil {
-		t.Fatal(err)
-	}
 	p, found, err := s.Get(host)
 	if err != nil || !found {
 		t.Fatalf("get: %v %v", found, err)
 	}
 	if p.SignIn.Method != MethodDECS || p.SignIn.Item != "" || p.TimeZoneShown != "Eastern" {
 		t.Fatalf("profile %+v", p)
-	}
-	if len(p.DueDatePages) != 1 || p.DueDatePages[0].URL != "https://cse335.egr.msu.edu/new" {
-		t.Fatalf("due date pages %+v", p.DueDatePages)
 	}
 	if len(p.Blocks) != 1 || p.Blocks[0].Since != "2026-11-14" {
 		t.Fatalf("blocks %+v", p.Blocks)

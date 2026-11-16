@@ -400,10 +400,10 @@ func (k *Kit) Tools() []helpers.ToolSpec {
 			"use": map[string]any{"type": "string", "enum": []string{"passkey", "login"}, "description": "Force the passkey or the username and password"},
 		})},
 		{Name: "download", Description: "Get a file: give url to load it, or ref to click the control that starts it. With neither, list the downloads so far. Files land in ~/Downloads under their own names and come back as paths.", InputSchema: obj(nil, map[string]any{"url": str("Address of the file"), "ref": str("Ref of the control that downloads it")})},
-		{Name: toolNoteSite, Description: "Record a fact you learned for certain about a site in its profile, which every later helper is shown the first time it loads that host. field is sign_in (value {method: passkey, login or decs, item: the Chaavi item's title, none for decs}), time_zone_shown (value: the zone the site shows, as a string), due_date_pages (value {name, url}) or blocks (value: the symptom that stops work there, as a string). One field per call.", InputSchema: obj([]string{"host", "field", "value"}, map[string]any{
+		{Name: toolNoteSite, Description: "Record a fact you learned for certain about a site in its profile, which every later helper is shown the first time it loads that host. field is sign_in (value {method: passkey, login or decs, item: the Chaavi item's title, none for decs}), time_zone_shown (value: the zone the site shows, as a string) or blocks (value: the symptom that stops work there, as a string). One field per call.", InputSchema: obj([]string{"host", "field", "value"}, map[string]any{
 			"host":  str("The host name, such as d2l.msu.edu"),
-			"field": map[string]any{"type": "string", "enum": []string{sites.FieldSignIn, sites.FieldTimeZone, sites.FieldDueDatePages, sites.FieldBlocks}},
-			"value": map[string]any{"description": "The value for the field: an object for sign_in and due_date_pages, a string for the others"},
+			"field": map[string]any{"type": "string", "enum": []string{sites.FieldSignIn, sites.FieldTimeZone, sites.FieldBlocks}},
+			"value": map[string]any{"description": "The value for the field: an object for sign_in, a string for the others"},
 		})},
 		{Name: "upload", Description: "Attach files to a file input by absolute path. ref may be the file input itself (also in a frame or shadow root) or the control that opens the upload; the files go to the file chooser it opens or the input it adds.", InputSchema: obj([]string{"ref", "paths"}, map[string]any{"ref": str("Ref of the input or of the control that opens the upload"), "paths": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}})},
 	}

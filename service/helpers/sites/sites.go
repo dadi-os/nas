@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,10 +18,9 @@ import (
 
 // Field names of a Profile, as note_site takes them.
 const (
-	FieldSignIn       = "sign_in"
-	FieldTimeZone     = "time_zone_shown"
-	FieldDueDatePages = "due_date_pages"
-	FieldBlocks       = "blocks"
+	FieldSignIn   = "sign_in"
+	FieldTimeZone = "time_zone_shown"
+	FieldBlocks   = "blocks"
 )
 
 // Sign-in methods a profile records.
@@ -38,12 +36,6 @@ type SignIn struct {
 	Item   string `json:"item,omitempty"`
 }
 
-// Page is a page of a site worth reading, such as a list of due dates.
-type Page struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
-}
-
 // Block is a symptom known to stop work on a site, and the day it was noted (YYYY-MM-DD).
 type Block struct {
 	Symptom string `json:"symptom"`
@@ -54,7 +46,6 @@ type Block struct {
 type Profile struct {
 	SignIn        *SignIn `json:"sign_in,omitempty"`
 	TimeZoneShown string  `json:"time_zone_shown,omitempty"`
-	DueDatePages  []Page  `json:"due_date_pages,omitempty"`
 	Blocks        []Block `json:"blocks,omitempty"`
 }
 
@@ -111,8 +102,7 @@ func (s *Store) read(path string) (Profile, bool, error) {
 }
 
 // Note writes one field of host's profile. sign_in takes {method, item} and time_zone_shown a
-// string, and both replace what was there. due_date_pages takes {name, url} and replaces the
-// page of that name or adds one. blocks takes the symptom as a string and adds it with today's
+// string, and both replace what was there. blocks takes the symptom as a string and adds it with today's
 // date unless it is already there. Any other field, or a value of the wrong shape, is an error.
 func (s *Store) Note(host, field string, value json.RawMessage) error {
 	path, err := s.path(host)
@@ -145,24 +135,6 @@ func (s *Store) Note(host, field string, value json.RawMessage) error {
 			return errors.New("time_zone_shown takes a non-empty string")
 		}
 		p.TimeZoneShown = strings.TrimSpace(v)
-	case FieldDueDatePages:
-		var v Page
-		if err := decodeStrict(value, &v); err != nil {
-			return fmt.Errorf("due_date_pages takes {name, url}: %w", err)
-		}
-		u, err := url.ParseRequestURI(v.URL)
-		if v.Name = strings.TrimSpace(v.Name); v.Name == "" || err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-			return errors.New("due_date_pages needs a name and a full http(s) url")
-		}
-		replaced := false
-		for i := range p.DueDatePages {
-			if p.DueDatePages[i].Name == v.Name {
-				p.DueDatePages[i], replaced = v, true
-			}
-		}
-		if !replaced {
-			p.DueDatePages = append(p.DueDatePages, v)
-		}
 	case FieldBlocks:
 		var v string
 		if err := decodeStrict(value, &v); err != nil || strings.TrimSpace(v) == "" {
@@ -176,7 +148,7 @@ func (s *Store) Note(host, field string, value json.RawMessage) error {
 		}
 		p.Blocks = append(p.Blocks, Block{Symptom: v, Since: s.now().Format("2006-01-02")})
 	default:
-		return fmt.Errorf("unknown field %q: a site profile holds %s, %s, %s and %s", field, FieldSignIn, FieldTimeZone, FieldDueDatePages, FieldBlocks)
+		return fmt.Errorf("unknown field %q: a site profile holds %s, %s and %s", field, FieldSignIn, FieldTimeZone, FieldBlocks)
 	}
 	return s.write(path, p)
 }
@@ -232,9 +204,6 @@ func Describe(host string, p Profile) string {
 	}
 	if p.TimeZoneShown != "" {
 		parts = append(parts, "shows times in "+p.TimeZoneShown)
-	}
-	for _, page := range p.DueDatePages {
-		parts = append(parts, fmt.Sprintf("due dates: %s at %s", page.Name, page.URL))
 	}
 	for _, b := range p.Blocks {
 		parts = append(parts, fmt.Sprintf("known block since %s: %s", b.Since, b.Symptom))
