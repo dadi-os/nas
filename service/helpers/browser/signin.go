@@ -202,9 +202,10 @@ func (k *Kit) signIn(ctx context.Context, tab *Tab, in input) (string, error) {
 }
 
 // signInPasskey loads the item's passkey into the tab, reloads it, and carries the sign-in
-// through MSU's Okta/SAML route: the login page's single sign-on entry link, Okta's Security
-// Key or Biometric Authenticator row, and its Next button. Each step runs only when the page
-// shows it; the result is the page where the route stopped, signed in or blocked.
+// through MSU's Okta/SAML route: the login page's single sign-on entry link, Okta's sign-in
+// page with his address already filled (its Next), Okta's Security Key or Biometric
+// Authenticator row, and its Next button. Each step runs only when the page shows it; the
+// result is the page where the route stopped, signed in or blocked.
 func (k *Kit) signInPasskey(ctx context.Context, tab *Tab, item chaaviItem) (string, error) {
 	key, err := k.chaavi.passkey(item.ID)
 	if err != nil {
@@ -230,6 +231,20 @@ func (k *Kit) signInPasskey(ctx context.Context, tab *Tab, item chaaviItem) (str
 			}
 			time.Sleep(signInSettle)
 			out += "; followed the single sign-on link"
+		}
+		step, ref, err := tab.routeStep(ctx, entry != "", oktaKeyScript, identifierNextScript)
+		if err != nil {
+			return "", err
+		}
+		switch step {
+		case 0:
+			keyRow = ref
+		case 1:
+			if err := tab.Click(ctx, ref, false); err != nil {
+				return "", fmt.Errorf("pressing Next on the sign-in address: %w", err)
+			}
+			time.Sleep(signInSettle)
+			out += "; pressed Next on the filled sign-in address"
 			if keyRow, err = tab.refByScript(ctx, oktaKeyScript); err != nil {
 				return "", err
 			}
@@ -258,6 +273,32 @@ func (k *Kit) signInPasskey(ctx context.Context, tab *Tab, item chaaviItem) (str
 		return "", err
 	}
 	return out + "\nRead the page: it is signed in, or shows what blocks it, such as a passkey or security-key option to click.\n" + clipText(page, 3_000, "look for the rest"), nil
+}
+
+// routeStep is the index and ref of the first of scripts (ref-finding scripts, as refByScript
+// runs them) that the page shows, or -1. With wait, a page that has not rendered a step yet is
+// read again until renderWait has passed, as an Okta page is after the single sign-on link.
+func (t *Tab) routeStep(ctx context.Context, wait bool, scripts ...string) (int, string, error) {
+	deadline := time.Now().Add(renderWait)
+	for {
+		for i, script := range scripts {
+			ref, err := t.refByScript(ctx, script)
+			if err != nil {
+				return -1, "", err
+			}
+			if ref != "" {
+				return i, ref, nil
+			}
+		}
+		if !wait || time.Now().After(deadline) {
+			return -1, "", nil
+		}
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-ctx.Done():
+			return -1, "", ctx.Err()
+		}
+	}
 }
 
 // refByScript is the ref script (one of the ref-finding scripts in scripts.go, evaluated as

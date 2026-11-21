@@ -612,3 +612,30 @@ func TestExtractFollowsPagination(t *testing.T) {
 		t.Fatalf("load more: %v %+v", err, list)
 	}
 }
+
+// TestExtractTextReadsShadowRoots reads a page whose content lives in nested open shadow
+// roots, as Brightspace's content viewer renders a D2L item, and leaves a hidden one out.
+func TestExtractTextReadsShadowRoots(t *testing.T) {
+	b, _ := newBrowser(t)
+	ctx := testCtx(t)
+	srv := serve(t, map[string]string{"/": `<p>Light text</p><div id="outer"></div><div id="hidden"></div>
+<script>
+const outer = document.getElementById('outer').attachShadow({mode: 'open'});
+outer.innerHTML = '<section>Project 2 spec<div id="inner"></div></section>';
+outer.getElementById('inner').attachShadow({mode: 'open'}).innerHTML = '<p>Due Wed Nov 18 at 10:00 PM</p>';
+document.getElementById('hidden').attachShadow({mode: 'open'}).innerHTML = '<p style="display:none">Hidden note</p>';
+</script>`})
+	tab := openPage(t, ctx, b, srv.URL+"/")
+	got, err := tab.Extract(ctx, ExtractOptions{Format: "text"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Light text", "Project 2 spec", "Due Wed Nov 18 at 10:00 PM"} {
+		if !strings.Contains(got.Data, want) {
+			t.Fatalf("text lacks %q:\n%s", want, got.Data)
+		}
+	}
+	if strings.Contains(got.Data, "Hidden note") {
+		t.Fatalf("text holds a hidden shadow node:\n%s", got.Data)
+	}
+}

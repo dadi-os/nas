@@ -158,3 +158,33 @@ func TestSignInFollowsTheSingleSignOnLinkAndPressesNext(t *testing.T) {
 		t.Fatalf("the route did not reach the Okta list: %s", tab.URL())
 	}
 }
+
+// TestSignInPressesNextOnOktasFilledAddress follows the single sign-on link to an Okta sign-in
+// page that renders after its load event with his address already filled, as auth.msu.edu
+// does for D2L, presses its Next, and reaches the Security Key row, in one call.
+func TestSignInPressesNextOnOktasFilledAddress(t *testing.T) {
+	b, _ := newBrowser(t)
+	ctx := testCtx(t)
+	pk := newPasskey(t)
+	srv := serve(t, map[string]string{
+		"/": `<h2>Login</h2><a href="/signin">Sign in with MSU NetID</a>`,
+		"/signin": `<main id="m"></main><script>setTimeout(() => { document.getElementById('m').innerHTML =
+  '<h1>Sign In</h1><input type="text" name="identifier" value="someone@msu.edu"><button onclick="location.href=\'/okta\'">Next</button>'; }, 1000)</script>`,
+		"/okta": `<h2>Verify it's you</h2>
+<div class="row"><div>Security Key or Biometric Authenticator</div><a href="#" role="button" onclick="window.picked='key'">Select</a></div>`,
+	})
+	k := &Kit{chaavi: fakeChaavi(t, &pk)}
+	tab := openPage(t, ctx, b, localhostURL(srv)+"/")
+	out, err := k.signIn(ctx, tab, input{Site: "example.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []string{"followed the single sign-on link", "pressed Next on the filled sign-in address", "chose Security Key or Biometric Authenticator"} {
+		if !strings.Contains(out, step) {
+			t.Fatalf("missing %q in:\n%s", step, out)
+		}
+	}
+	if !strings.Contains(tab.URL(), "/okta") || jsIn(t, ctx, tab, "", `window.picked`) != "key" {
+		t.Fatalf("the route did not reach the Okta list: %s", tab.URL())
+	}
+}

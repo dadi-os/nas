@@ -420,10 +420,23 @@ const extractScript = `(what) => {
   return best;
 }`
 
-// textScript is evaluated in each frame as (textScript)(): the visible text of the page's main region.
+// textScript is evaluated in each frame as (textScript)(): the visible text of the page's main
+// region, then the text inside each open shadow root under it. innerText stops at a shadow
+// root, so a page built from web components (Brightspace's D2L content viewer) read as empty.
 const textScript = `() => {
+  ` + jsLib + `
   const main = document.querySelector("main,[role=main]") || document.body;
-  return main ? main.innerText : "";
+  if (!main) return "";
+  const parts = [main.innerText];
+  for (const host of deepEls(main)) {
+    if (!host.shadowRoot) continue;
+    for (const el of host.shadowRoot.children) {
+      if (!(el instanceof HTMLElement) || el.matches("style,script,template,slot") || el.getClientRects().length === 0) continue;
+      const text = el.innerText.trim();
+      if (text !== "") parts.push(text);
+    }
+  }
+  return parts.join("\n");
 }`
 
 // nextControlScript is evaluated in each frame as (nextControlScript)(label): the visible,
@@ -501,6 +514,16 @@ const ssoLinkScript = `(start) => {
   let ref = target.getAttribute("data-dadi-ref");
   if (!ref) { ref = "e" + start; target.setAttribute("data-dadi-ref", ref); return { ref, next: start + 1 }; }
   return { ref, next: start };
+}`
+
+// identifierNextScript is evaluated in each frame as (identifierNextScript)(start): on a sign-in
+// page whose address field (Okta's identifier, or a username) is already filled, the ref of its
+// Next button, or "".
+const identifierNextScript = `(start) => {
+  ` + jsLib + `
+  const filled = deepEls(document).some((e) => e instanceof HTMLInputElement && /^(identifier|username)$/i.test(e.name) && e.value.trim() !== "" && e.getClientRects().length > 0);
+  if (!filled) return { ref: "", next: start };
+  return (` + nextButtonScript + `)(start);
 }`
 
 // nextButtonScript is evaluated in each frame as (nextButtonScript)(start): the ref of a visible
