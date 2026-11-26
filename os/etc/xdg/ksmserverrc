@@ -1,4 +1,0 @@
-[General]
-confirmLogout=false
-loginMode=emptySession
-lockOnResume=false

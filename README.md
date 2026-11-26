@@ -2,7 +2,7 @@
 
 Nas is the OS and infrastructure layer for dadi. It owns topology — which services exist, how they are networked and named, how they start, and how logs are collected and queried. It is the composition layer: the only place the full system is written down.
 
-**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box UI is Plasma **bone glass** (leaf field, translucent panels, દાદી brand, status strip, Preferences). The dadi apps are for other devices only. App modules (`dwar`, `yaad`, `hath`, `ghar`, `chaavi`) stay as containers and update via `podman-auto-update` with no reboot.
+**One exported image:** `ghcr.io/dadi-os/nas` (bootc). Infra (Headscale, host Tailscale, Caddy, Loki, Alloy, control plane) is baked into that image and updates with `bootc upgrade` + reboot. The box has no desktop: a tty1 console and the `dadi` CLI for first setup. The dadi apps are for other devices only. App modules (`dwar`, `yaad`, `hath`, `ghar`, `chaavi`) stay as containers and update via `podman-auto-update` with no reboot.
 
 ## Dependencies
 
@@ -25,13 +25,13 @@ nas/
                     browser/ (CDP client, tools, charter.md, per-agent Chromium folders),
                     terminal/ (tools, charter.md, doctrine/: Ankur's doctrine, the helpers' own copy)
   logging/          Dev Alloy + Loki configs
-  os/               bootc image, host units, Plasma desktop, prod Alloy, installer
+  os/               bootc image, host units, `dadi` CLI, prod Alloy, installer
   headscale/        Headscale config templates
   relay/            vm-setup.sh for the public relay VM (box side: os/usr/bin/dadi-relay)
   docker-compose.yml
 ```
 
-Desktop assets live under `os/usr/share/` (look-and-feel, plasmoids, wallpapers, Preferences) and `os/etc/xdg/` (colors, kwin blur). Brand SVGs: `os/usr/share/dadi/brand/`.
+The box has no desktop session: a text console on tty1 and the `dadi` CLI (`os/usr/bin/dadi`). Brand SVGs for the boot splash: `os/usr/share/dadi/brand/`.
 
 ## Config vs env
 
@@ -55,7 +55,7 @@ Required on the control service (fail at startup if missing):
 
 `POST /provision` mints `control_url` at issue time: compose uses `http://localhost:8080`; the appliance uses `https://<hostname>` from `/var/lib/dadi/relay/hostname` (Headscale `server_url` and the Caddy vhost in `caddy/headscale.caddy` are rewritten) and fails with `config_missing` until that file exists. Headscale listens on loopback only; the public path is the relay below.
 
-Module secrets live in sibling `../dwar/.env` and `../chaavi/.env` in compose, and under `DADI_STATE_DIR/modules/{dwar,chaavi}/` on the appliance. Preferences → Dwar and Preferences → Chaavi edit those files and restart the module. Chaavi’s `CHAAVI_EMAIL` and `CHAAVI_PASSWORD` (the vault account it unlocks for the agents) are Chaavi module env — not Dwar keys. With only one account Chaavi finds the email itself. Chaavi is the vault: a Vaultwarden fork that also serves `/v1`, one container storing the encrypted vault in the `chaavi_vault` volume. Its Vaultwarden settings (`DOMAIN`, `SIGNUPS_ALLOWED`, `ROCKET_PORT`, the `pm-32009-new-item-types` client flag) are set on the container (compose `environment` / quadlet `Environment`), not the env file. Yaad/Hath/Ghar Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar or Chaavi values. Empty Chaavi keys are valid; Chaavi boots and fails the request that needs them.
+Module secrets live in sibling `../dwar/.env` and `../chaavi/.env` in compose, and under `DADI_STATE_DIR/modules/{dwar,chaavi}/` on the appliance. `dadi keys set KEY` edits those files and restarts the module. Chaavi’s `CHAAVI_EMAIL` and `CHAAVI_PASSWORD` (the vault account it unlocks for the agents) are Chaavi module env — not Dwar keys. With only one account Chaavi finds the email itself. Chaavi is the vault: a Vaultwarden fork that also serves `/v1`, one container storing the encrypted vault in the `chaavi_vault` volume. Its Vaultwarden settings (`DOMAIN`, `SIGNUPS_ALLOWED`, `ROCKET_PORT`, the `pm-32009-new-item-types` client flag) are set on the container (compose `environment` / quadlet `Environment`), not the env file. Yaad/Hath/Ghar Postgres credentials are baked into `docker-compose.yml` and the podman quadlets — not user `.env` files. Nas does not invent defaults for missing Dwar or Chaavi values. Empty Chaavi keys are valid; Chaavi boots and fails the request that needs them.
 
 The box's time zone is the one source of local time. The installer asks Fedora's GeoIP service (`geoip.fedoraproject.org/city`, what Anaconda's own geolocation uses) and installs with that zone, failing the install if the lookup fails; `/etc/localtime` keeps it, and `timedatectl set-timezone` changes it later. `dadi-seed` rewrites `DADI_STATE_DIR/timezone.env` (`TZ=<zone>`) from `/etc/localtime` on every boot, and the Hath and Yaad containers (and their migrations) load it with `EnvironmentFile=`; both refuse to start without a valid `TZ`. Compose requires `TZ` in the shell that runs it.
 
@@ -90,7 +90,7 @@ cp ../dwar/.env.example ../dwar/.env
 cp ../chaavi/.env.example ../chaavi/.env
 ```
 
-Yaad, Hath, and Ghar need no `.env` — Nas injects fixed local Postgres credentials. Chaavi still needs `../chaavi/.env` (blank `CHAAVI_*` until set in Preferences → Chaavi, or by editing the file); compose injects its Vaultwarden settings.
+Yaad, Hath, and Ghar need no `.env` — Nas injects fixed local Postgres credentials. Chaavi still needs `../chaavi/.env` (blank `CHAAVI_*` until set with `dadi keys set` on the box, or by editing the file); compose injects its Vaultwarden settings.
 
 Docker Desktop (or equivalent) must be running. No Overmind / tmux.
 
@@ -155,8 +155,8 @@ Anonymous HTTP on `LISTEN_ADDR`. Nothing is persisted in Nas — **tmux is the r
 
 | Piece | Value |
 | --- | --- |
-| System user | `dadi` (home `$DADI_HOME`, `/var/home/dadi` on the appliance). The home gets only `Downloads` from `xdg-user-dirs` (`/etc/xdg/user-dirs.defaults`), and the desktop Folder View shows the empty `/usr/share/dadi/desktop`, so there is no `~/Desktop`. SDDM autologins as `dadi` with no password (`passwd -d`). SSH `DenyUsers dadi`. Agents (tmux, Chromium) run as `dadi`. |
-| SSH users | Created in Preferences → Users (`POST /access/users`). Wheel + password. `dadi` cannot SSH. Installer `setup` is hidden and denied. Pubkey auth is off. |
+| System user | `dadi` (home `$DADI_HOME`, `/var/home/dadi` on the appliance). The home gets only `Downloads` from `xdg-user-dirs` (`/etc/xdg/user-dirs.defaults`), so there is no `~/Desktop`. The tty1 console autologins as `dadi` with no password (`passwd -d`; `getty@tty1.service.d/dadi-autologin.conf`). SSH `DenyUsers dadi`. Agents (tmux, Chromium) run as `dadi`. |
+| SSH users | Created with `dadi users set NAME` (`POST /access/users`). Wheel + password. `dadi` cannot SSH. Installer `setup` is hidden and denied. Pubkey auth is off. |
 | SMB share | `smb.service` shares `/var/home/dadi` as `[dadi]` (`/etc/samba/smb.conf`), SMB3 only, to wheel users, writing as `dadi`. Finder's `.DS_Store` files are vetoed. `POST /access/users` also sets the user's Samba password (`smbpasswd`); `DELETE` removes it. `hosts allow` admits loopback and the Tailscale ranges only, and SELinux `samba_export_all_rw` is on so the home keeps its labels. Connect over the mesh: `smb://os.dadi/dadi` (Finder, iOS Files) or `\\os.dadi\dadi` (Windows). |
 | tmux socket | `/run/dadi/tmux.sock` on appliance (`tmpfiles.d`); under `$DADI_STATE_DIR/run` in Compose |
 | Default cwd | `$DADI_HOME` when terminal / glob / grep omit `cwd` |
@@ -173,7 +173,7 @@ On the appliance (`DADI_RUNTIME=podman`) Nas runs as root and launches every tmu
 | `GET` | `/modules/chaavi/settings` | — | `{ env }` (`CHAAVI_EMAIL`, `CHAAVI_PASSWORD`) | `internal_error` |
 | `PUT` | `/modules/chaavi/settings` | `{ env }` | `{ status: ok }` (writes `.env`, restarts chaavi). Empty values are valid. | `invalid_request`, `internal_error` |
 
-`tpm` is `{ present, enrolled, pcrs?, device? }` from `/var/lib/dadi/tpm.json` after `dadi-tpm-enroll`. Remote reboot: TPM unlocks LUKS, systemd starts enabled units (`nas`, mesh, SDDM autologin).
+`tpm` is `{ present, enrolled, pcrs?, device? }` from `/var/lib/dadi/tpm.json` after `dadi-tpm-enroll`. Remote reboot: TPM unlocks LUKS, systemd starts enabled units (`nas`, mesh, tty1 autologin).
 
 There is **no project sandbox folder**. Agents may read any absolute path. **Writes** are denied under OS and dadiOS runtime trees (symlinks resolved before the check): `/usr`, `/boot`, `/etc`, `/lib`, `/lib64`, `/bin`, `/sbin`, `/root`, `/var/lib/containers`, and all of `$DADI_STATE_DIR`. Darwin also denies `/System` and `/Library`. Terminals are not path-jailed — the FS API is the write gate; shell power is bounded by the `dadi` OS user.
 
@@ -227,7 +227,7 @@ These calls do not publish on `GET /events`: its signal carries no folder, so a 
 
 Each browser is a headed Chromium on its own Xvfb display (not headless, not a VM). Nas starts and stops browsers for browser tasks (below), lists them, proxies CDP, and screenshots or streams the virtual monitor. The browser helper drives its page over loopback CDP from inside Nas; there is no endpoint to start or stop a browser. Other clients (Thaali's live view) read the proxy and the stream.
 
-**Derivation from slot `n` (`n >= 10`; 1–9 reserved for Plasma):**
+**Derivation from slot `n` (`n >= 10`; 1–9 reserved):**
 
 | Field | Value |
 | --- | --- |
@@ -340,7 +340,7 @@ The run happens in the background: `202` returns the run immediately (`{ "state"
 | `dadi-browsers.slice` | host slice | transient scopes for nas-spawned Xvfb + Chromium, capped as one pool with no browser-count limit; `MemoryHigh=40%`, `MemoryMax=50%`, `MemorySwapMax=25%`, `CPUQuota=400%`, `CPUWeight=50`, `IOWeight=50`, and systemd-oomd kills it first (`ManagedOOMSwap=kill`, `ManagedOOMMemoryPressure=kill`) |
 | `dadi-terminals.slice` | host slice | the transient scope holding the tmux server (started by the first `new-session`) and every terminal's shell and build; `MemoryHigh=20%`, `MemoryMax=25%` |
 | `zram0` | host swap | `zram-generator`, size = RAM, zstd; there is no disk swap |
-| `sddm` + Plasma | host graphical | `sddm-wayland-plasma`; autologin `dadi`; no locker; bone glass desktop |
+| `getty@tty1` | host console | autologin `dadi`; the default target is `multi-user`, so no display server runs on the box |
 | `dwar` / `yaad` / `hath` / `ghar` / `chaavi` (+ postgres / migrate) | podman quadlets | `AutoUpdate=registry`; `127.0.0.1:8081–8085` (`ghar` uses `Network=host`, binds loopback; Chaavi, `/v1` and the Bitwarden vault together, on `8085`) |
 
 Postgres quadlets set `RunInit=true` so the `pg_isready` health check is reaped by init. PostgreSQL 18 is otherwise PID 1 and crash-recovers when that child dies. `yaad`, `hath`, and `ghar`, and their migrate units, `BindsTo` their postgres unit and are `WantedBy` it, so a postgres restart stops them and starts them again. Those postgres units allow 300s to start and 180s to stop. Dev Compose sets `init: true` on the same three databases.
@@ -361,7 +361,7 @@ Postgres quadlets set `RunInit=true` so the `pg_isready` health check is reaped 
 | Development | Docker Compose on a Mac (headless) | `docker-compose.yml` |
 | Production | bootc host systemd + podman modules | units + quadlets under `/etc/containers/systemd/` |
 
-Same `*.dadi` names in both environments. Dev does not run Plasma; the UI under test is browser Thaali. Chaavi is `http://chaavi.dadi` for `/v1*` + `/health` and `https://chaavi.dadi` for the Bitwarden web vault / extension (the same container serves both) (mesh CA under `$DADI_STATE_DIR/caddy/tls/`; Thaali installs it on join). The Nas restart name is `chaavi` (the old `chaavi-vault` module is gone).
+Same `*.dadi` names in both environments. Dev has no console; the UI under test is browser Thaali. Chaavi is `http://chaavi.dadi` for `/v1*` + `/health` and `https://chaavi.dadi` for the Bitwarden web vault / extension (the same container serves both) (mesh CA under `$DADI_STATE_DIR/caddy/tls/`; Thaali installs it on join). The Nas restart name is `chaavi` (the old `chaavi-vault` module is gone).
 
 ### Public relay
 
@@ -381,14 +381,14 @@ CD builds an Anaconda ISO whenever `os/**` or `service/**` changes and publishes
 2. Download all `dadiOS-amd64.iso.*` parts from the `dadiOS-latest` release and reassemble: `cat dadiOS-amd64.iso.* > dadiOS-amd64.iso`.
 3. Flash to USB; boot the target machine with a keyboard attached. The installer lists fixed disks (NVMe first), asks which one to use, and requires typing `YES` before wiping. **Only that disk is reformatted**; other disks are left alone.
 4. Kickstart writes `/var/lib/dadi/luks-enroll.key` (no trailing newline) and best-effort TPM-enrolls during `%post`. The volume key is a kernel logon key after unlock, so `systemd-cryptenroll` cannot read it from the keyring — that file is the enroll credential. First boot of the installed OS reseals to PCR 7 (so the seal matches disk boot, not the installer USB) and shreds the key. If `%post` enroll succeeded against PCR 7, that boot unlocks from the TPM; otherwise type the ISO passphrase once. Later boots unlock without it unless Secure Boot policy changes (recovery is still slot 0).
-5. SDDM (`sddm-wayland-plasma`, not Plasma Login Manager) autologins as `dadi` into Plasma. There is no lock screen; lid close and idle do not sleep or show a greeter.
-6. Add an SSH user in Preferences → Users (`POST /access/users`). SSH as that user with the password you set; the same login opens the `dadi` SMB share over the mesh. `dadi` is not allowed to SSH.
-7. Set up the public relay (below). Headscale is published at `https://<hostname>` (`GET /headscale/publish`) and the setup QR embeds that URL, so devices provision and cold-start from any network.
-8. Add devices: on the box open **Preferences → Devices**, name the device, show the QR. Scan it with the dadi app (desktop or phone) on the same LAN. Node names must be unique. Re-provision after a LAN address change.
+5. The tty1 console autologins as `dadi` and shows the `dadi` command list. There is no lock screen; lid close and idle do not sleep (`dadi-inhibit-idle.service`).
+6. Add an SSH user with `dadi users set NAME` on the console. SSH as that user with the password you set; the same login opens the `dadi` SMB share over the mesh. `dadi` is not allowed to SSH.
+7. Set up the public relay (below). Headscale is published at `https://<hostname>` (`GET /headscale/publish`) and the setup code embeds that URL, so devices provision and cold-start from any network.
+8. Add devices: on the box run `dadi devices add NAME`, which prints the setup code, and paste it into the dadi app on the new device (`--qr` also draws a QR to scan; the first device is the one that needs the pasted text). Node names must be unique. Re-provision after a LAN address change.
 
 ### `dadi` CLI
 
-`/usr/bin/dadi` (`os/usr/bin/dadi`, bash over `curl` and `jq`) sets the box up from a terminal through the Nas API on `127.0.0.1:8092`; it covers what Preferences did. Secrets come from a hidden prompt or stdin, never argv, and `dadi keys` shows only the last four characters of an API key and only whether the Chaavi password is set.
+`/usr/bin/dadi` (`os/usr/bin/dadi`, bash over `curl` and `jq`) sets the box up from a terminal through the Nas API on `127.0.0.1:8092`; it replaced the Plasma Preferences app. Secrets come from a hidden prompt or stdin, never argv, and `dadi keys` shows only the last four characters of an API key and only whether the Chaavi password is set.
 
 | Command | Does |
 | --- | --- |
@@ -410,37 +410,9 @@ Dev Compose data is disposable: `docker compose down -v` and start fresh.
 
 Ruleset: `/etc/nftables/dadi.nft` (loaded by `nftables.service`). Default-deny input except loopback, Tailscale (`tailscale0`), SSH, Headscale (TCP 8080), Caddy HTTP/HTTPS (TCP 80/443), Matter on the LAN (UDP 5353 / 5540 + IPv6 multicast), and container DNS (UDP/TCP 53 from `podman*` / `cni-podman*` to aardvark-dns). ICMPv6 is accepted so neighbor discovery works. SMB (TCP 445) is not opened, so the `dadi` share is reachable only over `tailscale0`. Ghar's HTTP port `8084` is explicitly dropped off-loopback; the process also binds `127.0.0.1` only. Caddy aborts `*.dadi` vhosts from non-mesh, non-loopback, non-podman (`10.88.0.0/16`, `10.89.0.0/16`) source IPs.
 
-## Desktop (dadiOS)
+## Console (dadiOS)
 
-Plasma on the box only — the dadi apps are for other devices. Visual system is **bone glass** (aligned with Thaali `src/styles/tokens.css`): light field, frosted veil panels, sage accent, brand mark **દાદી** only (no Latin “DADI” / “OS” in chrome).
-
-| Layer | Spec |
-| --- | --- |
-| Field | Wallpaper `Dadi` — sage leaf + glass leaf on bone |
-| Veil | Menu bar / dock — ~62% bone + blur 32px + specular rim |
-| Sheet | Popovers — ~78% bone + blur 24px |
-| Solid | Editors / Preferences content — `#fafaf7` |
-| Ink | Type and icons always opaque |
-
-| Token | Value |
-| --- | --- |
-| Bone / raised | `#fafaf7` / `#f7f9f4` |
-| Sage / text / deep / line | `#8fa382` / `#7e9270` / `#5c6b52` / `#b9c9ab` |
-| Ink / muted | `#2c302a` / `#6e7568` |
-| Radii | window 12 · control 9 · dock 24 |
-
-| Surface | Where |
-| --- | --- |
-| Look-and-feel | `org.dadi.desktop` — translucent top bar (32px), floating dock, status strip |
-| Brand | plasmoid `org.dadi.brand` — wordmark opens Preferences; right-click for about / power |
-| Status | plasmoid `org.dadi.status` in the top bar — one dot per module from nas `/status` (sage healthy, red down) and `up <d h>` from its `uptime_seconds`; read-only, no desktop widgets |
-| Preferences | `dadi-preferences` → `plasmawindowed org.dadi.preferences` (users / dwar / chaavi / devices / desktop → `DADI_STATE_DIR`; Devices mints `POST /provision` QR for a device) |
-| Wallpaper | `Dadi` (`/usr/share/wallpapers/Dadi/`) |
-| Wake / lid | immutable `action/lock_screen=false`, `kscreenlockerrc`, PowerDevil profiles, `dadi-inhibit-idle.service`, `logind.conf.d/dadi-lid.conf` |
-| TPM | `dadi-tpm-enroll.service` → PCR 7 via `/var/lib/dadi/luks-enroll.key` (shredded after seal; 45s cap; no TTY wait) |
-| Plymouth / SDDM | theme `dadi`; `sddm-wayland-plasma` greeter compositor; PAM `sddm-autologin` permits empty-password `dadi` |
-
-Glass rules: blur before tint; never translucent text; two opacities only (veil / sheet); no dark glass. Glass surfaces sample the wallpaper through Dual Kawase + refraction (adapted from [liquidglass-kde-widgets](https://github.com/jaxparrow07/liquidglass-kde-widgets), GPL-3). Layout is applied by `dadi-apply-desktop.service` after `plasma-plasmashell` (and whenever `/usr/libexec/dadi/apply-desktop.sh` sees a new `LAYOUT_VERSION`, or Preferences → Desktop → Reset layout).
+The box runs no display server. The default target is `multi-user`; tty1 autologins as `dadi` (`os/etc/systemd/system/getty@tty1.service.d/dadi-autologin.conf`) and `os/etc/motd.d/dadi` lists the `dadi` commands. Lid, idle and sleep keys are ignored (`os/etc/systemd/logind.conf.d/dadi-lid.conf`, `dadi-inhibit-idle.service`). `dadi-tpm-enroll.service` seals LUKS to PCR 7 through `/var/lib/dadi/luks-enroll.key` (shredded after seal; 45s cap; no TTY wait). The Plymouth theme `dadi` is the boot splash. `dadi` may reboot and power off through polkit (`os/etc/polkit-1/rules.d/20-dadi.rules`).
 
 ## Mesh
 

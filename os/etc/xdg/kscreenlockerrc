@@ -1,7 +1,0 @@
-[Daemon][$i]
-Autolock=false
-LockOnResume=false
-Timeout=0
-LockGrace=0
-LockOnStart=false
-RequirePassword=false

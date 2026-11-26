@@ -81,7 +81,7 @@ fi
 printf 'TZ=%s\n' "$zone" >"$STATE/timezone.env"
 chmod 0644 "$STATE/timezone.env"
 
-# Ensure dwar .env exists (blank keys until set via Preferences).
+# Ensure dwar .env exists (blank keys until set with `dadi keys set`).
 if [ ! -f "$STATE/modules/dwar/.env" ]; then
   cat >"$STATE/modules/dwar/.env" <<'EOF'
 ANTHROPIC_API_KEY=

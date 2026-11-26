@@ -28,17 +28,17 @@ jobs:
             exit 1
           fi
 
-      - name: SDDM autologins dadi on Wayland
+      - name: The box boots to a tty1 console as dadi
         run: |
           set -euo pipefail
-          grep -q 'sddm-wayland-plasma' os/Containerfile
-          grep -q 'systemctl mask plasmalogin.service' os/Containerfile
-          grep -q 'systemctl enable --force sddm.service' os/Containerfile
-          grep -q '^User=dadi$' os/etc/sddm.conf.d/dadi.conf
-          grep -q '^Session=plasma.desktop$' os/etc/sddm.conf.d/dadi.conf
-          grep -q 'CompositorCommand=kwin_wayland' os/etc/sddm.conf.d/dadi.conf
-          grep -q 'pam_permit.so' os/etc/pam.d/sddm-autologin
-          grep -q 'Requires=dadi-home.service' os/etc/systemd/system/sddm.service.d/dadi.conf
+          grep -q 'agetty --autologin dadi' os/etc/systemd/system/getty@tty1.service.d/dadi-autologin.conf
+          grep -q 'systemctl set-default multi-user.target' os/Containerfile
+          grep -q 'default.target - - - - /usr/lib/systemd/system/multi-user.target' os/etc/tmpfiles.d/dadi.conf
+          grep -q '^Before=getty@tty1.service$' os/etc/systemd/system/dadi-home.service
+          if grep -qiE 'sddm|plasma|kwin' os/Containerfile; then
+            echo "the image must not install a desktop"
+            exit 1
+          fi
 
       - name: dadi CLI works against a stub Nas
         run: bash os/test/dadi-cli.sh
@@ -78,10 +78,6 @@ jobs:
           grep -q '^BindsTo=ghar-postgres.service$' os/etc/containers/systemd/ghar-migrate.container
           grep -q '^WantedBy=ghar-postgres.service$' os/etc/containers/systemd/ghar.container
           grep -q '^WantedBy=ghar-postgres.service$' os/etc/containers/systemd/ghar-migrate.container
-          grep -q 'dadi-apply-desktop.service' os/Containerfile
-          grep -q 'seq 1 120' os/usr/libexec/dadi/apply-desktop.sh
-          grep -q 'busctl --user' os/usr/libexec/dadi/apply-desktop.sh
-          grep -q 'org.kde.plasma.desktop-layout.js' os/usr/libexec/dadi/apply-desktop.sh
           grep -q 'systemctl mask tuned.service' os/Containerfile
           grep -q 'systemctl mask clevis-luks-askpass.service' os/Containerfile
           grep -q 'TimeoutStartSec=45' os/etc/systemd/system/dadi-tpm-enroll.service
@@ -201,7 +197,7 @@ jobs:
 
       - name: Free disk space
         run: |
-          # bootc-image-builder needs tens of GB; ubuntu-latest is tight once Plasma lands.
+          # bootc-image-builder needs tens of GB; ubuntu-latest is tight.
           sudo rm -rf \
             /usr/share/dotnet \
             /usr/local/lib/android \
@@ -255,7 +251,7 @@ jobs:
           fi
           cp "$iso" os/installer/output/dadiOS-amd64.iso
           ls -lh os/installer/output/dadiOS-amd64.iso
-          # GitHub release assets must be < 2 GiB; Plasma installer is ~3.4G.
+          # GitHub release assets must be < 2 GiB; the installer ISO is split into parts.
           split -b 1400M -d \
             os/installer/output/dadiOS-amd64.iso \
             os/installer/output/dadiOS-amd64.iso.

@@ -1,8 +1,0 @@
-module org.dadi.Desktop
-singleton Tokens 1.0 Tokens.qml
-Http 1.0 Http.qml
-Glass 1.0 Glass.qml
-CrestFrame 1.0 CrestFrame.qml
-DadiButton 1.0 DadiButton.qml
-DadiFlickable 1.0 DadiFlickable.qml
-FrostShell 1.0 FrostShell.qml

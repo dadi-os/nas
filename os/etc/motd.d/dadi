@@ -1,0 +1,4 @@
+dadiOS console. Set the box up with `dadi`:
+  dadi users            SSH users and TPM state
+  dadi keys             API keys and the Chaavi account
+  dadi devices add NAME print the setup code to paste into a new device
