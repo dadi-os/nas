@@ -27,11 +27,13 @@ var (
 
 type fsHost struct {
 	host *hostRuntime
+	// uploadMax is the largest file POST /fs/upload accepts, in bytes.
+	uploadMax int64
 }
 
 // newFSHost returns the filesystem API backed by host.
 func newFSHost(host *hostRuntime) *fsHost {
-	return &fsHost{host: host}
+	return &fsHost{host: host, uploadMax: uploadMaxBytes}
 }
 
 // writePathError maps a path resolution or filesystem error to its HTTP status and code.
@@ -41,7 +43,7 @@ func writePathError(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, r, http.StatusForbidden, CodeForbidden, "forbidden")
 	case errors.Is(err, fs.ErrPermission):
 		writeError(w, r, http.StatusForbidden, CodeForbidden, err.Error())
-	case errors.Is(err, errNotFound):
+	case errors.Is(err, errNotFound), errors.Is(err, fs.ErrNotExist):
 		writeError(w, r, http.StatusNotFound, CodeNotFound, "not_found")
 	case errors.Is(err, errBinaryFile):
 		writeError(w, r, http.StatusUnsupportedMediaType, CodeBinaryFile, "binary file")
@@ -625,6 +627,13 @@ func (f *fsHost) register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /fs/edit", f.asDadi(f.handleEdit))
 	mux.HandleFunc("POST /fs/glob", f.asDadi(f.handleGlob))
 	mux.HandleFunc("POST /fs/grep", f.asDadi(f.handleGrep))
+	mux.HandleFunc("GET /fs/list", f.asDadi(f.handleList))
+	mux.HandleFunc("GET /fs/stat", f.asDadi(f.handleStat))
+	mux.HandleFunc("GET /fs/raw", f.asDadi(f.handleRaw))
+	mux.HandleFunc("POST /fs/upload", f.asDadi(f.handleUpload))
+	mux.HandleFunc("POST /fs/mkdir", f.asDadi(f.handleMkdir))
+	mux.HandleFunc("POST /fs/move", f.asDadi(f.handleMove))
+	mux.HandleFunc("POST /fs/trash", f.asDadi(f.handleTrash))
 }
 
 // asDadi serves h with dadi's filesystem identity on the appliance, so agents read and

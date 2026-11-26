@@ -209,6 +209,20 @@ Paths must be absolute. On the appliance every `/fs/*` call runs with `dadi`'s f
 | `POST` | `/fs/glob` | `{ pattern, cwd?, limit?: number (default 500) }` | `{ paths, truncated }` (mtime desc) | `not_found`, `invalid_request` |
 | `POST` | `/fs/grep` | `{ pattern, cwd?, glob?, limit?: number (default 200), max_bytes?: number (default 65536) }` | `{ matches: [{ path, line, text }], truncated }` | `not_found`, `invalid_request` |
 
+The explorer endpoints below serve file managers (Thaali, Khisso). Unlike the calls above, every path here, read or write, must resolve inside the dadi home (`..` and symlinks are resolved first); anything else is `forbidden`. Writes also fail on the protected prefixes. An entry is `{ name, path, kind: "file" \| "folder" \| "symlink", size, modified (RFC3339), media_type }`; a symlink is reported as itself and never followed, and `media_type` is by extension (empty for folders, symlinks and unknown extensions).
+
+| Method | Path | Request | Success | Errors |
+| --- | --- | --- | --- | --- |
+| `GET` | `/fs/list` | `?path=&hidden=1` (dotfiles only with `hidden=1`) | `{ path, entries }`, folders first then name (case-insensitive) | `not_found`, `forbidden`, `invalid_request` (also not a folder) |
+| `GET` | `/fs/stat` | `?path=` | one entry; this is the tombstone check | `not_found`, `forbidden`, `invalid_request` |
+| `GET` | `/fs/raw` | `?path=` | the file streamed inline: `Content-Type` (extension, else sniffed), `Content-Length`, `Content-Disposition: inline; filename*=UTF-8''…`, `Range`; no size cap | `not_found`, `forbidden`, `invalid_request` (a folder) |
+| `POST` | `/fs/upload` | multipart: field `path` (target folder, sent first), then one `file` part; streamed, parents created, never overwrites (`name (2).ext`, `name (3).ext`); limit 200 MiB (`uploadMaxBytes`) | `{ path, name, size }` (the final path) | `payload_too_large` (413), `invalid_request`, `forbidden` |
+| `POST` | `/fs/mkdir` | `{ path }` (parents created; an existing folder is fine) | `{ path }` | `forbidden`, `invalid_request`, `conflict` (a file is in the way) |
+| `POST` | `/fs/move` | `{ from, to }` (rename or move; the parent of `to` must exist) | `{ path }` (the new path) | `conflict` (409, `to` exists; never overwrites), `invalid_request` (a folder into itself), `not_found`, `forbidden` (also the home itself) |
+| `POST` | `/fs/trash` | `{ path }` | `{ path }` in `~/.trash/<yyyy-mm-dd>/<name>` (`name (2).ext` on a clash); the API never hard-deletes | `not_found`, `forbidden`, `invalid_request` (already in the trash) |
+
+These calls do not publish on `GET /events`: its signal carries no folder, so a client refetches the open folder after its own writes.
+
 ### Browsers
 
 Each browser is a headed Chromium on its own Xvfb display (not headless, not a VM). Nas starts and stops browsers for browser tasks (below), lists them, proxies CDP, and screenshots or streams the virtual monitor. The browser helper drives its page over loopback CDP from inside Nas; there is no endpoint to start or stop a browser. Other clients (Thaali's live view) read the proxy and the stream.

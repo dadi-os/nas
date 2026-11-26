@@ -17,6 +17,7 @@ const (
 	CodeBusy                 = "busy"
 	CodeBinaryFile           = "binary_file"
 	CodeConflict             = "conflict"
+	CodePayloadTooLarge      = "payload_too_large"
 	CodeInternal             = "internal_error"
 	CodeCommandTimeout       = "command_timeout"
 	CodeShellUnresponsive    = "shell_unresponsive"
