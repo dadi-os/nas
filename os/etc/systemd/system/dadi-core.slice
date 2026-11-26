@@ -1,0 +1,8 @@
+[Unit]
+Description=Headscale, Caddy, tailscaled, Nas and the Dadi modules with their databases, protected from reclaim and the OOM killers so browsers and terminals lose first
+
+[Slice]
+MemoryLow=20%
+CPUWeight=200
+IOWeight=200
+ManagedOOMPreference=avoid

@@ -40,6 +40,14 @@ jobs:
           grep -q 'pam_permit.so' os/etc/pam.d/sddm-autologin
           grep -q 'Requires=dadi-home.service' os/etc/systemd/system/sddm.service.d/dadi.conf
 
+      - name: Core services sit in the protected slice
+        run: |
+          set -euo pipefail
+          grep -q '^ManagedOOMPreference=avoid$' os/etc/systemd/system/dadi-core.slice
+          for u in headscale caddy nas tailscaled chaavi dwar ghar hath yaad ghar-postgres hath-postgres yaad-postgres; do
+            grep -q '^Slice=dadi-core.slice$' "os/etc/systemd/system/$u.service.d/dadi-core.conf"
+          done
+
       - name: Failed-unit causes are gated
         run: |
           set -euo pipefail
