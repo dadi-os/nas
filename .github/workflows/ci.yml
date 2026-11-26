@@ -40,6 +40,9 @@ jobs:
           grep -q 'pam_permit.so' os/etc/pam.d/sddm-autologin
           grep -q 'Requires=dadi-home.service' os/etc/systemd/system/sddm.service.d/dadi.conf
 
+      - name: dadi CLI works against a stub Nas
+        run: bash os/test/dadi-cli.sh
+
       - name: Core services sit in the protected slice
         run: |
           set -euo pipefail

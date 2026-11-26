@@ -386,6 +386,22 @@ CD builds an Anaconda ISO whenever `os/**` or `service/**` changes and publishes
 7. Set up the public relay (below). Headscale is published at `https://<hostname>` (`GET /headscale/publish`) and the setup QR embeds that URL, so devices provision and cold-start from any network.
 8. Add devices: on the box open **Preferences → Devices**, name the device, show the QR. Scan it with the dadi app (desktop or phone) on the same LAN. Node names must be unique. Re-provision after a LAN address change.
 
+### `dadi` CLI
+
+`/usr/bin/dadi` (`os/usr/bin/dadi`, bash over `curl` and `jq`) sets the box up from a terminal through the Nas API on `127.0.0.1:8092`; it covers what Preferences did. Secrets come from a hidden prompt or stdin, never argv, and `dadi keys` shows only the last four characters of an API key and only whether the Chaavi password is set.
+
+| Command | Does |
+| --- | --- |
+| `dadi users` | SSH users (`GET /access`) and TPM state |
+| `dadi users set NAME` | add a user or change a password (`POST /access/users`) |
+| `dadi users remove NAME` | `DELETE /access/users/{name}` |
+| `dadi keys` | `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `DEEPGRAM_API_KEY` (Dwar) and `CHAAVI_EMAIL`, `CHAAVI_PASSWORD` (Chaavi), masked |
+| `dadi keys set KEY` / `unset KEY` | `PUT /modules/{dwar,chaavi}/settings` with the module's whole env block; the module restarts |
+| `dadi devices` | `GET /clients` |
+| `dadi devices add NAME [--qr]` | `POST /provision`; prints the setup code to paste into the new device (Thaali and Khisso both accept a pasted code), and `--qr` also draws it with `qrencode` |
+
+`os/test/dadi-cli.sh` runs it against a stub of those endpoints in CI.
+
 Day-2: `sudo bootc upgrade && sudo reboot` for nas/infra; module images via `podman-auto-update`. Rollback: `sudo bootc rollback && sudo reboot`. If a firmware/Secure Boot change forces the LUKS passphrase again, write the ISO passphrase to `/var/lib/dadi/luks-enroll.key` with `printf '%s'` (no newline), `chmod 400`, and `systemctl start dadi-tpm-enroll` (the unit wipes the old TPM slot, reseals PCR 7, and shreds the key).
 
 Dev Compose data is disposable: `docker compose down -v` and start fresh.

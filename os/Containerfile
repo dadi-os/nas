@@ -130,7 +130,8 @@ RUN mkdir -p \
          -o "/usr/share/dadi/qml/org/dadi/Desktop/shaders/${f}.frag.qsb" \
          "/usr/share/dadi/qml/org/dadi/Desktop/shaders/${f}.frag"; \
      done \
-  && chmod 0755 /usr/bin/dadi-preferences \
+  && chmod 0755 /usr/bin/dadi \
+       /usr/bin/dadi-preferences \
        /usr/bin/dadi-provision-qr \
   && plymouth-set-default-theme dadi \
   && for k in /lib/modules/*; do \

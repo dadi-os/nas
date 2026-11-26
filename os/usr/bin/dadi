@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# dadi: set up the box from a terminal. Users, API keys and device setup codes all go through the Nas API.
+#
+#   dadi users                  list SSH users and TPM state
+#   dadi users set NAME         add a user or change a password (hidden prompt, or stdin when piped)
+#   dadi users remove NAME
+#   dadi keys                   list API keys and the Chaavi account, values masked
+#   dadi keys set KEY           set one value (hidden prompt, or stdin when piped); the module restarts
+#   dadi keys unset KEY
+#   dadi devices                list devices
+#   dadi devices add NAME [--qr]  print the setup code to paste into the new device; --qr also draws it
+set -euo pipefail
+
+nas="http://127.0.0.1:8092"
+
+dwar_keys=(ANTHROPIC_API_KEY GEMINI_API_KEY OPENAI_API_KEY DEEPGRAM_API_KEY)
+chaavi_keys=(CHAAVI_EMAIL CHAAVI_PASSWORD)
+
+die() {
+  echo "dadi: $*" >&2
+  exit 1
+}
+
+for bin in curl jq; do
+  command -v "$bin" >/dev/null 2>&1 || die "missing $bin"
+done
+
+# api METHOD PATH [JSON]: prints the response body; fails with the Nas error message on a non-2xx status.
+api() {
+  local method="$1" path="$2" body="${3:-}" out status
+  local args=(-sS -X "$method" -o - -w '\n%{http_code}' "$nas$path")
+  if [ -n "$body" ]; then
+    args+=(-H 'Content-Type: application/json' --data-binary "$body")
+  fi
+  out="$(curl "${args[@]}")" || die "cannot reach Nas at $nas"
+  status="${out##*$'\n'}"
+  out="${out%$'\n'*}"
+  if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+    die "$(jq -r '.error.message // empty' <<<"$out" 2>/dev/null || true) (HTTP $status)"
+  fi
+  printf '%s' "$out"
+}
+
+# read_secret PROMPT: reads a hidden line from the terminal, or one line from stdin when it is piped.
+read_secret() {
+  local value
+  if [ -t 0 ]; then
+    read -rsp "$1: " value
+    echo >&2
+  else
+    read -r value
+  fi
+  printf '%s' "$value"
+}
+
+mask() {
+  local v="$1"
+  if [ -z "$v" ]; then
+    echo "(not set)"
+  elif [ "${#v}" -le 8 ]; then
+    echo "set"
+  else
+    echo "…${v: -4}"
+  fi
+}
+
+module_of() {
+  local key="$1" k
+  for k in "${dwar_keys[@]}"; do
+    [ "$k" = "$key" ] && { echo dwar; return; }
+  done
+  for k in "${chaavi_keys[@]}"; do
+    [ "$k" = "$key" ] && { echo chaavi; return; }
+  done
+  die "unknown key $key; keys: ${dwar_keys[*]} ${chaavi_keys[*]}"
+}
+
+cmd_users() {
+  case "${1:-list}" in
+    list)
+      local res
+      res="$(api GET /access)"
+      jq -r '.users[] | "\(.name)\t\(if .password_set then "password set" else "no password" end)"' <<<"$res"
+      jq -r '.tpm | "tpm: " + (if .present then (if .enrolled then "enrolled (PCR \(.pcrs))" else "present, not enrolled" end) else "absent" end)' <<<"$res"
+      ;;
+    set)
+      local name="${2:-}" password confirm
+      [ -n "$name" ] || die "usage: dadi users set NAME"
+      password="$(read_secret "Password for $name")"
+      if [ -t 0 ]; then
+        confirm="$(read_secret "Again")"
+        [ "$password" = "$confirm" ] || die "passwords do not match"
+      fi
+      api POST /access/users "$(jq -nc --arg u "$name" --arg p "$password" '{username: $u, password: $p}')" |
+        jq -r 'if .created then "user \(.username) added" else "password saved for \(.username)" end'
+      ;;
+    remove)
+      local name="${2:-}"
+      [ -n "$name" ] || die "usage: dadi users remove NAME"
+      api DELETE "/access/users/$(jq -rn --arg n "$name" '$n|@uri')" >/dev/null
+      echo "user $name removed"
+      ;;
+    *) die "usage: dadi users [list|set NAME|remove NAME]" ;;
+  esac
+}
+
+# put_key MODULE KEY VALUE: the settings endpoint replaces the whole env block, so every key of the module is read back and sent.
+put_key() {
+  local module="$1" key="$2" value="$3" env
+  env="$(api GET "/modules/$module/settings" | jq -c --arg k "$key" --arg v "$value" '.env + {($k): $v}')"
+  api PUT "/modules/$module/settings" "$(jq -nc --argjson env "$env" '{env: $env}')" >/dev/null
+  echo "$key saved; $module restarted"
+}
+
+cmd_keys() {
+  case "${1:-list}" in
+    list)
+      local module key value
+      for module in dwar chaavi; do
+        local res
+        res="$(api GET "/modules/$module/settings")"
+        local keys=("${dwar_keys[@]}")
+        [ "$module" = chaavi ] && keys=("${chaavi_keys[@]}")
+        for key in "${keys[@]}"; do
+          value="$(jq -r --arg k "$key" '.env[$k] // ""' <<<"$res")"
+          if [ "$key" = CHAAVI_EMAIL ]; then
+            printf '%-20s %s\n' "$key" "${value:-(not set)}"
+          elif [ "$key" = CHAAVI_PASSWORD ]; then
+            printf '%-20s %s\n' "$key" "$([ -n "$value" ] && echo set || echo '(not set)')"
+          else
+            printf '%-20s %s\n' "$key" "$(mask "$value")"
+          fi
+        done
+      done
+      ;;
+    set)
+      local key="${2:-}"
+      [ -n "$key" ] || die "usage: dadi keys set KEY"
+      local module value
+      module="$(module_of "$key")"
+      value="$(read_secret "$key")"
+      [ -n "$value" ] || die "empty value; use dadi keys unset $key to clear it"
+      put_key "$module" "$key" "$value"
+      ;;
+    unset)
+      local key="${2:-}"
+      [ -n "$key" ] || die "usage: dadi keys unset KEY"
+      put_key "$(module_of "$key")" "$key" ""
+      ;;
+    *) die "usage: dadi keys [list|set KEY|unset KEY]" ;;
+  esac
+}
+
+cmd_devices() {
+  case "${1:-list}" in
+    list)
+      api GET /clients | jq -r '.clients[] | "\(.node_name)\t\(if .pending then "pending" elif .online then "online" else "offline" end)\t\(.ip_addresses | join(" "))"'
+      ;;
+    add)
+      local name="${2:-}" qr=0 bundle
+      [ -n "$name" ] || die "usage: dadi devices add NAME [--qr]"
+      [ "${3:-}" = "--qr" ] && qr=1
+      bundle="$(api POST /provision "$(jq -nc --arg n "$name" '{node_name: $n}')" | jq -r '.bundle')"
+      [ -n "$bundle" ] && [ "$bundle" != null ] || die "Nas returned an empty setup code"
+      echo "Setup code for $name (valid for about an hour); paste it into the new device:"
+      echo
+      echo "$bundle"
+      if [ "$qr" = 1 ]; then
+        command -v qrencode >/dev/null 2>&1 || die "missing qrencode"
+        echo
+        qrencode -t ANSIUTF8 -m 1 "$bundle"
+      fi
+      ;;
+    *) die "usage: dadi devices [list|add NAME [--qr]]" ;;
+  esac
+}
+
+case "${1:-}" in
+  users) shift; cmd_users "$@" ;;
+  keys) shift; cmd_keys "$@" ;;
+  devices) shift; cmd_devices "$@" ;;
+  *) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1 ;;
+esac
