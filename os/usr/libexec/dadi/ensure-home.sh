@@ -4,7 +4,7 @@
 set -euo pipefail
 
 SKEL=/etc/skel
-HOME_FOLDERS=(Inbox School Projects Documents Photos Videos .scratch .backups)
+HOME_FOLDERS=(Inbox School Projects Documents Photos Videos)
 
 seed_home() {
   local home="$1"

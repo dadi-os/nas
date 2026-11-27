@@ -225,7 +225,7 @@ These calls do not publish on `GET /events`: its signal carries no folder, so a 
 
 ### Home layout
 
-`ensure-home.sh` creates these on first boot and only adds what is missing in an existing home. Visible: `Inbox/` (everything new: app uploads in `Inbox/<yyyy-mm>/`, browser downloads in `Inbox/Downloads/`), `School/` (`Semester N/COURSE CODE/`), `Projects/` (one folder per idea, named as the project spells itself; a git repo is a leaf and each project's manager decides its inner layout), `Documents/`, `Photos/`, `Videos/`. Hidden: `.scratch/<id>/` (throwaway output) and `.backups/<area>/` (pre-edit copies), both swept after 14 days; toolchains and virtual environments live in `~/.local/share/dadi-toolchains/`. The SMB share hides the dot folders (Samba `hide dot files` defaults to yes). The terminal helper's charter states the working rules, not this folder list.
+`ensure-home.sh` creates these on first boot and only adds what is missing in an existing home. Visible: `Inbox/` (everything new: app uploads in `Inbox/<yyyy-mm>/`, browser downloads in `Inbox/Downloads/`), `School/` (`Semester N/COURSE CODE/`), `Projects/` (one folder per idea, named as the project spells itself; a git repo is a leaf and each project's manager decides its inner layout), `Documents/`, `Photos/`, `Videos/`. Toolchains and virtual environments live in `~/.local/share/dadi-toolchains/` and inside their projects; there are no scratch or backups folders. The terminal helper's charter states the working rules, not this folder list.
 
 ### Browsers
 
