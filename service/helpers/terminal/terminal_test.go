@@ -40,6 +40,12 @@ func (f *fakeNas) server(t *testing.T) *httptest.Server {
 			_ = json.NewEncoder(w).Encode(map[string]bool{"replaced": true})
 		case r.URL.Path == "/fs/write":
 			_ = json.NewEncoder(w).Encode(map[string]int{"bytes": 5})
+		case r.URL.Path == "/v1/items" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"items":[{"id":"c1","name":"Visa","type":"card","fields":[],"card":{"brand":"Visa","hasNumber":true,"hasCode":true}},{"id":"l1","name":"AWS","type":"login","fields":[],"login":{"username":"ankur","uris":[],"passkeys":[],"hasPassword":true,"hasTotp":true}}]}`))
+		case strings.HasSuffix(r.URL.Path, "/reveal") && strings.HasPrefix(r.URL.Path, "/v1/items/"):
+			_ = json.NewEncoder(w).Encode(map[string]string{"value": map[string]string{"/v1/items/c1/reveal": "4242424242424242", "/v1/items/l1/reveal": "hunter2"}[r.URL.Path]})
+		case strings.HasSuffix(r.URL.Path, "/totp"):
+			_, _ = w.Write([]byte(`{"code":"424242","period":30,"remaining":9}`))
 		case strings.HasPrefix(r.URL.Path, "/v1/secrets/"):
 			_ = json.NewEncoder(w).Encode(map[string]string{"value": "s3cr3t"})
 		default:
@@ -219,5 +225,39 @@ func TestHaltKillsTheShellsProcessTree(t *testing.T) {
 	before := len(f.requests)
 	if err := kit.Halt(task); err != nil || len(f.requests) != before {
 		t.Fatalf("halt with no shell made a request: %v", err)
+	}
+}
+
+func TestSecretTakesAnyFieldOfAnyItemAndSeveralAtOnce(t *testing.T) {
+	f := &fakeNas{exec: func(string) map[string]any {
+		return map[string]any{"exit_code": 0, "output": "card 4242 4242 4242 4242 pw hunter2 code 424242"}
+	}}
+	kit, task := newTestKit(t, f)
+	out, err := kit.Call(task, "secret", json.RawMessage(`{"command":"run","secrets":[{"item":"Visa","field":"number","env":"CARD"},{"item":"AWS","env":"PW"},{"item":"AWS","field":"totp","env":"MFA"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "4242") || strings.Contains(out, "hunter2") || !strings.Contains(out, "card *** pw *** code ***") {
+		t.Fatalf("output not scrubbed: %q", out)
+	}
+	command := f.bodies[len(f.bodies)-1]["command"].(string)
+	for _, env := range []string{"export CARD=$(cat", "export PW=$(cat", "export MFA=$(cat"} {
+		if !strings.Contains(command, env) {
+			t.Errorf("command lacks %q: %q", env, command)
+		}
+	}
+	if strings.Contains(command, "hunter2") || strings.Contains(command, "424242") {
+		t.Fatalf("a secret is in the command: %q", command)
+	}
+}
+
+func TestVaultFindShowsNamesAndNeverSecrets(t *testing.T) {
+	kit, task := newTestKit(t, &fakeNas{exec: func(string) map[string]any { return nil }})
+	out, err := kit.Call(task, "vault_find", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Visa (card") || !strings.Contains(out, "secret fields (never shown): code, number") || !strings.Contains(out, "password, totp") || strings.Contains(out, "4242") {
+		t.Fatalf("listing: %q", out)
 	}
 }

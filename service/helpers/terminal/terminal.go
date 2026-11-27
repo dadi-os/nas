@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/dadi-os/nas/service/helpers"
+	"github.com/dadi-os/nas/service/helpers/vault"
 )
 
 //go:embed charter.md doctrine/*.md
@@ -39,6 +40,7 @@ const (
 type Kit struct {
 	nas     string
 	chaavi  string
+	vault   *vault.Client
 	home    string
 	charter string
 	http    *http.Client
@@ -63,7 +65,7 @@ func New(nasURL, chaaviURL, home string) (*Kit, error) {
 		}
 		parts = append(parts, string(text))
 	}
-	return &Kit{nas: nasURL, chaavi: chaaviURL, home: home, charter: strings.Join(parts, "\n\n"), http: &http.Client{Timeout: (maxTimeout + 30) * time.Second}}, nil
+	return &Kit{nas: nasURL, chaavi: chaaviURL, vault: vault.New(chaaviURL), home: home, charter: strings.Join(parts, "\n\n"), http: &http.Client{Timeout: (maxTimeout + 30) * time.Second}}, nil
 }
 
 // Kind is "terminal".
@@ -243,8 +245,15 @@ func (k *Kit) Tools() []helpers.ToolSpec {
 		{Name: "write", Description: "Write a whole file (for new files), creating parent directories. Writes into the OS and Dadi's system folders are refused.", InputSchema: obj([]string{"path", "content"}, map[string]any{
 			"path": str("Absolute file path"), "content": str("The file's full content"),
 		})},
-		{Name: "secret", Description: "Run a command with a secret from Chaavi (the Secure Note named name) in the environment variable env, without the secret ever being shown; the secret is scrubbed from the output.", InputSchema: obj([]string{"name", "env", "command"}, map[string]any{
-			"name": str("The Secure Note's name, such as \"Stripe API key\""), "env": str("Environment variable to put it in"), "command": str("The shell command"),
+		{Name: "secret", Description: "Run a command with Chaavi values in environment variables, without any of them ever being shown; they are scrubbed from the output. Each value is a Secure Note (name) or one field of any Chaavi item (item and field): a login's username, password (the default) or totp (the current code), a card's number or code, a passport's, license's, identity's or bank account's fields, notes, or custom:<name>. Give one with name or item, field and env, or several in secrets.", InputSchema: obj([]string{"command"}, map[string]any{
+			"name": str("A Secure Note's name, such as \"Stripe API key\""), "item": str("A Chaavi item's name or id"), "field": str("Which field of the item; a login's password when omitted"),
+			"env": str("Environment variable to put it in"), "command": str("The shell command"),
+			"secrets": map[string]any{"type": "array", "description": "Several values at once", "items": obj([]string{"env"}, map[string]any{
+				"name": str("A Secure Note's name"), "item": str("A Chaavi item's name or id"), "field": str("Which field of the item"), "env": str("Environment variable"),
+			})},
+		})},
+		{Name: "vault_find", Description: "List Chaavi items: name, id, type, a login's username and sites, non-secret values of a card, identity, passport, license or bank account, and the names of their secret fields, which are never shown. query matches names and text, site a login's address, kind an item type (login, card, identity, passport, driversLicense, bankAccount, sshKey, note).", InputSchema: obj(nil, map[string]any{
+			"query": str("Text in the item's name or public values"), "site": str("A login's site"), "kind": str("An item type"),
 		})},
 	}
 }
@@ -252,21 +261,27 @@ func (k *Kit) Tools() []helpers.ToolSpec {
 // Call runs one tool on t.
 func (k *Kit) Call(t *helpers.Task, name string, input json.RawMessage) (string, error) {
 	var in struct {
-		Command    string `json:"command"`
-		Cwd        string `json:"cwd"`
-		Timeout    int    `json:"timeout"`
-		Background bool   `json:"background"`
-		Handle     string `json:"handle"`
-		Stop       bool   `json:"stop"`
-		Path       string `json:"path"`
-		Range      string `json:"range"`
-		Pattern    string `json:"pattern"`
-		Glob       string `json:"glob"`
-		Old        string `json:"old"`
-		New        string `json:"new"`
-		Content    string `json:"content"`
-		Name       string `json:"name"`
-		Env        string `json:"env"`
+		Command    string       `json:"command"`
+		Cwd        string       `json:"cwd"`
+		Timeout    int          `json:"timeout"`
+		Background bool         `json:"background"`
+		Handle     string       `json:"handle"`
+		Stop       bool         `json:"stop"`
+		Path       string       `json:"path"`
+		Range      string       `json:"range"`
+		Pattern    string       `json:"pattern"`
+		Glob       string       `json:"glob"`
+		Old        string       `json:"old"`
+		New        string       `json:"new"`
+		Content    string       `json:"content"`
+		Name       string       `json:"name"`
+		Env        string       `json:"env"`
+		Item       string       `json:"item"`
+		Field      string       `json:"field"`
+		Secrets    []secretSpec `json:"secrets"`
+		Query      string       `json:"query"`
+		Kind       string       `json:"kind"`
+		Site       string       `json:"site"`
 	}
 	if err := json.Unmarshal(input, &in); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
@@ -296,7 +311,13 @@ func (k *Kit) Call(t *helpers.Task, name string, input json.RawMessage) (string,
 		touch(t, in.Path)
 		return fmt.Sprintf("wrote %d bytes to %s", out.Bytes, in.Path), nil
 	case "secret":
-		return k.secret(t, in.Name, in.Env, in.Command)
+		specs := in.Secrets
+		if in.Env != "" || in.Name != "" || in.Item != "" {
+			specs = append(specs, secretSpec{Name: in.Name, Item: in.Item, Field: in.Field, Env: in.Env})
+		}
+		return k.secret(t, specs, in.Command)
+	case "vault_find":
+		return k.vaultFind(in.Query, in.Site, in.Kind)
 	default:
 		return "", fmt.Errorf("unknown tool %s", name)
 	}
@@ -447,27 +468,91 @@ func (k *Kit) grep(pattern, cwd, glob string) (string, error) {
 	return b.String(), nil
 }
 
-// secret stages a Chaavi secret in a file only dadi can read, loads it into env and deletes
-// the file in the same command, and scrubs the value from the output.
-func (k *Kit) secret(t *helpers.Task, name, env, command string) (string, error) {
-	if name == "" || env == "" || command == "" {
-		return "", fmt.Errorf("name, env and command are required")
+// secretSpec names one value for a command's environment: the Secure Note called Name, or the
+// field of the Chaavi item Item (a login's password by default).
+type secretSpec struct {
+	Name  string `json:"name"`
+	Item  string `json:"item"`
+	Field string `json:"field"`
+	Env   string `json:"env"`
+}
+
+// value reads the secret from Chaavi.
+func (k *Kit) value(sp secretSpec) (string, error) {
+	if sp.Env == "" {
+		return "", fmt.Errorf("env is required for each secret")
 	}
-	var secret struct {
-		Value string `json:"value"`
+	if sp.Item == "" {
+		if sp.Name == "" {
+			return "", fmt.Errorf("name a Secure Note (name) or an item (item and field)")
+		}
+		var secret struct {
+			Value string `json:"value"`
+		}
+		if err := k.call(http.MethodPost, k.chaavi+"/v1/secrets/"+sp.Name+"/reveal", nil, &secret); err != nil {
+			return "", fmt.Errorf("chaavi: %w", err)
+		}
+		return secret.Value, nil
 	}
-	if err := k.call(http.MethodPost, k.chaavi+"/v1/secrets/"+name+"/reveal", nil, &secret); err != nil {
-		return "", fmt.Errorf("chaavi: %w", err)
-	}
-	staged := filepath.Join("/tmp", "dadi-secret-"+t.ID+"-"+strconv.FormatInt(time.Now().UnixNano(), 10))
-	if err := k.call(http.MethodPost, k.nas+"/fs/write", map[string]string{"path": staged, "content": secret.Value}, nil); err != nil {
+	item, err := k.vault.Resolve(sp.Item, "")
+	if err != nil {
 		return "", err
 	}
-	res, err := k.exec(t, "export "+env+"=$(cat "+shellQuote(staged)+"); rm -f "+shellQuote(staged)+"; "+command, defaultTimeout)
-	if err != nil {
-		return "", fmt.Errorf("%w (the staged secret %s may remain; remove it)", err, staged)
+	field := sp.Field
+	if field == "" && item.Type == "login" {
+		field = "password"
 	}
-	output := strings.ReplaceAll(res.Output, secret.Value, "***")
+	value, _, err := k.vault.Value(item, field)
+	return value, err
+}
+
+// vaultFind lists the Chaavi items matching the query: names, ids, non-secret values and the
+// names of secret fields.
+func (k *Kit) vaultFind(q, site, kind string) (string, error) {
+	items, err := k.vault.Items(vault.Query{Q: q, URI: site, Type: kind})
+	if err != nil {
+		return "", err
+	}
+	if len(items) == 0 {
+		return "no Chaavi items match", nil
+	}
+	var b strings.Builder
+	for i, it := range items {
+		if i == 40 {
+			fmt.Fprintf(&b, "(%d more: narrow query, site or kind)\n", len(items)-i)
+			break
+		}
+		b.WriteString("- " + it.Describe() + "\n")
+	}
+	return b.String(), nil
+}
+
+// secret stages Chaavi values in files only dadi can read, loads each into its environment
+// variable and deletes the files in the same command, and scrubs the values from the output.
+func (k *Kit) secret(t *helpers.Task, specs []secretSpec, command string) (string, error) {
+	if len(specs) == 0 || command == "" {
+		return "", fmt.Errorf("a secret (name or item, and env) and command are required")
+	}
+	var script strings.Builder
+	var values, staged []string
+	for _, sp := range specs {
+		value, err := k.value(sp)
+		if err != nil {
+			return "", err
+		}
+		values = append(values, value)
+		file := filepath.Join("/tmp", "dadi-secret-"+t.ID+"-"+strconv.FormatInt(time.Now().UnixNano(), 10))
+		if err := k.call(http.MethodPost, k.nas+"/fs/write", map[string]string{"path": file, "content": value}, nil); err != nil {
+			return "", fmt.Errorf("%w (staged secrets that may remain: %s; remove them)", err, strings.Join(staged, ", "))
+		}
+		staged = append(staged, file)
+		script.WriteString("export " + sp.Env + "=$(cat " + shellQuote(file) + "); rm -f " + shellQuote(file) + "; ")
+	}
+	res, err := k.exec(t, script.String()+command, defaultTimeout)
+	if err != nil {
+		return "", fmt.Errorf("%w (the staged secrets %s may remain; remove them)", err, strings.Join(staged, ", "))
+	}
+	output := vault.Scrub(res.Output, values)
 	if res.TimedOut {
 		return "still running after 120s:\n" + output, nil
 	}

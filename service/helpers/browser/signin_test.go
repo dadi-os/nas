@@ -2,6 +2,7 @@ package browser
 
 import (
 	"encoding/json"
+	"github.com/dadi-os/nas/service/helpers/vault"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,13 +17,13 @@ const (
 )
 
 // fakeChaavi serves one login for example.test, with a passkey when pk is set.
-func fakeChaavi(t *testing.T, pk *Passkey) *chaaviClient {
+func fakeChaavi(t *testing.T, pk *Passkey) *vault.Client {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/items", func(w http.ResponseWriter, r *http.Request) {
 		items := []map[string]any{}
 		if r.URL.Query().Get("uri") == "example.test" && r.URL.Query().Get("type") == "login" {
-			login := map[string]any{"username": testUser, "passkeys": []map[string]string{}}
+			login := map[string]any{"username": testUser, "passkeys": []map[string]string{}, "hasPassword": true}
 			if pk != nil {
 				login["passkeys"] = []map[string]string{{"rpId": pk.RPID}}
 			}
@@ -30,8 +31,8 @@ func fakeChaavi(t *testing.T, pk *Passkey) *chaaviClient {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
 	})
-	mux.HandleFunc("POST /v1/items/i1/login", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]string{"username": testUser, "password": testPassword})
+	mux.HandleFunc("POST /v1/items/i1/reveal", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"value": testPassword})
 	})
 	mux.HandleFunc("POST /v1/items/i1/passkey", func(w http.ResponseWriter, _ *http.Request) {
 		if pk == nil {
@@ -42,7 +43,7 @@ func fakeChaavi(t *testing.T, pk *Passkey) *chaaviClient {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return &chaaviClient{base: srv.URL, http: &http.Client{Timeout: 10 * time.Second}}
+	return &vault.Client{Base: srv.URL, HTTP: &http.Client{Timeout: 10 * time.Second}}
 }
 
 const loginPage = `<form id="f1"><input name="username" aria-label="Email" autocomplete="username">
@@ -186,5 +187,141 @@ func TestSignInPressesNextOnOktasFilledAddress(t *testing.T) {
 	}
 	if !strings.Contains(tab.URL(), "/okta") || jsIn(t, ctx, tab, "", `window.picked`) != "key" {
 		t.Fatalf("the route did not reach the Okta list: %s", tab.URL())
+	}
+}
+
+const testTotp = "424242"
+
+// fakeChaaviTotp serves one login for example.test that has an authenticator key.
+func fakeChaaviTotp(t *testing.T) *vault.Client {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/items", func(w http.ResponseWriter, _ *http.Request) {
+		login := map[string]any{"username": testUser, "passkeys": []map[string]string{}, "hasPassword": true, "hasTotp": true}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{{"id": "i1", "name": "Example", "type": "login", "login": login}}})
+	})
+	mux.HandleFunc("POST /v1/items/i1/reveal", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"value": testPassword})
+	})
+	mux.HandleFunc("POST /v1/items/i1/totp", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": testTotp, "period": 30, "remaining": 20})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return &vault.Client{Base: srv.URL, HTTP: &http.Client{Timeout: 10 * time.Second}}
+}
+
+const totpPage = `<form id="code"><input name="otp" autocomplete="one-time-code" aria-label="Code"><button type="submit">Verify</button></form>
+<p id="ask">Enter the 6-digit code from your authenticator app</p><p id="out"></p>
+<script>code.onsubmit = e => { e.preventDefault(); window.sent = code.otp.value; code.hidden = true; ask.hidden = true; out.textContent = 'Verified'; };</script>`
+
+// TestSignInTotpFillsTheAuthenticatorCodeWithoutShowingIt types the code Chaavi makes into the
+// page's code field; the code reaches the page but not the result.
+func TestSignInTotpFillsTheAuthenticatorCodeWithoutShowingIt(t *testing.T) {
+	b, _ := newBrowser(t)
+	ctx := testCtx(t)
+	srv := serve(t, map[string]string{"/": totpPage})
+	k := &Kit{chaavi: fakeChaaviTotp(t)}
+	tab := openPage(t, ctx, b, localhostURL(srv)+"/")
+	out, err := k.signIn(ctx, tab, input{Site: "example.test", Use: "totp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, testTotp) || !strings.Contains(out, "Verified") {
+		t.Fatalf("result:\n%s", out)
+	}
+	if jsIn(t, ctx, tab, "", `window.sent`) != testTotp {
+		t.Fatal("the code did not reach the page")
+	}
+}
+
+const (
+	testCardNumber = "4242424242424242"
+	testCardCode   = "737"
+)
+
+// fakeChaaviCard serves a card and an identity.
+func fakeChaaviCard(t *testing.T) *vault.Client {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/items", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"items":[
+ {"id":"c1","name":"Visa","type":"card","fields":[],"card":{"cardholderName":"Ankur Desai","brand":"Visa","expMonth":"07","expYear":"2029","hasNumber":true,"hasCode":true}},
+ {"id":"i1","name":"Home","type":"identity","fields":[],"identity":{"firstName":"Ankur","lastName":"Desai","address1":"1 Main St","city":"Lansing","postalCode":"48823","hasSsn":true}}]}`))
+	})
+	mux.HandleFunc("POST /v1/items/{id}/reveal", func(w http.ResponseWriter, r *http.Request) {
+		body := map[string]string{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_ = json.NewEncoder(w).Encode(map[string]string{"value": map[string]string{"number": testCardNumber, "code": testCardCode, "ssn": "078-05-1120"}[body["field"]]})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return vault.New(srv.URL)
+}
+
+const cardPage = `<form><input name="cardnum" autocomplete="cc-number"><input name="holder" autocomplete="cc-name">
+<select name="m" autocomplete="cc-exp-month">` + `<option value="">Month</option><option value="1">1</option><option value="7">7</option><option value="12">12</option></select>
+<select name="y" autocomplete="cc-exp-year"><option value="">Year</option><option value="29">2029</option><option value="30">2030</option></select>
+<input name="cvv" aria-label="CVV"><input name="promo" aria-label="Promo"><input aria-label="Social"></form>`
+
+// TestVaultFillAndTypePutSecretsInThePageNotInTheResult fills a card form, leaves the promo
+// field alone and names it, types an identity secret into one ref, and shows no secret in
+// any result or outline.
+func TestVaultFillAndTypePutSecretsInThePageNotInTheResult(t *testing.T) {
+	b, _ := newBrowser(t)
+	ctx := testCtx(t)
+	srv := serve(t, map[string]string{"/": cardPage})
+	k := &Kit{chaavi: fakeChaaviCard(t)}
+	s := &session{}
+	tab := openPage(t, ctx, b, localhostURL(srv)+"/")
+	out, err := k.vaultFill(ctx, s, tab, input{Item: "Visa"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, testCardNumber) || strings.Contains(out, testCardCode) || !strings.Contains(out, "left alone") || !strings.Contains(out, "promo") {
+		t.Fatalf("result:\n%s", out)
+	}
+	read := `Array.from(document.forms[0].elements).map((e) => e.value).join("|")`
+	if got := jsIn(t, ctx, tab, "", read); got != testCardNumber+"|Ankur Desai|7|29|"+testCardCode+"||" {
+		t.Fatalf("the form holds %v", got)
+	}
+	look, err := tab.Look(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(look, testCardNumber) || strings.Contains(look, testCardCode) || !strings.Contains(look, "filled") {
+		t.Fatalf("the outline shows a secret:\n%s", look)
+	}
+	social, _ := jsIn(t, ctx, tab, "", `document.querySelector('[aria-label="Social"]').getAttribute("data-dadi-ref")`).(string)
+	if _, err := k.vaultType(ctx, s, tab, input{Item: "Home", Field: "ssn", Ref: social}); err != nil {
+		t.Fatal(err)
+	}
+	if got := jsIn(t, ctx, tab, "", `document.querySelector('[aria-label="Social"]').value`); got != "078-05-1120" {
+		t.Fatalf("the social field holds %v", got)
+	}
+	if scrubbed := vault.Scrub("number "+testCardNumber+" ssn 078-05-1120", s.secrets); strings.Contains(scrubbed, "4242") || strings.Contains(scrubbed, "1120") {
+		t.Fatalf("the session does not scrub what it put in the page: %q", scrubbed)
+	}
+}
+
+// TestSignInFillsTheAuthenticatorCodeAfterThePassword runs the whole login: username, password,
+// and the authenticator code the page then asks for, none of them in the result.
+func TestSignInFillsTheAuthenticatorCodeAfterThePassword(t *testing.T) {
+	b, _ := newBrowser(t)
+	ctx := testCtx(t)
+	page := strings.Replace(loginPage, "Enter the 6-digit verification code we texted to ***3805", "Enter the 6-digit code from your authenticator app", 1)
+	page = strings.Replace(page, "</script>", "code.onsubmit = e => { e.preventDefault(); window.sent = code.otp.value; code.hidden = true; out.textContent = 'Welcome back'; };</script>", 1)
+	srv := serve(t, map[string]string{"/": page})
+	k := &Kit{chaavi: fakeChaaviTotp(t)}
+	tab := openPage(t, ctx, b, localhostURL(srv)+"/#code")
+	out, err := k.signIn(ctx, tab, input{Site: "example.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, testTotp) || strings.Contains(out, testPassword) || !strings.Contains(out, "Welcome back") {
+		t.Fatalf("result:\n%s", out)
+	}
+	if jsIn(t, ctx, tab, "", `window.sent`) != testTotp || jsIn(t, ctx, tab, "", `window.pw`) != testPassword {
+		t.Fatal("the password or the code did not reach the page")
 	}
 }

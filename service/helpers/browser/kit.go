@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/dadi-os/nas/service/helpers"
 	"github.com/dadi-os/nas/service/helpers/sites"
+	"github.com/dadi-os/nas/service/helpers/vault"
 )
 
 //go:embed charter.md
@@ -83,7 +85,7 @@ type Host interface {
 // Kit is the browser helper kind.
 type Kit struct {
 	host        Host
-	chaavi      *chaaviClient
+	chaavi      *vault.Client
 	dwar        string
 	http        *http.Client
 	home        string
@@ -106,6 +108,8 @@ type session struct {
 	failures map[string][]string
 	// rows is how many rows the last extract returned.
 	rows int
+	// secrets are the vault values this session put into pages; they never leave in a result.
+	secrets []string
 }
 
 // New builds the browser kit. browsersDir holds the per-agent Chromium folders
@@ -117,7 +121,7 @@ func New(host Host, chaaviURL, dwarURL, home, browsersDir, cgroup string, profil
 		return nil, fmt.Errorf("BROWSER_CGROUP %s: %w", cgroup, err)
 	}
 	return &Kit{
-		host: host, chaavi: &chaaviClient{base: chaaviURL, http: &http.Client{Timeout: chaaviTimeout}}, dwar: dwarURL,
+		host: host, chaavi: vault.New(chaaviURL), dwar: dwarURL,
 		http: &http.Client{Timeout: 2 * time.Minute}, home: home, browsersDir: browsersDir, cgroup: cgroup, profiles: profiles,
 		sessions: map[string]*session{}, busy: map[string]bool{},
 	}, nil
@@ -395,9 +399,25 @@ func (k *Kit) Tools() []helpers.ToolSpec {
 		{Name: "screenshot", Description: "Save a PNG of the tab, or of the element at scope (a ref), and return its path. Pass question to have the image described and get the answer back; use it only for what an outline cannot show: canvas, charts, layout, captchas.", InputSchema: obj(nil, map[string]any{"scope": str("A ref to capture just that element"), "question": str("What to find out from the image")})},
 		{Name: "tabs", Description: "Manage tabs. With no arguments, list them. open loads a URL in a new tab, switch brings a tab to the front, close closes one.", InputSchema: map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"open": str("URL to open in a new tab"), "switch": str("Tab id to bring to the front"), "close": str("Tab id to close")}}},
 		{Name: "navigate", Description: "Load a URL in a tab and wait for it (wait: load, domcontentloaded or networkidle). Returns the outline. A URL that turns into a file download returns the download.", InputSchema: obj([]string{"url"}, map[string]any{"url": str("Address to load"), "wait": map[string]any{"type": "string", "enum": []string{"load", "domcontentloaded", "networkidle"}}})},
-		{Name: "sign_in", Description: "Sign in to the site of the tab (or site) with its Chaavi login. A passkey is used first: it is loaded into the tab and the page reloaded so the site asks again; read the page after. With no passkey, or use login, it fills the username and password, ticks remember this device, and submits. If a code is needed it returns needs_code: ask for it. Passwords never pass through you.", InputSchema: obj(nil, map[string]any{
+		{Name: "sign_in", Description: "Sign in to the site of the tab (or site) with its Chaavi login. A passkey is used first: it is loaded into the tab and the page reloaded so the site asks again; read the page after. With no passkey, or use login, it fills the username and password, ticks remember this device, and submits. An authenticator-app code is filled from Chaavi automatically when the login has one; if a page asks for it later, call again with use totp. A code the site texts or emails returns needs_code: ask for it. Passwords never pass through you.", InputSchema: obj(nil, map[string]any{
 			"site": str("Domain to sign in to; default the tab's"), "item": str("Name of the Chaavi login when the site has several"),
-			"use": map[string]any{"type": "string", "enum": []string{"passkey", "login"}, "description": "Force the passkey or the username and password"},
+			"use": map[string]any{"type": "string", "enum": []string{"passkey", "login", "totp"}, "description": "Force the passkey or the username and password, or totp to type the login's authenticator code into the page's code field"},
+		})},
+		{Name: "vault_find", Description: "List Chaavi items: name, id, type, a login's username and sites, a card's, identity's, passport's, license's or bank account's non-secret values (name, address, expiry, brand), and the names of its secret fields, which are never shown. query matches names and text, site a login's address, kind an item type (login, card, identity, passport, driversLicense, bankAccount, sshKey, note).", InputSchema: obj(nil, map[string]any{
+			"query": str("Text in the item's name or public values"), "site": str("A login's site, such as amazon.com"),
+			"kind": map[string]any{"type": "string", "enum": []string{"login", "card", "identity", "passport", "driversLicense", "bankAccount", "sshKey", "note"}},
+		})},
+		{Name: "vault_fill", Description: "Fill the form on the page from one Chaavi item (a card, identity, passport, license, bank account or login): each control it recognizes by its autocomplete token or label gets the matching field, selects pick the month or year option, and the controls left alone are named so you can use vault_type. Values go from Chaavi into the page and are never shown to you. scope is the ref of one form when the page has several (billing and shipping).", InputSchema: obj([]string{"item"}, map[string]any{
+			"item": str("The item's name or id"), "scope": str("Ref of the form or region to fill"), "tab": str("Tab id; default the front tab"),
+		})},
+		{Name: "vault_type", Description: "Type one field of a Chaavi item into the control at ref, never showing it to you. field: a login's username, password or totp (the current code); a card's number, code, expMonth, expYear, cardholderName; an identity's, passport's, license's or bank account's own fields (address1, city, postalCode, ssn, passportNumber, licenseNumber, accountNumber, routingNumber, iban, ...); notes; or custom:<name> for a custom field. submit presses Enter after.", InputSchema: obj([]string{"item", "field", "ref"}, map[string]any{
+			"item": str("The item's name or id"), "field": str("Which field of the item"), "ref": str("Ref of the control"), "submit": map[string]any{"type": "boolean"}, "tab": str("Tab id; default the front tab"),
+		})},
+		{Name: "vault_save_login", Description: "Save a new login in Chaavi with a password Chaavi makes, before signing up for an account, so it is never lost; then type the password with vault_type. Fails when a login with that name exists.", InputSchema: obj([]string{"item", "site"}, map[string]any{
+			"item": str("Name for the login, such as \"Amazon\""), "site": str("The site, such as https://amazon.com"), "username": str("Its username or email"), "length": map[string]any{"type": "integer", "description": "Password length (Chaavi's default when omitted)"},
+		})},
+		{Name: "vault_set_totp", Description: "Store the authenticator key (a base32 key or otpauth:// link) a site showed while turning on an authenticator app, on the login. Then sign_in with use totp or vault_type field totp makes its codes.", InputSchema: obj([]string{"item", "key"}, map[string]any{
+			"item": str("The login's name or id"), "key": str("The authenticator key or otpauth:// link"),
 		})},
 		{Name: "download", Description: "Get a file: give url to load it, or ref to click the control that starts it. With neither, list the downloads so far. Files land in ~/Inbox/Downloads under their own names and come back as paths.", InputSchema: obj(nil, map[string]any{"url": str("Address of the file"), "ref": str("Ref of the control that downloads it")})},
 		{Name: toolNoteSite, Description: "Record a fact you learned for certain about a site in its profile, which every later helper is shown the first time it loads that host. field is sign_in (value {method: passkey, login or decs, item: the Chaavi item's title, none for decs}), time_zone_shown (value: the zone the site shows, as a string) or blocks (value: the symptom that stops work there, as a string). One field per call.", InputSchema: obj([]string{"host", "field", "value"}, map[string]any{
@@ -432,6 +452,11 @@ type input struct {
 	Host     string          `json:"host"`
 	Field    string          `json:"field"`
 	Value    json.RawMessage `json:"value"`
+	Kind     string          `json:"kind"`
+	Submit   bool            `json:"submit"`
+	Username string          `json:"username"`
+	Length   int             `json:"length"`
+	Key      string          `json:"key"`
 }
 
 // Call runs one tool on t's browser. A failure is returned as the tool's error and is never
@@ -460,6 +485,10 @@ func (k *Kit) Call(t *helpers.Task, name string, raw json.RawMessage) (string, e
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	out, err := k.dispatch(ctx, t, s, name, in)
+	out = vault.Scrub(out, s.secrets)
+	if err != nil && len(s.secrets) > 0 {
+		err = errors.New(vault.Scrub(err.Error(), s.secrets))
+	}
 	if saveErr := k.saveTabs(ctx, t, s); saveErr != nil {
 		slog.Error("browser tabs not saved", "code", "internal_error", "task", "browser/"+t.ID, "err", saveErr)
 	}
@@ -676,8 +705,15 @@ func retryStale(name string, loaded func() error, try func() (string, error)) (s
 
 // dispatchOnce is one try of dispatch.
 func (k *Kit) dispatchOnce(ctx context.Context, t *helpers.Task, s *session, name string, in input) (string, error) {
-	if name == "tabs" {
+	switch name {
+	case "tabs":
 		return k.tabs(ctx, s, in)
+	case "vault_find":
+		return k.vaultFind(in)
+	case "vault_save_login":
+		return k.vaultSaveLogin(in)
+	case "vault_set_totp":
+		return k.vaultSetTotp(s, in)
 	}
 	tab, err := s.tab(ctx, in.Tab)
 	if err != nil {
@@ -701,6 +737,10 @@ func (k *Kit) dispatchOnce(ctx context.Context, t *helpers.Task, s *session, nam
 		return k.navigate(ctx, tab, in)
 	case "sign_in":
 		return k.signIn(ctx, tab, in)
+	case "vault_type":
+		return k.vaultType(ctx, s, tab, in)
+	case "vault_fill":
+		return k.vaultFill(ctx, s, tab, in)
 	case "download":
 		return k.download(ctx, s, tab, in)
 	case "upload":

@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/dadi-os/nas/service/helpers/vault"
 )
 
 const (
@@ -19,6 +22,9 @@ const (
 )
 
 var codePrompt = regexp.MustCompile(`(?i)(verification code|security code|one-time (pass)?code|enter (the |your )?(\d-?digit )?code|6-digit|6 digit|code we (sent|texted|emailed)|authenticator app|text message|sent (you )?a code|passcode)`)
+
+// sentCode matches a prompt for a code the site sent by text or email, which Chaavi cannot make.
+var sentCode = regexp.MustCompile(`(?i)(text message|texted|emailed|sent (you |to )|we sent|sms)`)
 
 type loginFields struct {
 	Username string `json:"username"`
@@ -85,8 +91,8 @@ func (t *Tab) tickRemember(ctx context.Context, f loginFields) error {
 }
 
 // onlyPasskeyItem is the one item that has a passkey, or items when none or several do.
-func onlyPasskeyItem(items []chaaviItem) []chaaviItem {
-	var with []chaaviItem
+func onlyPasskeyItem(items []vault.Item) []vault.Item {
+	var with []vault.Item
 	for _, it := range items {
 		if it.Login != nil && len(it.Login.Passkeys) > 0 {
 			with = append(with, it)
@@ -101,9 +107,9 @@ func onlyPasskeyItem(items []chaaviItem) []chaaviItem {
 // itemsForHost narrows items, found by the registrable domain, to those whose address is host or
 // a parent domain of it, keeping the most specific address; Chaavi matches an address by
 // substring, so it cannot do this itself. It returns items when none of them names host.
-func itemsForHost(items []chaaviItem, host string) []chaaviItem {
+func itemsForHost(items []vault.Item, host string) []vault.Item {
 	best := ""
-	var matched []chaaviItem
+	var matched []vault.Item
 	for _, it := range items {
 		if it.Login == nil {
 			continue
@@ -118,7 +124,7 @@ func itemsForHost(items []chaaviItem, host string) []chaaviItem {
 		switch {
 		case itemBest == "" || len(itemBest) < len(best):
 		case len(itemBest) > len(best):
-			best, matched = itemBest, []chaaviItem{it}
+			best, matched = itemBest, []vault.Item{it}
 		default:
 			matched = append(matched, it)
 		}
@@ -143,9 +149,9 @@ func hostOf(raw string) string {
 
 // chooseLogin is the one Chaavi login of site that in names: the item called in.Item, else, for
 // a passkey sign-in (in.Use is not login), the only one with a passkey.
-func chooseLogin(items []chaaviItem, in input, site string) (chaaviItem, error) {
+func chooseLogin(items []vault.Item, in input, site string) (vault.Item, error) {
 	if in.Item != "" {
-		var named []chaaviItem
+		var named []vault.Item
 		for _, it := range items {
 			if strings.EqualFold(it.Name, in.Item) {
 				named = append(named, it)
@@ -158,13 +164,13 @@ func chooseLogin(items []chaaviItem, in input, site string) (chaaviItem, error) 
 	}
 	switch {
 	case len(items) == 0:
-		return chaaviItem{}, fmt.Errorf("Chaavi has no login for %s", site)
+		return vault.Item{}, fmt.Errorf("Chaavi has no login for %s", site)
 	case len(items) > 1:
 		var names []string
 		for _, it := range items {
 			names = append(names, jsonString(it.Name))
 		}
-		return chaaviItem{}, fmt.Errorf("Chaavi has %d logins for %s (%s); pass item to choose one", len(items), site, strings.Join(names, ", "))
+		return vault.Item{}, fmt.Errorf("Chaavi has %d logins for %s (%s); pass item to choose one", len(items), site, strings.Join(names, ", "))
 	}
 	return items[0], nil
 }
@@ -178,7 +184,7 @@ func (k *Kit) signIn(ctx context.Context, tab *Tab, in input) (string, error) {
 	if site == "" {
 		return "", errors.New("the tab is on no site; navigate to the site's sign-in page first, or pass site")
 	}
-	items, err := k.chaavi.logins(site)
+	items, err := k.chaavi.Items(vault.Query{URI: site, Type: "login"})
 	if err != nil {
 		return "", err
 	}
@@ -198,7 +204,38 @@ func (k *Kit) signIn(ctx context.Context, tab *Tab, in input) (string, error) {
 	if in.Use == "passkey" {
 		return "", fmt.Errorf("the Chaavi login %s has no passkey", jsonString(item.Name))
 	}
+	if in.Use == "totp" {
+		return k.fillTotp(ctx, tab, item)
+	}
 	return k.signInLogin(ctx, tab, item)
+}
+
+// fillTotp types the login's current authenticator code into the page's code field, ticks
+// remember this device and submits. The code goes from Chaavi into the page and no further.
+func (k *Kit) fillTotp(ctx context.Context, tab *Tab, item vault.Item) (string, error) {
+	if item.Login == nil || !item.Login.HasTotp {
+		return "", fmt.Errorf("the Chaavi login %s has no authenticator key", jsonString(item.Name))
+	}
+	f, err := tab.fields(ctx)
+	if err != nil {
+		return "", err
+	}
+	if f.Code == "" {
+		return "", errors.New("the page shows no code field; reach the page that asks for the authenticator code first")
+	}
+	code, _, err := k.chaavi.Value(item, "totp")
+	if err != nil {
+		return "", err
+	}
+	if err := tab.tickRemember(ctx, f); err != nil {
+		return "", errors.New(strings.ReplaceAll(err.Error(), code, "***"))
+	}
+	if _, err := tab.Type(ctx, f.Code, code, true); err != nil {
+		return "", errors.New(strings.ReplaceAll(err.Error(), code, "***"))
+	}
+	time.Sleep(signInSettle)
+	out, err := tab.afterSubmit(ctx)
+	return strings.ReplaceAll(out, code, "***"), err
 }
 
 // signInPasskey loads the item's passkey into the tab, reloads it, and carries the sign-in
@@ -206,9 +243,9 @@ func (k *Kit) signIn(ctx context.Context, tab *Tab, in input) (string, error) {
 // page with his address already filled (its Next), Okta's Security Key or Biometric
 // Authenticator row, and its Next button. Each step runs only when the page shows it; the
 // result is the page where the route stopped, signed in or blocked.
-func (k *Kit) signInPasskey(ctx context.Context, tab *Tab, item chaaviItem) (string, error) {
-	key, err := k.chaavi.passkey(item.ID)
-	if err != nil {
+func (k *Kit) signInPasskey(ctx context.Context, tab *Tab, item vault.Item) (string, error) {
+	var key Passkey
+	if err := k.chaavi.Call(http.MethodPost, "/v1/items/"+url.PathEscape(item.ID)+"/passkey", nil, nil, &key); err != nil {
 		return "", err
 	}
 	if err := tab.AddPasskey(ctx, key); err != nil {
@@ -334,8 +371,12 @@ func (t *Tab) refByScript(ctx context.Context, script string) (string, error) {
 // signInLogin fills the item's username and password into the page's sign-in form, one step
 // at a time when the site asks for them on separate pages, ticks remember this device, and
 // submits. The password goes from Chaavi into the page and no further.
-func (k *Kit) signInLogin(ctx context.Context, tab *Tab, item chaaviItem) (string, error) {
-	username, password, err := k.chaavi.credentials(item.ID)
+func (k *Kit) signInLogin(ctx context.Context, tab *Tab, item vault.Item) (string, error) {
+	username := ""
+	if item.Login != nil && item.Login.Username != nil {
+		username = *item.Login.Username
+	}
+	password, _, err := k.chaavi.Value(item, "password")
 	if err != nil {
 		return "", err
 	}
@@ -345,6 +386,9 @@ func (k *Kit) signInLogin(ctx context.Context, tab *Tab, item chaaviItem) (strin
 	}
 	if err != nil {
 		return "", errors.New(strings.ReplaceAll(err.Error(), password, "***"))
+	}
+	if strings.HasPrefix(out, "needs_code:") && item.Login != nil && item.Login.HasTotp && !sentCode.MatchString(out) {
+		return k.fillTotp(ctx, tab, item)
 	}
 	return out, nil
 }

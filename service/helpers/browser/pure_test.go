@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/dadi-os/nas/service/helpers/vault"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -268,7 +269,7 @@ func TestToolsAreTheSpecifiedOnes(t *testing.T) {
 	for _, tool := range k.Tools() {
 		names = append(names, tool.Name)
 	}
-	want := []string{"look", "act", "find", "extract", "screenshot", "tabs", "navigate", "sign_in", "download", "note_site", "upload"}
+	want := []string{"look", "act", "find", "extract", "screenshot", "tabs", "navigate", "sign_in", "vault_find", "vault_fill", "vault_type", "vault_save_login", "vault_set_totp", "download", "note_site", "upload"}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("tools %v, want %v", names, want)
 	}
@@ -304,22 +305,22 @@ func TestFrontURLIsTheTabInFrontOnly(t *testing.T) {
 // TestSignInChoosesTheOnePasskeyItem picks the login with a passkey among several, and leaves
 // the choice to the caller when none or several have one.
 func TestSignInChoosesTheOnePasskeyItem(t *testing.T) {
-	withKey := chaaviItem{Name: "Email", Login: passkeyLogin()}
-	without := chaaviItem{Name: "Engineering"}
-	if got := onlyPasskeyItem([]chaaviItem{without, withKey}); len(got) != 1 || got[0].Name != "Email" {
+	withKey := vault.Item{Name: "Email", Login: passkeyLogin()}
+	without := vault.Item{Name: "Engineering"}
+	if got := onlyPasskeyItem([]vault.Item{without, withKey}); len(got) != 1 || got[0].Name != "Email" {
 		t.Fatalf("one passkey: %+v", got)
 	}
-	if got := onlyPasskeyItem([]chaaviItem{without, {Name: "Other"}}); len(got) != 2 {
+	if got := onlyPasskeyItem([]vault.Item{without, {Name: "Other"}}); len(got) != 2 {
 		t.Fatalf("no passkey: %+v", got)
 	}
-	if got := onlyPasskeyItem([]chaaviItem{withKey, withKey}); len(got) != 2 {
+	if got := onlyPasskeyItem([]vault.Item{withKey, withKey}); len(got) != 2 {
 		t.Fatalf("two passkeys: %+v", got)
 	}
 }
 
 // passkeyLogin is a login with one passkey for msu.edu.
-func passkeyLogin() *chaaviLogin {
-	l := &chaaviLogin{}
+func passkeyLogin() *vault.Login {
+	l := &vault.Login{}
 	l.Passkeys = append(l.Passkeys, struct {
 		RPID string `json:"rpId"`
 	}{RPID: "msu.edu"})
@@ -327,36 +328,36 @@ func passkeyLogin() *chaaviLogin {
 }
 
 // addressedItem is a login item called name whose address is address.
-func addressedItem(name, address string, passkey bool) chaaviItem {
-	l := &chaaviLogin{}
+func addressedItem(name, address string, passkey bool) vault.Item {
+	l := &vault.Login{}
 	if passkey {
 		l = passkeyLogin()
 	}
 	l.URIs = append(l.URIs, struct {
 		URI string `json:"uri"`
 	}{URI: address})
-	return chaaviItem{Name: name, Login: l}
+	return vault.Item{Name: name, Login: l}
 }
 
 // TestChooseLoginUsesThePasskeyItemOnlyForAPasskeySignIn picks the one item with a passkey among
 // several unless the helper asks for the login, which is then left to item.
 func TestChooseLoginUsesThePasskeyItemOnlyForAPasskeySignIn(t *testing.T) {
-	var withKey, plain chaaviItem
+	var withKey, plain vault.Item
 	withKey.Name, plain.Name = "MSU Okta", "Engineering MSU"
 	withKey.Login = passkeyLogin()
 	for _, use := range []string{"", "passkey"} {
-		got, err := chooseLogin([]chaaviItem{plain, withKey}, input{Use: use}, "msu.edu")
+		got, err := chooseLogin([]vault.Item{plain, withKey}, input{Use: use}, "msu.edu")
 		if err != nil || got.Name != "MSU Okta" {
 			t.Fatalf("use %q: %v %v", use, got.Name, err)
 		}
 	}
-	if _, err := chooseLogin([]chaaviItem{plain, withKey}, input{Use: "login"}, "msu.edu"); err == nil || !strings.Contains(err.Error(), "pass item to choose one") {
+	if _, err := chooseLogin([]vault.Item{plain, withKey}, input{Use: "login"}, "msu.edu"); err == nil || !strings.Contains(err.Error(), "pass item to choose one") {
 		t.Fatalf("use login with two items: %v", err)
 	}
-	if _, err := chooseLogin([]chaaviItem{plain, plain}, input{Use: "login"}, "msu.edu"); err == nil || !strings.Contains(err.Error(), "2 logins") {
+	if _, err := chooseLogin([]vault.Item{plain, plain}, input{Use: "login"}, "msu.edu"); err == nil || !strings.Contains(err.Error(), "2 logins") {
 		t.Fatalf("two plain logins: %v", err)
 	}
-	if got, err := chooseLogin([]chaaviItem{plain, withKey}, input{Item: "engineering msu", Use: "login"}, "msu.edu"); err != nil || got.Name != "Engineering MSU" {
+	if got, err := chooseLogin([]vault.Item{plain, withKey}, input{Item: "engineering msu", Use: "login"}, "msu.edu"); err != nil || got.Name != "Engineering MSU" {
 		t.Fatalf("named: %v %v", got.Name, err)
 	}
 }
@@ -365,7 +366,7 @@ func TestChooseLoginUsesThePasskeyItemOnlyForAPasskeySignIn(t *testing.T) {
 // most specific address that is the page host or a parent of it, and leaves several to item
 // when no address names the host.
 func TestSignInChoosesTheLoginForTheHostTheTabIsOn(t *testing.T) {
-	items := []chaaviItem{
+	items := []vault.Item{
 		addressedItem("Engineering MSU", "https://egr.msu.edu", false),
 		addressedItem("Email - Michigan State", "https://auth.msu.edu", true),
 	}
@@ -554,5 +555,37 @@ func TestHostsAreCollectedOncePerReportInFirstVisitOrder(t *testing.T) {
 	}
 	if got := k.TakeHosts(task); len(got) != 0 {
 		t.Fatalf("hosts came back twice: %v", got)
+	}
+}
+
+func TestTokenOfReadsAutocompleteThenWords(t *testing.T) {
+	cases := []struct {
+		f    formField
+		want string
+	}{
+		{formField{Auto: "billing cc-number"}, "cc-number"},
+		{formField{Auto: "shipping address-line1"}, "address-line1"},
+		{formField{Hint: "card number"}, "cc-number"},
+		{formField{Hint: "cvv"}, "cc-csc"},
+		{formField{Hint: "expiration month"}, "cc-exp-month"},
+		{formField{Hint: "mm / yy expiry"}, "cc-exp"},
+		{formField{Hint: "zip code"}, "postal-code"},
+		{formField{Hint: "street address"}, "address-line1"},
+		{formField{Hint: "last name"}, "family-name"},
+		{formField{Hint: "promo code"}, ""},
+	}
+	for _, tc := range cases {
+		if got := tokenOf(tc.f); got != tc.want {
+			t.Errorf("%+v = %q, want %q", tc.f, got, tc.want)
+		}
+	}
+}
+
+func TestSelectSpellingsCoverMonthsAndYears(t *testing.T) {
+	if got := selectSpellings("07"); !reflect.DeepEqual(got, []string{"07", "7", "2007"}) {
+		t.Errorf("month: %v", got)
+	}
+	if got := selectSpellings("2029"); !reflect.DeepEqual(got, []string{"2029", "29"}) {
+		t.Errorf("year: %v", got)
 	}
 }

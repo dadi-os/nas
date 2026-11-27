@@ -84,7 +84,7 @@ const snapshotScript = `(start, scope) => {
     const name = el.getAttribute("name") || el.getAttribute("aria-label") || el.id || "";
     const placeholder = el.getAttribute("placeholder") || "";
     const value = el.value || "";
-    const secret = type === "password" || /password/i.test(el.getAttribute("autocomplete") || "");
+    const secret = type === "password" || /password/i.test(el.getAttribute("autocomplete") || "") || el.hasAttribute("data-dadi-secret");
     const checked = el.checked ? " checked" : "";
     return "input type=" + JSON.stringify(type)
       + (name ? " name=" + JSON.stringify(name) : "")
@@ -151,7 +151,7 @@ const snapshotScript = `(start, scope) => {
       const value = node.value || "";
       lines.push(indent(depth) + "textarea [" + ref + "]" + states(node)
         + (name ? " name=" + JSON.stringify(name) : "")
-        + (value ? " value=" + JSON.stringify(value.slice(0, 200)) : ""));
+        + (value ? (node.hasAttribute("data-dadi-secret") ? " filled" : " value=" + JSON.stringify(value.slice(0, 200))) : ""));
       emitted = true;
     } else if (tag === "select") {
       const ref = assignRef(node);
@@ -242,7 +242,7 @@ const findScript = `(query, start, limit) => {
     const role = (el.getAttribute("role") || "").toLowerCase();
     const own = Array.from(el.childNodes).filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => n.textContent).join(" ").replace(/\s+/g, " ").trim();
     const attrs = ["aria-label", "placeholder", "name", "title", "alt", "id"].map((a) => el.getAttribute(a) || "");
-    const value = el.tagName === "INPUT" && el.type === "password" ? "" : (el.value || "");
+    const value = (el.tagName === "INPUT" && el.type === "password") || el.hasAttribute("data-dadi-secret") ? "" : (el.value || "");
     const text = (INTERACTIVE.test(tag) || role) ? (el.innerText || "").replace(/\s+/g, " ").trim().slice(0, 200) : own;
     const haystack = [own, text, value, role, tag].concat(attrs).join(" \n ").toLowerCase();
     if (!haystack.includes(needle) || !visible(el)) continue;
@@ -320,9 +320,46 @@ const setValueFn = `function(value) {
   return this.value;
 }`
 
+// markSecretFn marks a field (this) whose value came from the vault: outlines and reads show it
+// as filled, never by value.
+const markSecretFn = `function() { this.setAttribute("data-dadi-secret", "1"); }`
+
+// vaultFieldsScript is evaluated in each frame as (vaultFieldsScript)(start, scope): the visible
+// text, email, tel, password and select controls (inside the element with ref scope, when
+// given) with their ref, autocomplete token and the words that name them.
+const vaultFieldsScript = `(start, scope) => {
+  ` + jsLib + `
+  let next = start;
+  const visible = (el) => {
+    const s = getComputedStyle(el);
+    return s.display !== "none" && s.visibility !== "hidden" && Array.from(el.getClientRects()).some((r) => r.width > 0 && r.height > 0);
+  };
+  const refOf = (el) => {
+    let ref = el.getAttribute("data-dadi-ref");
+    if (!ref) { ref = "e" + next++; el.setAttribute("data-dadi-ref", ref); }
+    return ref;
+  };
+  const root = scope ? deepEls(document).find((e) => e.getAttribute("data-dadi-ref") === scope) : null;
+  if (scope && !root) return { fields: [], next };
+  const skip = ["hidden", "submit", "button", "checkbox", "radio", "file", "image", "reset"];
+  const fields = [];
+  for (const el of deepEls(document)) {
+    if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) continue;
+    if (root && !root.contains(el)) continue;
+    if (el.disabled || el.readOnly || (el instanceof HTMLInputElement && skip.includes(el.type)) || !visible(el)) continue;
+    const label = el.labels && el.labels[0] ? el.labels[0].innerText : "";
+    fields.push({
+      ref: refOf(el), select: el instanceof HTMLSelectElement, type: el.type || "",
+      auto: (el.getAttribute("autocomplete") || "").toLowerCase(),
+      hint: [el.name, el.id, el.getAttribute("aria-label"), el.placeholder, label].join(" ").toLowerCase().replace(/\s+/g, " ").trim(),
+    });
+  }
+  return { fields, next };
+}`
+
 // readValueFn reports what a text field or editable region now holds, with passwords hidden.
 const readValueFn = `function() {
-  if (this instanceof HTMLInputElement && this.type === "password") return { secret: true, length: this.value.length };
+  if ((this instanceof HTMLInputElement && this.type === "password") || this.hasAttribute("data-dadi-secret")) return { secret: true, length: this.value.length };
   const v = this.isContentEditable && !("value" in this) ? this.innerText : this.value;
   return { secret: false, value: v };
 }`
