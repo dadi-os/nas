@@ -156,7 +156,8 @@ jobs:
   nas-iso:
     needs: nas-image
     if: needs.nas-image.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    # ubuntu-latest became 26.04 on 2026-11-21 and osbuild in bootc-image-builder cannot mount /dev there; 24.04 built the last good ISO.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
       contents: write
