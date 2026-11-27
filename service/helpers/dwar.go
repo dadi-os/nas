@@ -14,7 +14,7 @@ import (
 const WorkDir = ".cache/dadi-helpers"
 
 // DownloadsDir is where the browser helper's downloads land, under the dadi home.
-const DownloadsDir = "Downloads"
+const DownloadsDir = "Inbox/Downloads"
 
 // dwarTimeout bounds one model call; Dwar retries transient provider failures itself.
 const dwarTimeout = 5 * time.Minute

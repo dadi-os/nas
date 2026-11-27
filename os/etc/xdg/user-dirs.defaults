@@ -1,2 +1,2 @@
-# The dadi home keeps only Downloads (agent browsers save there); no Desktop, Documents, Music, Pictures, Public, Templates or Videos.
-DOWNLOAD=Downloads
+# The dadi home keeps only Inbox/Downloads here (browsers save there); ensure-home.sh makes the rest of the home folders, and there is no Desktop, Music, Public or Templates.
+DOWNLOAD=Inbox/Downloads

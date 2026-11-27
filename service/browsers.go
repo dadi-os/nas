@@ -76,7 +76,7 @@ type browserInfo struct {
 	Display string `json:"display"`
 	CDPURL  string `json:"cdp_url"`
 	Healthy bool   `json:"healthy"`
-	// DownloadsDir is where downloads belong ($DADI_HOME/Downloads). CDP clients reset the
+	// DownloadsDir is where downloads belong ($DADI_HOME/Inbox/Downloads). CDP clients reset the
 	// download behavior when they connect, so Hath points Chromium here on every connect.
 	DownloadsDir string `json:"downloads_dir"`
 }

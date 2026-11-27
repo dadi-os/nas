@@ -110,7 +110,7 @@ type session struct {
 
 // New builds the browser kit. browsersDir holds the per-agent Chromium folders
 // (<browsersDir>/<agent>/1..n), cgroup is the cgroup whose memory limits how many browsers
-// run, and home is the dadi home (downloads land in <home>/Downloads). profiles holds what is
+// run, and home is the dadi home (downloads land in <home>/Inbox/Downloads). profiles holds what is
 // known of each site. It fails when the cgroup's memory cannot be read.
 func New(host Host, chaaviURL, dwarURL, home, browsersDir, cgroup string, profiles *sites.Store) (*Kit, error) {
 	if _, err := readCgroup(cgroup); err != nil {
@@ -399,7 +399,7 @@ func (k *Kit) Tools() []helpers.ToolSpec {
 			"site": str("Domain to sign in to; default the tab's"), "item": str("Name of the Chaavi login when the site has several"),
 			"use": map[string]any{"type": "string", "enum": []string{"passkey", "login"}, "description": "Force the passkey or the username and password"},
 		})},
-		{Name: "download", Description: "Get a file: give url to load it, or ref to click the control that starts it. With neither, list the downloads so far. Files land in ~/Downloads under their own names and come back as paths.", InputSchema: obj(nil, map[string]any{"url": str("Address of the file"), "ref": str("Ref of the control that downloads it")})},
+		{Name: "download", Description: "Get a file: give url to load it, or ref to click the control that starts it. With neither, list the downloads so far. Files land in ~/Inbox/Downloads under their own names and come back as paths.", InputSchema: obj(nil, map[string]any{"url": str("Address of the file"), "ref": str("Ref of the control that downloads it")})},
 		{Name: toolNoteSite, Description: "Record a fact you learned for certain about a site in its profile, which every later helper is shown the first time it loads that host. field is sign_in (value {method: passkey, login or decs, item: the Chaavi item's title, none for decs}), time_zone_shown (value: the zone the site shows, as a string) or blocks (value: the symptom that stops work there, as a string). One field per call.", InputSchema: obj([]string{"host", "field", "value"}, map[string]any{
 			"host":  str("The host name, such as d2l.msu.edu"),
 			"field": map[string]any{"type": "string", "enum": []string{sites.FieldSignIn, sites.FieldTimeZone, sites.FieldBlocks}},

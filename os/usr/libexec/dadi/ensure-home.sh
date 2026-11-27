@@ -4,6 +4,7 @@
 set -euo pipefail
 
 SKEL=/etc/skel
+HOME_FOLDERS=(Inbox School Projects Documents Photos Videos .scratch .backups)
 
 seed_home() {
   local home="$1"
@@ -24,6 +25,11 @@ seed_home() {
       fi
     done < <(find "$SKEL" -mindepth 1 -print0)
   fi
+  local folder
+  for folder in "${HOME_FOLDERS[@]}"; do
+    mkdir -p "$home/$folder"
+    chown "$user:$user" "$home/$folder"
+  done
   chown "$user:$user" "$home"
   chmod 0700 "$home"
 }
